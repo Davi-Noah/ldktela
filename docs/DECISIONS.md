@@ -65,3 +65,35 @@ autoridade (`docs/srs/` > `docs/protocol/` > `docs/api/` > `CLAUDE.md`).
 - **[E1] O schema tem 20 tabelas, não 17** — o changelog C-07 do SRS fala em 17, mas o
   bloco normativo §5.2 (com C-11 a C-14 aplicados) define 20. Adotado o §5.2, que é o
   texto normativo. Sem alteração na especificação.
+
+- **[E2] `Permissions::ALL` é a união dos 20 bits definidos, não `i64::MAX`** — o SRS §5.3
+  diz "todas as permissões" e reserva os bits 20..62 para expansão futura. Conceder bits
+  reservados faria `ADMINISTRATOR` herdar automaticamente permissões que este build não
+  sabe verificar. Alternativa descartada: 63 bits ligados.
+- **[E2] Bits desconhecidos lidos do banco são descartados** (`from_bits_truncate`) — uma
+  linha gravada por uma versão futura não concede permissão que esta versão não conhece.
+- **[E2] Máscara, snowflake e timestamp são newtypes em `protocol::scalars`** — máscara e
+  snowflake serializam como string decimal (rest-api §6.4); timestamp como RFC 3339, que
+  não é o formato padrão do `time::OffsetDateTime`. Um lugar só, em vez de
+  `#[serde(with = ...)]` em cada campo.
+- **[E2] Todo campo `i64`/`u64` restante é exportado como `number` em TS** — o padrão do
+  ts-rs é `bigint`, e `JSON.parse` nunca produz `bigint`. Os campos genuinamente grandes já
+  são string. Alternativa descartada: `bigint` no cliente, que quebraria em toda aritmética.
+- **[E2] `Patch<T>` escrito como `Option<Option<T>>` nos DTOs** — o ts-rs não enxerga através
+  do alias e recusa `#[ts(optional)]`. O alias continua existindo em `protocol::patch` para
+  leitura; os campos usam o tipo literal.
+- **[E2] Validação fica em `domain`, sem usar o crate `validator`** — o derive do `validator`
+  exigiria atributos nos DTOs de `protocol`, que é declarado "zero lógica" no CLAUDE.md §3.
+  Manter as regras em `domain` evita dois caminhos de erro. O `validator` permanece
+  declarado no workspace, não removido da stack.
+- **[E2] Limites não especificados** — `MESSAGE_CONTENT_MAX = 4000` (a coluna é `TEXT`, sem
+  limite; o wire precisa de um), `PASSWORD_MIN = 8`, `USERNAME` 2..32 em
+  `[A-Za-z0-9._-]` com ao menos um alfanumérico, `SEARCH_QUERY` 2..200.
+- **[E2] `READY.guilds[]` inclui `categories` e `members`** — o §3.1 do protocolo descreve
+  READY como portador da estrutura, citando "membros" no texto; o exemplo JSON está
+  elidido. Campos aditivos não incrementam a versão do protocolo (§8).
+- **[E2] `READ_STATE_UPDATE` inclui `muted`** — campo aditivo sobre os três documentados,
+  necessário para o cliente não recalcular estado de silenciamento.
+- **[E2] Dois códigos de erro novos: `BRIDGE_NOT_ALLOWED` e `UPSTREAM_FAILURE`** — o §6.10
+  do contrato REST exige 409 ao habilitar ponte em DM sem nomear o código, e o `AppError`
+  do CLAUDE.md §6 tem a variante `Upstream` sem código correspondente na tabela §3.

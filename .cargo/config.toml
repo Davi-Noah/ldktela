@@ -1,0 +1,4 @@
+# Destino unico dos bindings gerados pelo ts-rs. Definido aqui para que
+# `just types` e `cargo test --workspace` escrevam no mesmo lugar.
+[env]
+TS_RS_EXPORT_DIR = { value = "desktop/src/api/types", relative = true }

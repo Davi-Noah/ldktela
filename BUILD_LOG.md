@@ -2,8 +2,8 @@
 
 ## Estado atual
 
-Último estágio concluído: E1
-Próximo estágio: E2
+Último estágio concluído: E2
+Próximo estágio: E3
 Portões vermelhos abertos: nenhum
 Pendências de humano:
 - Toolchain instalada por este agente nesta máquina: rustup 1.98.0, `just` 1.42.4,
@@ -100,5 +100,45 @@ Não corrigido (C6); registrado aqui.
 Ressalva 2: `mentions` não tem chave primária no SRS §5.2, o que permite linhas duplicadas
 idênticas. Transcrito literalmente. A extração de menções do E7 precisa deduplicar na
 aplicação.
+
+Pendente de humano: nenhum.
+
+---
+
+## E2 — Contratos · CONCLUÍDO
+
+Portão: `just types` → 87 arquivos `.ts` em `desktop/src/api/types/`, `tsc --noEmit` limpo.
+`cargo test -p domain` → 25 testes verdes; `cargo test -p protocol` → 106 (dos quais 60 são
+os `export_bindings_*` do ts-rs). `just check` → `OK — tudo verde`.
+
+Entregue: `domain::permissions` com os 20 bits do SRS §5.3, máscara em `i64`, truncamento de
+bits reservados e formato decimal em string · `domain::resolve` com os oito passos transcritos
+literalmente, incluindo a acumulação de `role_allow`/`role_deny` antes da aplicação (passo 6) ·
+`domain::validation` com os limites derivados das larguras de coluna · `protocol` com todos os
+DTOs de REST e WS derivando ts-rs, os scalars de wire (Timestamp RFC 3339, PermissionMask e
+Snowflake como string decimal), o envelope do gateway (`DispatchFrame` achatado sobre
+`DispatchEvent` adjacente) e os 30 eventos de dispatch.
+
+Arquivos:
+- `crates/domain/src/{lib,permissions,resolve,validation}.rs`
+- `crates/protocol/src/{lib,scalars,patch,error,page,user,auth,guild,channel,message,search,voice,bridge,gateway}.rs`
+- `.cargo/config.toml` (destino do ts-rs), `desktop/src/api/types/*.ts` (gerados, versionados)
+
+Testes que expressam o critério (todos em `crates/domain/src/resolve.rs`):
+`step0_active_participant_of_a_dm_gets_the_fixed_grant`, `step0_non_participant_of_a_dm_gets_nothing`,
+`step0_short_circuits_before_roles_and_overwrites`, `step1_guild_owner_gets_everything_even_with_everything_denied`,
+`step4_administrator_beats_every_channel_overwrite`, `step4_administrator_from_everyone_role_also_short_circuits`,
+`step5_private_channel_is_a_deny_of_view_channel_on_everyone`, `step6_role_allow_reopens_a_channel_closed_for_everyone`,
+`step6_role_overwrites_accumulate_before_being_applied` (prova que a ordem das linhas não muda o
+resultado), `step7_member_deny_overrides_a_role_allow`, `step7_member_allow_overrides_a_role_deny`.
+
+Decisões registradas: 10 linhas (ALL como união dos 20 bits definidos; truncamento de bits
+desconhecidos; scalars de wire; i64/u64 exportados como `number`; `Option<Option<T>>` literal;
+validação em `domain` sem o crate `validator`; limites não especificados; `READY` com
+`categories` e `members`; `muted` em `READ_STATE_UPDATE`; dois códigos de erro novos).
+
+Ressalva: `Permissions::ALL` vale 1048575, e é esse número que sai em `channel.permissions`
+para um owner ou administrador. Se um bit for adicionado ao SRS §5.3, o valor muda — é
+comportamento pretendido, mas qualquer teste de cliente que fixe a constante vai quebrar.
 
 Pendente de humano: nenhum.
