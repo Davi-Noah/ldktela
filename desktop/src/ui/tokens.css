@@ -1,0 +1,33 @@
+/* Tokens visuais (CLAUDE.md 8). Nenhum valor de cor escrito direto em componente. */
+@theme {
+  /* Superficies: cinzas neutros frios, nunca preto puro. */
+  --color-surface-0: #16181d;
+  --color-surface-1: #1c1f26;
+  --color-surface-2: #23272f;
+  --color-surface-3: #2b3038;
+  --color-border: #343a44;
+
+  /* Texto */
+  --color-text: #dfe3ea;
+  --color-text-muted: #9aa3b0;
+  --color-text-faint: #6b7482;
+
+  /* Uma unica cor de destaque: foco, mencao, estado ativo. */
+  --color-accent: #5b8cff;
+  --color-accent-soft: #5b8cff26;
+
+  /* Estados */
+  --color-danger: #e5646b;
+  --color-success: #5cc98d;
+  --color-warning: #d9a441;
+
+  /* Tipografia: 14px base, altura de linha 1.45. */
+  --font-ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Cascadia Code', 'Consolas', ui-monospace, monospace;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.45;
+
+  /* Densidade alta: a lista de mensagens e o produto. */
+  --spacing-row: 0.125rem;
+  --spacing-group: 0.75rem;
+}

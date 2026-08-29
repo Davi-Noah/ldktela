@@ -1,0 +1,83 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  SQLX_OFFLINE: "true"
+
+jobs:
+  # Oraculo de correcao completo. Roda em Linux porque e onde o runner tem
+  # Docker (testcontainers) e servico de Postgres.
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: comms
+          POSTGRES_PASSWORD: comms
+          POSTGRES_DB: comms
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U comms -d comms"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Dependencias nativas do Tauri no Linux. O alvo distribuido e Windows
+      # (RNF-11); aqui so garantimos que o core nativo continua compilando.
+      - name: Instalar dependencias do sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just,sqlx-cli
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+        working-directory: desktop
+
+      - name: Aplicar migrations
+        run: sqlx migrate run
+        env:
+          DATABASE_URL: postgres://comms:comms@localhost:5432/comms
+
+      - name: just check
+        run: just check
+        env:
+          DATABASE_URL: postgres://comms:comms@localhost:5432/comms
+          DATABASE_MAX_CONNECTIONS: "10"
+          APP_ENV: development
+          BIND_ADDR: 0.0.0.0:8080
+          PUBLIC_BASE_URL: http://localhost:8080
+
+  # A plataforma de distribuicao e Windows. Este job existe para pegar quebra
+  # especifica de Windows sem exigir Docker no runner.
+  windows-compile:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets
+      - run: cargo check --manifest-path desktop/src-tauri/Cargo.toml --all-targets

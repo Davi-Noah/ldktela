@@ -1,0 +1,83 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/protocol",
+    "crates/domain",
+    "crates/db",
+    "crates/api",
+    "crates/bridge",
+    "crates/migrator",
+    "crates/server",
+]
+exclude = ["desktop/src-tauri", "spike"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+rust-version = "1.98"
+
+[workspace.dependencies]
+# --- crates internos ---
+protocol = { path = "crates/protocol" }
+domain = { path = "crates/domain" }
+db = { path = "crates/db" }
+api = { path = "crates/api" }
+bridge = { path = "crates/bridge" }
+
+# --- runtime / web ---
+axum = { version = "0.8", features = ["ws", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "sync", "fs"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
+hyper = "1"
+
+# --- serializacao / tipos ---
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v7", "serde"] }
+time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+ts-rs = { version = "10", features = ["uuid-impl", "serde-json-impl", "no-serde-warnings"] }
+
+# --- persistencia ---
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio", "tls-rustls-ring", "postgres", "macros", "uuid", "time", "json", "migrate",
+] }
+
+# --- erros / observabilidade ---
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# --- auth ---
+argon2 = { version = "0.6", features = ["std"] }
+jsonwebtoken = "11"
+rand = "0.9"
+sha2 = "0.10"
+base64 = "0.22"
+hmac = "0.12"
+
+# --- validacao ---
+validator = { version = "0.21", features = ["derive"] }
+
+# --- integracoes externas ---
+aws-sdk-s3 = { version = "1", features = ["behavior-version-latest"] }
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-credential-types = { version = "1", features = ["hardcoded-credentials"] }
+livekit-api = { version = "0.6", default-features = false, features = ["access-token", "webhooks", "services-tokio", "rustls-tls-native-roots"] }
+serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "cache", "rustls_backend"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-tls", "stream"] }
+
+# --- dev ---
+testcontainers = "0.28"
+testcontainers-modules = { version = "0.15", features = ["postgres"] }
+futures = "0.3"
+tokio-tungstenite = "0.29"
+
+[profile.dev]
+debug = 1
+
+[profile.test]
+debug = 1

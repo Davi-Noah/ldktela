@@ -1,0 +1,52 @@
+# Infraestrutura de DESENVOLVIMENTO local. Nao descreve producao.
+# Credenciais aqui sao deliberadamente triviais e nao existem fora da maquina.
+name: ldkcord-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ldkcord-postgres
+    environment:
+      POSTGRES_USER: comms
+      POSTGRES_PASSWORD: comms
+      POSTGRES_DB: comms
+      # Locale exigido pela busca full-text em portugues (RF-17).
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    command:
+      - postgres
+      - -c
+      - max_connections=100
+      - -c
+      - shared_buffers=256MB
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U comms -d comms"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  livekit:
+    image: livekit/livekit-server:v1.8
+    container_name: ldkcord-livekit
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./livekit.dev.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      # Faixa UDP reduzida em dev: mapear 10k portas no Docker Desktop e inviavel.
+      # Em producao a faixa e 50000-60000, conforme SRS 7.1.
+      - "50000-50019:50000-50019/udp"
+    healthcheck:
+      test: ["CMD", "/livekit-server", "--version"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+
+volumes:
+  pgdata:

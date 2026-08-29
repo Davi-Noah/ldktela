@@ -1,0 +1,9 @@
+/target
+**/target
+.env
+node_modules/
+desktop/dist/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+*.pdb
+.DS_Store
