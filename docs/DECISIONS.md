@@ -263,3 +263,19 @@ autoridade (`docs/srs/` > `docs/protocol/` > `docs/api/` > `CLAUDE.md`).
 - **[E9] Quem sai recebe o `DM_PARTICIPANT_REMOVE` explicitamente** — no momento do despacho
   ele já não está no conjunto de destinatários, e sem o endereçamento direto o cliente dele
   nunca fecharia a conversa.
+
+- **[E10] `websearch_to_tsquery`, não `plainto_tsquery`** — aceita aspas para frase exata e
+  `-termo` para exclusão sem que o servidor precise inventar sintaxe, e nunca levanta erro de
+  parse com entrada arbitrária, ao contrário de `to_tsquery`.
+- **[E10] Buscar num canal invisível responde 404, não página vazia** — uma página vazia
+  confirmaria que o canal existe. Só o escopo por `guild_id` devolve conjunto reduzido em
+  silêncio, porque ali o canal nem é nomeado pelo solicitante.
+- **[E10] Conjunto de canais vazio ou termo vazio faz curto-circuito antes da consulta** —
+  além de inútil, emitir a consulta deixaria o tempo de resposta indicar se o termo existe
+  em algum lugar.
+- **[E10] LIMITAÇÃO MEDIDA do stemmer de português**: o Snowball não unifica plural de
+  palavras em `-ão` (`reunião` → `reuniã`, `reuniões` → `reuniõ`) nem tolera acento ausente
+  (`orçamento` → `orçament`, `orcamento` → `orcament`). Verificado no PostgreSQL 16 deste
+  projeto, não suposto. É exatamente o caso que o P-02 do SRS §10.1 antecipa; o índice de
+  trigrama já está preparado e comentado na migration 0004. Há teste que falha se esse
+  comportamento mudar, para que a decisão possa ser revista com evidência.

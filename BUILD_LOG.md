@@ -2,8 +2,8 @@
 
 ## Estado atual
 
-Último estágio concluído: E9
-Próximo estágio: E10
+Último estágio concluído: E10
+Próximo estágio: E11
 Portões vermelhos abertos: nenhum
 Carregado para estágios seguintes: nenhum.
 Pendências de humano:
@@ -475,3 +475,47 @@ máscara concedida inclui `CONNECT_VOICE`, `SPEAK`, `VIDEO` e `SCREEN_SHARE`. Na
 exercitado: a emissão de token de voz é do E11 e a UI é do E13.
 
 Pendente de humano: nenhum.
+
+---
+
+## E10 — Busca · CONCLUÍDO
+
+Portão: `cargo test -p api --test search` → 11 testes verdes. Suíte completa:
+`cargo test -p api` → 139. `just check` → `OK — tudo verde`.
+
+Entregue: `GET /search` com escopo obrigatório de guild **ou** canal · filtros de autor e
+período · paginação por keyset sobre `id` decrescente, sem `OFFSET` · conjunto de canais
+consultáveis recalculado a cada requisição, a partir da permissão atual, sem tocar o índice
+de fan-out do gateway · cada acerto acompanhado dos ids vizinhos, para o cliente abrir o canal
+com `around` sem segunda ida ao servidor.
+
+Arquivos:
+- `crates/db/src/repo/search.rs`, `crates/db/src/repo/mod.rs`
+- `crates/api/src/routes/search.rs`, `crates/api/src/routes/{mod,messages}.rs`
+- `crates/api/tests/search.rs`
+
+Teste do portão: `an_exact_term_in_a_channel_without_view_channel_returns_nothing` — o mesmo
+termo é postado num canal aberto e num canal negado por overwrite; o dono recebe dois acertos,
+o membro recebe um, nenhuma parte da resposta cita o conteúdo do canal invisível, e buscar o
+termo que só existe lá dentro devolve página vazia. Complementado por
+`losing_access_removes_results_that_were_visible_a_moment_ago`, que fecha o canal entre duas
+buscas e prova que a segunda não devolve nada — a prova de que o índice de fan-out não é usado
+aqui.
+
+Decisões registradas: 4 linhas.
+
+**Um erro meu, corrigido:** eu tinha escrito um teste afirmando que "reuniões" encontraria
+"reunião". O stemmer Snowball de português não faz isso. O teste estava errado sobre a
+ferramenta, não o código; reescrevi contra o comportamento medido e acrescentei um teste que
+documenta a limitação e falha se ela mudar.
+
+Ressalva: **o stemmer não unifica plural de palavras em `-ão` nem tolera acento ausente.**
+`reunião`/`reuniões` e `orçamento`/`orcamento` são pares distintos. Em português isso é
+comum o bastante para gerar "não achei" na prática. O P-02 do SRS §10.1 previu exatamente
+isso e deixou o índice de trigrama pronto e comentado na migration 0004; habilitá-lo é uma
+migration de uma linha, e a decisão é do humano, porque dobra o custo de índice.
+
+Ressalva 2: a busca por escopo de guild resolve a permissão canal a canal, em série. Com
+poucas dezenas de canais é irrelevante; com centenas viraria N consultas por busca.
+
+Pendente de humano: decidir sobre o índice de trigrama (P-02) depois de uso real.

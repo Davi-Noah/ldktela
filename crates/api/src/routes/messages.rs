@@ -52,7 +52,7 @@ pub fn router() -> Router<AppState> {
 
 /// Public URL of a stored object. R2 is not wired until E8, so the key is
 /// rendered against the configured public base and nothing is signed here.
-fn object_url(state: &AppState) -> impl Fn(&str) -> String + '_ {
+pub(crate) fn object_url(state: &AppState) -> impl Fn(&str) -> String + '_ {
     move |key: &str| {
         format!(
             "{}/{}",
