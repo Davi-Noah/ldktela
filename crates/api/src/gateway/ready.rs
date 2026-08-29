@@ -8,7 +8,7 @@
 //! It also carries only the channels the user can `VIEW_CHANNEL` **at the moment
 //! of identification** — resolved per channel, not read from the routing index.
 
-use db::repo::{categories, channels, guilds, permissions, roles, users};
+use db::repo::{categories, channels, guilds, permissions, roles, users, voice_states};
 use domain::Permissions;
 use protocol::channel::{Channel, ReadState};
 use protocol::gateway::{Ready, ReadyGuild};
@@ -85,6 +85,17 @@ pub async fn build(state: &AppState, user_id: Uuid, session_id: Uuid) -> Ready {
         dm_channels.push(channel.to_wire(Permissions::DIRECT_MESSAGE.bits(), Some(participants)));
     }
 
+    // Voice state is visible to everyone in the guild, including people who
+    // are not connected to the room (RF-20).
+    let mut voice = Vec::new();
+    for guild in &ready_guilds {
+        voice.extend(
+            voice_states::list_by_guild(&state.pool, guild.id)
+                .await
+                .unwrap_or_default(),
+        );
+    }
+
     Ready {
         session_id,
         user: user.to_current(state.hub.presence_of(user_id, user_id).await),
@@ -92,7 +103,7 @@ pub async fn build(state: &AppState, user_id: Uuid, session_id: Uuid) -> Ready {
         dm_channels,
         read_states: read_states(state, user_id).await,
         presences: state.hub.presences_for(&state.pool, user_id).await,
-        voice_states: Vec::new(),
+        voice_states: voice,
         heartbeat_interval_ms: state.hub.config().heartbeat_interval_ms,
     }
 }

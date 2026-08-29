@@ -2,8 +2,8 @@
 
 ## Estado atual
 
-Último estágio concluído: E10
-Próximo estágio: E11
+Último estágio concluído: E11
+Próximo estágio: E12
 Portões vermelhos abertos: nenhum
 Carregado para estágios seguintes: nenhum.
 Pendências de humano:
@@ -20,6 +20,10 @@ Pendências de humano:
 ## Notas de ambiente (leia ao retomar)
 
 - `just` só funciona com Docker Desktop ativo para as receitas de infra.
+- **Use `127.0.0.1`, nunca `localhost`, para o Postgres e o LiveKit locais.** No Windows
+  `localhost` resolve para `::1` primeiro e o Docker Desktop não encaminha IPv6.
+- Os testes usam o Postgres do compose quando `DATABASE_URL` está no ambiente (é o caso
+  sob `just`), criando um banco por teste; sem a variável, sobem container.
 - O PATH do shell do agente precisa de `export PATH="$HOME/.cargo/bin:$PATH"`.
 - `just check` exige `.env` na raiz (gerado de `.env.example`) e Postgres de pé,
   porque `cargo sqlx prepare --check` compila o workspace com as macros do SQLx.
@@ -519,3 +523,54 @@ Ressalva 2: a busca por escopo de guild resolve a permissão canal a canal, em s
 poucas dezenas de canais é irrelevante; com centenas viraria N consultas por busca.
 
 Pendente de humano: decidir sobre o índice de trigrama (P-02) depois de uso real.
+
+---
+
+## E11 — Voz · CONCLUÍDO
+
+Portão: `cargo test -p api --test voice` → 11 testes verdes. Suíte inteira:
+`just check` → `OK — tudo verde`, **337 testes** (173 api, 26 db, 32 domain, 106 protocol).
+
+Entregue: `POST /channels/{id}/voice-token` com escopo estrito de sala, TTL limitado a
+3600 s no código (RNF-07) e sem nenhuma capacidade administrativa no grant · guard de três
+publicadores de câmera por sala com `409 VOICE_CAPACITY` (RNF-10), devolvendo a vaga quando o
+publicador sai ou pede token de ouvinte · `PATCH /voice-states/@me` limitado a `self_mute` e
+`self_deaf` · `POST /internal/livekit/webhook` com verificação de assinatura antes de ler o
+corpo, alimentando `voice_states` e `VOICE_STATE_UPDATE` · `READY` carregando o estado de voz
+de quem já está em sala (RF-20) · rastreamento de atividade de áudio por sala para o timeout
+de sala ociosa.
+
+Arquivos:
+- `crates/api/src/voice.rs`, `crates/api/src/routes/voice.rs`
+- `crates/db/src/repo/voice_states.rs`
+- `crates/api/src/{config,state,lib}.rs`, `crates/api/src/gateway/ready.rs`
+- `crates/api/tests/voice.rs`, `crates/api/tests/common/mod.rs`
+
+Testes do portão: `a_webhook_without_a_valid_signature_is_refused_and_changes_nothing` cobre
+quatro formas de burlar — sem cabeçalho, cabeçalho que não é token, assinado com outro
+segredo, e assinatura válida para **outro corpo** (replay) — e prova que nenhuma cria estado;
+depois prova que a assinatura correta cria. `the_fourth_camera_publisher_is_refused_with_voice_capacity`
+prova o 409, que o quarto entra como ouvinte, e que desligar uma câmera libera a vaga.
+
+Decisões registradas: 7 linhas.
+
+**Duas descobertas de infraestrutura que custaram tempo real e estão documentadas:**
+1. `localhost` no Windows resolve para `::1` e o Docker Desktop desta máquina não encaminha
+   IPv6. `.env` e `.env.example` passaram a usar `127.0.0.1`.
+2. Um container PostgreSQL por binário de teste mantinha ~12 instâncias vivas durante
+   `just check`; o esgotamento de conexões aparecia como falha aleatória em qualquer teste.
+   Os testes agora reutilizam o Postgres do compose quando `DATABASE_URL` existe.
+
+Ressalva: **nada aqui foi exercitado contra um LiveKit real.** A assinatura do webhook usa a
+implementação oficial (`livekit_api::webhooks::WebhookReceiver`) e os testes assinam com o
+mesmo algoritmo, mas o formato exato dos eventos que o servidor envia — nomes de evento e
+enum de `track.source` — foi lido da definição protobuf, não observado. O `contentHint`, as
+camadas de simulcast e a preferência VP9 do RF-22a são do cliente (E13).
+
+Ressalva 2: o desligamento de sala ociosa (RNF-10, 15 min sem áudio) é **detectado** mas não
+**executado**: `Voice::idle_rooms` identifica as salas, e não há chamada a `DeleteRoom` do
+LiveKit. Falta a integração com o serviço de sala, que exige um servidor real para ser
+verificada. Registrado como pendência.
+
+Pendente de humano: subir um LiveKit real e confirmar o formato dos webhooks; implementar e
+verificar o desligamento de sala ociosa contra ele.

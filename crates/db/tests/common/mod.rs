@@ -24,19 +24,40 @@ use tokio::sync::{Mutex, OnceCell};
 use uuid::Uuid;
 
 static SERVER: OnceCell<PgServer> = OnceCell::const_new();
+static SWEEP: OnceCell<()> = OnceCell::const_new();
 static NEXT_DB: AtomicU32 = AtomicU32::new(0);
+/// Every scratch database carries this prefix so leftovers are
+/// recognisable and can be swept.
+const TEST_DB_PREFIX: &str = "ldkcord_test_t";
 /// `CREATE DATABASE` serialises on `template1` inside PostgreSQL anyway.
 static CREATING: Mutex<()> = Mutex::const_new(());
 
 struct PgServer {
     base_url: String,
-    /// Kept alive for the life of the process; Docker reclaims it on exit.
-    _container: ContainerAsync<Postgres>,
+    /// `None` when the tests run against the development database from
+    /// `docker/compose.dev.yml` instead of a container of their own.
+    _container: Option<ContainerAsync<Postgres>>,
 }
 
 async fn base_url() -> &'static str {
     &SERVER
         .get_or_init(|| async {
+            // SRS §11.7 asks for a real PostgreSQL, by container **or** by the
+            // compose service. Reusing the running one matters here: every test
+            // binary is its own process, so a container per binary meant a dozen
+            // PostgreSQL instances alive at once during `just check`, and the
+            // connection exhaustion that follows looks like a flaky test.
+            if let Some(url) = std::env::var("DATABASE_URL").ok().and_then(strip_database) {
+                if PgConnection::connect(&format!("{url}/postgres"))
+                    .await
+                    .is_ok()
+                {
+                    return PgServer {
+                        base_url: url,
+                        _container: None,
+                    };
+                }
+            }
             let container = Postgres::default()
                 .with_tag("16-alpine")
                 .start()
@@ -48,17 +69,53 @@ async fn base_url() -> &'static str {
                 .expect("resolving mapped port");
             PgServer {
                 base_url: format!("postgres://postgres:postgres@127.0.0.1:{port}"),
-                _container: container,
+                _container: Some(container),
             }
         })
         .await
         .base_url
 }
 
+/// Drops scratch databases left by earlier runs. Best effort: one still in
+/// use simply fails to drop, which is the correct outcome.
+async fn sweep_leftovers(base: &str) {
+    let Ok(mut conn) = PgConnection::connect(&format!("{base}/postgres")).await else {
+        return;
+    };
+    let names: Vec<String> =
+        sqlx::query_scalar("SELECT datname FROM pg_database WHERE datname LIKE $1")
+            .bind(format!("{TEST_DB_PREFIX}%"))
+            .fetch_all(&mut conn)
+            .await
+            .unwrap_or_default();
+    for name in names {
+        let _ = sqlx::query(&format!(r#"DROP DATABASE IF EXISTS "{name}""#))
+            .execute(&mut conn)
+            .await;
+    }
+    let _ = conn.close().await;
+}
+
+/// Turns `postgres://user:pass@host:port/db` into `postgres://user:pass@host:port`.
+fn strip_database(url: String) -> Option<String> {
+    let scheme_end = url.find("://")? + 3;
+    let rest = &url[scheme_end..];
+    let cut = rest.find('/').map(|i| scheme_end + i).unwrap_or(url.len());
+    Some(url[..cut].to_string())
+}
+
 /// Creates a fresh database and returns its URL.
-pub async fn create_database(prefix: &str) -> String {
+pub async fn create_database() -> String {
     let base = base_url().await;
-    let name = format!("{prefix}{}", NEXT_DB.fetch_add(1, Ordering::SeqCst));
+    SWEEP.get_or_init(|| sweep_leftovers(base)).await;
+    // Unique per process: every test binary is its own process against the
+    // same server, so a per-binary counter alone collides on the second one.
+    let name = format!(
+        "{}{}_{}",
+        TEST_DB_PREFIX,
+        std::process::id(),
+        NEXT_DB.fetch_add(1, Ordering::SeqCst)
+    );
     let _guard = CREATING.lock().await;
     let mut conn = PgConnection::connect(&format!("{base}/postgres"))
         .await
@@ -73,7 +130,7 @@ pub async fn create_database(prefix: &str) -> String {
 
 pub async fn pool_for(url: &str) -> PgPool {
     PgPoolOptions::new()
-        .max_connections(8)
+        .max_connections(4)
         .acquire_timeout(Duration::from_secs(30))
         .connect(url)
         .await
@@ -98,7 +155,7 @@ impl TestDb {
 
     /// Creates a fresh database with no schema.
     pub async fn empty() -> Self {
-        let url = create_database("t").await;
+        let url = create_database().await;
         Self {
             pool: pool_for(&url).await,
         }

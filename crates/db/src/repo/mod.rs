@@ -13,3 +13,4 @@ pub mod refresh_tokens;
 pub mod roles;
 pub mod search;
 pub mod users;
+pub mod voice_states;

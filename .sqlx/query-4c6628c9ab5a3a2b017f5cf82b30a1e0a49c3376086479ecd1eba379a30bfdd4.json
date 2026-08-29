@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE voice_states SET streaming = $2 WHERE user_id = $1 RETURNING user_id, channel_id, self_mute, self_deaf, streaming",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "channel_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "self_mute",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "self_deaf",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "streaming",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4c6628c9ab5a3a2b017f5cf82b30a1e0a49c3376086479ecd1eba379a30bfdd4"
+}

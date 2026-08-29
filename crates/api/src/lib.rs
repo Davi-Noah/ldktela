@@ -12,6 +12,7 @@ pub mod permissions;
 pub mod routes;
 pub mod state;
 pub mod storage;
+pub mod voice;
 
 use axum::Router;
 use tower_http::limit::RequestBodyLimitLayer;

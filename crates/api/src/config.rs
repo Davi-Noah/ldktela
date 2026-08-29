@@ -51,6 +51,7 @@ pub struct Config {
     pub max_attachments: usize,
     pub allowed_content_types: Vec<String>,
     pub storage: crate::storage::StorageConfig,
+    pub voice: crate::voice::VoiceConfig,
 }
 
 /// WebSocket gateway limits (`docs/protocol/websocket.md` §3.2, §3.3, §7).
@@ -149,6 +150,14 @@ impl Config {
                 secret_access_key: required(source, "R2_SECRET_ACCESS_KEY")?,
                 presign_ttl_seconds: parse(source, "R2_PRESIGN_TTL_SECONDS")?,
             },
+            voice: crate::voice::VoiceConfig {
+                url: required(source, "LIVEKIT_URL")?,
+                api_key: required(source, "LIVEKIT_API_KEY")?,
+                api_secret: required(source, "LIVEKIT_API_SECRET")?,
+                token_ttl_seconds: parse(source, "VOICE_TOKEN_TTL_SECONDS")?,
+                max_camera_publishers: parse(source, "VOICE_MAX_CAMERA_PUBLISHERS")?,
+                idle_room_timeout_seconds: parse(source, "VOICE_IDLE_ROOM_TIMEOUT_SECONDS")?,
+            },
         })
     }
 }
@@ -213,6 +222,15 @@ mod tests {
             ("R2_ACCESS_KEY_ID", "dev-only-not-a-real-key"),
             ("R2_SECRET_ACCESS_KEY", "dev-only-not-a-real-key"),
             ("R2_PRESIGN_TTL_SECONDS", "300"),
+            ("LIVEKIT_URL", "ws://localhost:7880"),
+            ("LIVEKIT_API_KEY", "devkey"),
+            (
+                "LIVEKIT_API_SECRET",
+                "dev-only-not-a-real-key-0123456789abcdef",
+            ),
+            ("VOICE_TOKEN_TTL_SECONDS", "3600"),
+            ("VOICE_MAX_CAMERA_PUBLISHERS", "3"),
+            ("VOICE_IDLE_ROOM_TIMEOUT_SECONDS", "900"),
         ] {
             m.insert(k, v.to_string());
         }

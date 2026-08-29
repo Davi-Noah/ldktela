@@ -10,6 +10,7 @@ pub mod invites;
 pub mod messages;
 pub mod search;
 pub mod users;
+pub mod voice;
 
 use axum::Router;
 
@@ -27,4 +28,5 @@ pub fn router() -> Router<AppState> {
         .merge(messages::router())
         .merge(dms::router())
         .merge(search::router())
+        .merge(voice::router())
 }

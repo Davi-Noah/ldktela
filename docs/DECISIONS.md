@@ -279,3 +279,30 @@ autoridade (`docs/srs/` > `docs/protocol/` > `docs/api/` > `CLAUDE.md`).
   projeto, não suposto. É exatamente o caso que o P-02 do SRS §10.1 antecipa; o índice de
   trigrama já está preparado e comentado na migration 0004. Há teste que falha se esse
   comportamento mudar, para que a decisão possa ser revista com evidência.
+
+- **[E11] O guard de câmera é admissão no momento de emitir o token, em memória** — o
+  SRS §5.2 não tem coluna para intenção de câmera (`voice_states.streaming` é
+  compartilhamento de tela), e quando a quarta câmera já está publicada o egress já foi
+  gasto. O LiveKit continua sendo a autoridade sobre o que está publicado; o backend faz
+  controle de admissão. Coerente com a instância única do RNF-17.
+- **[E11] Renovar o token não consome uma segunda vaga de câmera** — o cliente renova
+  silenciosamente antes de expirar (RNF-07); contar a renovação trancaria o usuário fora da
+  própria câmera.
+- **[E11] Pedir token sem câmera devolve a vaga** — quem desliga a câmera não pode continuar
+  ocupando a quarta cadeira da sala.
+- **[E11] Webhook não assinado responde 401, e webhook de sala alheia responde 204** — o
+  primeiro é recusa; o segundo é assinado e válido, só não é nosso, e recusá-lo faria o
+  LiveKit reenviar para sempre.
+- **[E11] O TTL do token é limitado a 3600 s no código, não só na configuração** — o RNF-07
+  fixa o teto; uma configuração acima dele é reduzida, porque token de mídia de longa duração
+  é propriedade de segurança e não preferência.
+- **[E11] `DATABASE_URL` e `LIVEKIT_URL` no `.env.example` passam a usar `127.0.0.1`** — no
+  Windows `localhost` resolve para `::1` antes de `127.0.0.1`, e o Docker Desktop desta
+  máquina não encaminha IPv6: a conexão é resetada. Nomes de variável inalterados. Custou uma
+  investigação inteira; fica documentado para não custar outra.
+- **[E11] Os testes reutilizam o PostgreSQL do compose quando `DATABASE_URL` existe** — cada
+  binário de teste é um processo próprio, então um container por binário mantinha uma dúzia
+  de PostgreSQL vivos ao mesmo tempo durante `just check`, e o esgotamento de conexões
+  resultante parecia teste instável. O caminho por testcontainers continua, para CI sem
+  compose. Os bancos de teste levam prefixo e id de processo no nome, e leftovers de execuções
+  anteriores são varridos na inicialização.
