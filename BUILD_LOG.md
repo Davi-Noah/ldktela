@@ -2,14 +2,10 @@
 
 ## Estado atual
 
-Último estágio concluído: E7
-Próximo estágio: E8
+Último estágio concluído: E8
+Próximo estágio: E9
 Portões vermelhos abertos: nenhum
-Carregado para estágios seguintes:
-- O portão do E5 citava canal, mensagem e anexo. A metade de **mensagem** foi paga no E7
-  (`an_invisible_channel_answers_404_on_every_message_route`); falta a de **anexo**, no E8.
-- O E8 precisa acrescentar o `HEAD` no R2 antes de persistir anexo (contrato §6.5). O E7
-  valida RF-11a e `ATTACH_FILES`, mas aceita qualquer `r2_key`.
+Carregado para estágios seguintes: nenhum.
 Pendências de humano:
 - **Limite de taxa ainda não existe.** `POST /auth/login` e `/auth/register` estão sem os
   5/min por IP e por conta do contrato REST §5. O RNF-06 conta com esse limite como parte da
@@ -395,3 +391,46 @@ O protocolo §4.3 diz que todas as sessões recebem tudo, inclusive as originada
 está conforme — mas o cliente do E12 precisa ignorar o próprio.
 
 Pendente de humano: nenhum.
+
+---
+
+## E8 — Anexos · CONCLUÍDO
+
+Portão: `cargo test -p api --test attachments` → 10 testes verdes contra um servidor S3 falso
+em porta efêmera. Suíte completa: `cargo test -p api` → 117. `just check` → `OK — tudo verde`.
+
+Entregue: `POST /attachments/presign` validando RF-11a e `ATTACH_FILES` **antes** de assinar ·
+cliente de armazenamento com assinatura local, `HEAD`, `DELETE` e `ListObjectsV2` paginado ·
+verificação `HEAD` antes de persistir a linha de anexo (SRS §6.2), fechando o item que o E7
+deixou em aberto · job diário de coleta de órfãos com carência de 24 h · job diário de limpeza
+de refresh tokens expirados · renderização de anexo não migrado como placeholder (RF-25a).
+
+Arquivos:
+- `crates/api/src/{storage,jobs}.rs`, `crates/api/src/routes/attachments.rs`
+- `crates/api/src/routes/messages.rs` (HEAD antes de persistir),
+  `crates/api/src/{config,state,lib}.rs`, `crates/server/src/main.rs`
+- `crates/db/src/repo/engagement.rs` (`is_key_referenced`)
+- `crates/api/tests/{attachments.rs,common/fake_s3.rs}`
+
+Teste do portão: `a_file_over_the_limit_is_refused_before_a_url_is_signed` — 26.214.401 bytes
+responde **413 PAYLOAD_TOO_LARGE**, o corpo não traz `upload_url` nem `r2_key`, e o
+armazenamento continua vazio. `a_disallowed_content_type_is_refused_before_a_url_is_signed`
+cobre o outro lado do RF-11a.
+
+Também paga aqui a metade de **anexo** do portão do E5:
+`presigning_needs_attach_files_and_an_invisible_channel_answers_404` prova 403 em canal
+visível sem `ATTACH_FILES` e 404 em canal invisível, com mensagem idêntica à de um id
+inexistente. Com isso o portão do E5 está completo nas três superfícies.
+
+Decisões registradas: 7 linhas.
+
+Ressalva: o servidor S3 falso é um fake de fronteira de rede, explicitamente autorizado pelo
+enunciado. Nunca houve contato com a Cloudflare, e o comportamento real do R2 — em particular
+o formato de erro dele e o `LastModified` — não foi verificado.
+
+Ressalva 2: a coleta de órfãos roda em intervalo simples de 24 h, não em cron. Uma implantação
+diária adia a varredura indefinidamente. Aceitável no volume previsto; se virar problema, o
+caminho é registrar a última execução em tabela.
+
+Pendente de humano: criar o bucket no R2 e gerar as chaves. O `.env` local usa
+`dev-only-not-a-real-key` e aponta para um endpoint local.

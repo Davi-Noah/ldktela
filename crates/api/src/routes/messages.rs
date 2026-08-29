@@ -131,6 +131,17 @@ async fn create(
         return Err(AppError::Forbidden);
     }
 
+    // The object has to be in storage before the row is written (SRS §6.2),
+    // or the message renders a broken image forever.
+    for attachment in &body.attachments {
+        if !state.storage.exists(&attachment.r2_key).await? {
+            return Err(AppError::Validation(vec![protocol::error::FieldError {
+                field: "attachments".into(),
+                code: "NOT_FOUND".into(),
+            }]));
+        }
+    }
+
     // A reply has to point at a live message of the same channel; otherwise the
     // preview renders a message the reader cannot open.
     if let Some(reply_to) = body.reply_to_id {

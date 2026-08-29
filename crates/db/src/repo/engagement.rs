@@ -285,3 +285,17 @@ pub async fn insert_attachment<'e, E: PgExecutor<'e>>(
     .await?;
     Ok(id)
 }
+
+/// Whether any attachment row points at this stored object.
+///
+/// The orphan sweep asks this before deleting; a `false` positive would take a
+/// live attachment with it, so the query is the whole guard.
+pub async fn is_key_referenced(pool: &PgPool, r2_key: &str) -> DbResult<bool> {
+    let found = sqlx::query_scalar!(
+        "SELECT 1 FROM attachments WHERE r2_key = $1 LIMIT 1",
+        r2_key
+    )
+    .fetch_optional(pool)
+    .await?;
+    Ok(found.is_some())
+}

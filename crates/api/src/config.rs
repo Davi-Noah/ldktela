@@ -50,6 +50,7 @@ pub struct Config {
     pub max_attachment_bytes: i64,
     pub max_attachments: usize,
     pub allowed_content_types: Vec<String>,
+    pub storage: crate::storage::StorageConfig,
 }
 
 /// WebSocket gateway limits (`docs/protocol/websocket.md` §3.2, §3.3, §7).
@@ -141,6 +142,13 @@ impl Config {
                 .map(|t| t.trim().to_ascii_lowercase())
                 .filter(|t| !t.is_empty())
                 .collect(),
+            storage: crate::storage::StorageConfig {
+                endpoint: required(source, "R2_ENDPOINT")?,
+                bucket: required(source, "R2_BUCKET")?,
+                access_key_id: required(source, "R2_ACCESS_KEY_ID")?,
+                secret_access_key: required(source, "R2_SECRET_ACCESS_KEY")?,
+                presign_ttl_seconds: parse(source, "R2_PRESIGN_TTL_SECONDS")?,
+            },
         })
     }
 }
@@ -200,6 +208,11 @@ mod tests {
                 "ALLOWED_CONTENT_TYPES",
                 "image/webp,image/png,image/jpeg,image/gif,video/mp4",
             ),
+            ("R2_ENDPOINT", "http://localhost:9000"),
+            ("R2_BUCKET", "comms-media"),
+            ("R2_ACCESS_KEY_ID", "dev-only-not-a-real-key"),
+            ("R2_SECRET_ACCESS_KEY", "dev-only-not-a-real-key"),
+            ("R2_PRESIGN_TTL_SECONDS", "300"),
         ] {
             m.insert(k, v.to_string());
         }

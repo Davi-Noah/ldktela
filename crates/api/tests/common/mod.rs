@@ -10,6 +10,7 @@
 
 #![allow(dead_code)]
 
+pub mod fake_s3;
 pub mod gateway;
 
 use std::net::SocketAddr;
@@ -30,6 +31,7 @@ use tower::ServiceExt;
 
 use api::config::{AppEnv, Argon2Config, Config, GatewayConfig};
 use api::state::AppState;
+use api::storage::StorageConfig;
 use uuid::Uuid;
 
 static SERVER: OnceCell<PgServer> = OnceCell::const_new();
@@ -82,7 +84,7 @@ async fn create_database() -> String {
 /// Argon2 at RNF-06 cost is ~100 ms per hash; an HTTP test that registers and
 /// logs in a dozen times would spend all its time there. The parameters are
 /// exercised for real by `crates/api/src/auth/password.rs`.
-pub fn test_config(database_url: String) -> Config {
+pub fn test_config(database_url: String, storage_endpoint: String) -> Config {
     Config {
         app_env: AppEnv::Development,
         bind_addr: "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
@@ -113,12 +115,22 @@ pub fn test_config(database_url: String) -> Config {
             "image/gif".into(),
             "video/mp4".into(),
         ],
+        storage: StorageConfig {
+            endpoint: storage_endpoint,
+            bucket: "comms-media".into(),
+            access_key_id: "dev-only-not-a-real-key".into(),
+            secret_access_key: "dev-only-not-a-real-key".into(),
+            presign_ttl_seconds: 300,
+        },
     }
 }
 
 pub struct TestApp {
     pub router: Router,
     pub pool: PgPool,
+    /// The fake object store the app is pointed at.
+    pub s3: fake_s3::FakeS3,
+    pub state: AppState,
 }
 
 impl TestApp {
@@ -132,10 +144,13 @@ impl TestApp {
             .expect("connecting to the test database");
         db::MIGRATOR.run(&pool).await.expect("applying migrations");
 
-        let state = AppState::new(pool.clone(), test_config(url));
+        let (s3, endpoint) = fake_s3::FakeS3::spawn().await;
+        let state = AppState::new(pool.clone(), test_config(url, endpoint));
         Self {
-            router: api::router(state),
+            router: api::router(state.clone()),
             pool,
+            s3,
+            state,
         }
     }
 

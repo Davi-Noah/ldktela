@@ -49,6 +49,9 @@ async fn serve(config: api::config::Config) -> anyhow::Result<()> {
     // Expires gateway sessions past their TTL and reports whoever went
     // offline as a result.
     tokio::spawn(api::gateway::run_session_sweeper(state.clone()));
+    // Daily maintenance: orphaned objects (SRS §6.2) and dead refresh tokens.
+    tokio::spawn(api::jobs::run_orphan_collector(state.clone()));
+    tokio::spawn(api::jobs::run_token_cleanup(state.clone()));
 
     let shutdown_state = state.clone();
     axum::serve(listener, api::router(state))

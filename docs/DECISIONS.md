@@ -226,3 +226,22 @@ autoridade (`docs/srs/` > `docs/protocol/` > `docs/api/` > `CLAUDE.md`).
 - **[E7] O `HEAD` no R2 antes de persistir anexo NÃO foi feito** — o contrato §6.5 exige, e o
   cliente de armazenamento é do E8. O E7 valida RF-11a (tamanho, tipo, quantidade) e
   `ATTACH_FILES`, mas aceita qualquer `r2_key`. Item carregado para o E8.
+
+- **[E8] Arquivo acima do limite responde 413, tipo proibido responde 400** — o contrato §3
+  reserva `PAYLOAD_TOO_LARGE` para o limite do RF-11a; um tipo não permitido não é grande, é
+  inválido, e sai como `VALIDATION_FAILED` nomeando `content_type`.
+- **[E8] A chave é `att/{uuidv7}/{nome-saneado}`** — o prefixo único evita colisão entre dois
+  `captura.webp`, e o saneamento impede que um nome vire caminho. O nome original sobrevive
+  para o diálogo de download.
+- **[E8] Assinatura é local, sem chamada de rede** — uma indisponibilidade do R2 não bloqueia
+  o presign; ela aparece no `PUT` do cliente, onde o erro é acionável.
+- **[E8] O `HEAD` antes de persistir devolve `VALIDATION_FAILED`, não 404** — o recurso que
+  falta é o objeto que o cliente diz ter enviado, e o campo culpado é `attachments`.
+- **[E8] A coleta de órfãos tem carência de 24 h e consulta o banco por chave** — sem a
+  carência, um objeto recém-enviado seria apagado enquanto o usuário ainda escreve a mensagem.
+- **[E8] Exclusão lógica de mensagem NÃO libera o objeto** — a linha de `attachments`
+  permanece, então a chave continua referenciada. É deliberado: o mapeamento cruzado da ponte
+  depende da linha. O objeto só vira órfão quando o canal é removido fisicamente e a cascata
+  leva mensagem e anexo.
+- **[E8] Erros do SDK da AWS são formatados com `DisplayErrorContext`** — o `Display` puro
+  imprime só "service error", sem a cadeia de causa, o que torna o log inútil.
