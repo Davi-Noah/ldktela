@@ -43,6 +43,13 @@ pub struct Config {
     pub refresh_token_ttl_days: i64,
     pub argon2: Argon2Config,
     pub gateway: GatewayConfig,
+
+    /// Public base of stored media, used to render `attachment.url`.
+    pub media_base_url: String,
+    /// RF-11a.
+    pub max_attachment_bytes: i64,
+    pub max_attachments: usize,
+    pub allowed_content_types: Vec<String>,
 }
 
 /// WebSocket gateway limits (`docs/protocol/websocket.md` §3.2, §3.3, §7).
@@ -126,6 +133,14 @@ impl Config {
                 resume_buffer_size: parse(source, "WS_RESUME_BUFFER_SIZE")?,
                 max_connections_per_user: parse(source, "WS_MAX_CONNECTIONS_PER_USER")?,
             },
+            media_base_url: required(source, "R2_PUBLIC_BASE_URL")?,
+            max_attachment_bytes: parse(source, "MAX_ATTACHMENT_BYTES")?,
+            max_attachments: parse(source, "MAX_ATTACHMENTS_PER_MESSAGE")?,
+            allowed_content_types: required(source, "ALLOWED_CONTENT_TYPES")?
+                .split(',')
+                .map(|t| t.trim().to_ascii_lowercase())
+                .filter(|t| !t.is_empty())
+                .collect(),
         })
     }
 }
@@ -178,6 +193,13 @@ mod tests {
             ("WS_SESSION_TTL_MS", "90000"),
             ("WS_RESUME_BUFFER_SIZE", "500"),
             ("WS_MAX_CONNECTIONS_PER_USER", "4"),
+            ("R2_PUBLIC_BASE_URL", "https://media.exemplo.com"),
+            ("MAX_ATTACHMENT_BYTES", "26214400"),
+            ("MAX_ATTACHMENTS_PER_MESSAGE", "10"),
+            (
+                "ALLOWED_CONTENT_TYPES",
+                "image/webp,image/png,image/jpeg,image/gif,video/mp4",
+            ),
         ] {
             m.insert(k, v.to_string());
         }
@@ -192,6 +214,11 @@ mod tests {
         assert_eq!(config.argon2.memory_kib, 65_536);
         assert_eq!(config.gateway.resume_buffer_size, 500);
         assert_eq!(config.gateway.session_ttl_ms, 90_000);
+        assert_eq!(config.max_attachment_bytes, 26_214_400);
+        assert_eq!(config.max_attachments, 10);
+        assert!(config
+            .allowed_content_types
+            .contains(&"image/webp".to_string()));
     }
 
     #[test]

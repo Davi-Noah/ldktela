@@ -200,3 +200,29 @@ autoridade (`docs/srs/` > `docs/protocol/` > `docs/api/` > `CLAUDE.md`).
 - **[E6] Versão do cliente abaixo do mínimo fecha com 4010, não 4001** — 4010 dispara o fluxo
   de atualização automática (RF-36); 4001 faria o app deslogar o usuário, que não tem nada a
   ver com o problema.
+
+- **[E7] Sintaxe de menção fixada aqui** — o contrato exige extração no servidor mas não diz
+  o formato. Adotado `<@uuid>` para usuário, `<@&uuid>` para cargo e `@everyone` como palavra
+  solta. A forma com colchetes existe para que prosa comum (`escreva para @joao`) não vire
+  menção. Menção dentro de bloco ou span de código é inerte: colar um log não notifica ninguém.
+- **[E7] O nonce usa um portão de um permissão por chave, não uma checagem simples** — dois
+  envios simultâneos do mesmo nonce passariam os dois por um "já existe?". O primeiro segura o
+  permit enquanto insere; o segundo bloqueia e, ao entrar, encontra a mensagem do primeiro.
+  Descoberto por teste; a primeira implementação criava duas mensagens.
+- **[E7] Editar é só do autor; `MANAGE_MESSAGES` apaga, não reescreve** — o contrato §6.5 diz
+  "autor" em `PATCH` e "autor ou MANAGE_MESSAGES" em `DELETE`. Colocar palavras na boca de
+  alguém é um poder diferente de remover.
+- **[E7] `@everyone` sem `MENTION_EVERYONE` é texto, não menção** — a linha não é gravada e
+  ninguém é notificado, mas o conteúdo fica intacto. Sem isso qualquer membro levanta badge em
+  todo mundo.
+- **[E7] Remover a própria reação exige visibilidade, não `ADD_REACTIONS`** — perder a
+  permissão não pode deixar uma reação sua presa lá.
+- **[E7] O marcador de leitura precisa apontar para mensagem do mesmo canal** — recontar
+  menções contra um id de outro canal limparia o badge errado.
+- **[E7] `mark_read` recontabiliza em vez de zerar** — uma menção que chegou entre o último
+  render do cliente e a chamada precisa sobreviver, ou some sem ser lida.
+- **[E7] Prévia de resposta a mensagem apagada mostra "mensagem apagada"** — o cabeçalho
+  continua renderizando; sumir com ele faria a resposta perder o contexto.
+- **[E7] O `HEAD` no R2 antes de persistir anexo NÃO foi feito** — o contrato §6.5 exige, e o
+  cliente de armazenamento é do E8. O E7 valida RF-11a (tamanho, tipo, quantidade) e
+  `ATTACH_FILES`, mas aceita qualquer `r2_key`. Item carregado para o E8.

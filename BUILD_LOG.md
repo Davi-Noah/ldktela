@@ -2,13 +2,14 @@
 
 ## Estado atual
 
-Último estágio concluído: E6
-Próximo estágio: E7
+Último estágio concluído: E7
+Próximo estágio: E8
 Portões vermelhos abertos: nenhum
 Carregado para estágios seguintes:
-- O portão do E5 cita canal, **mensagem** e **anexo**. As rotas de mensagem (E7) e de anexo
-  (E8) ainda não existem; as duas asserções de 404 correspondentes ficam devendo e serão
-  escritas nos respectivos estágios.
+- O portão do E5 citava canal, mensagem e anexo. A metade de **mensagem** foi paga no E7
+  (`an_invisible_channel_answers_404_on_every_message_route`); falta a de **anexo**, no E8.
+- O E8 precisa acrescentar o `HEAD` no R2 antes de persistir anexo (contrato §6.5). O E7
+  valida RF-11a e `ATTACH_FILES`, mas aceita qualquer `r2_key`.
 Pendências de humano:
 - **Limite de taxa ainda não existe.** `POST /auth/login` e `/auth/register` estão sem os
   5/min por IP e por conta do contrato REST §5. O RNF-06 conta com esse limite como parte da
@@ -348,5 +349,49 @@ Ressalva 2: `voice_states` no `READY` sai sempre vazio — a tabela existe, mas 
 
 Ressalva 3: o protocolo não define `GUILD_UPDATE`, então renomear um guild não notifica
 ninguém. Registrado em DECISIONS.md como lacuna.
+
+Pendente de humano: nenhum.
+
+---
+
+## E7 — Mensagens · CONCLUÍDO
+
+Portão: `cargo test -p api` → 107 testes verdes (60 unitários + 13 auth + 10 gateway +
+17 mensagens + 17 estrutura). `cargo test -p domain` → 32. `just check` → `OK — tudo verde`.
+
+Entregue: `GET`/`POST /channels/{id}/messages` com paginação por keyset e os quatro cursores ·
+`PATCH`/`DELETE` de mensagem com exclusão lógica · fixar e listar fixadas · reações unicode
+idempotentes com agregação e flag `me` · `POST /typing` efêmero · `PUT /read-state` com
+recontagem de menções · extração de menções no servidor, desduplicada, com código inerte ·
+contador de menções por usuário e canal, com `READ_STATE_UPDATE` só para as sessões do dono ·
+idempotência de nonce por 60 s, resistente a envio simultâneo · anexos persistidos com
+validação do RF-11a · todos os dispatches correspondentes no gateway.
+
+Arquivos:
+- `crates/domain/src/mentions.rs`
+- `crates/db/src/repo/{message_view,engagement}.rs`
+- `crates/api/src/nonce.rs`, `crates/api/src/routes/messages.rs`,
+  `crates/api/src/extract.rs` (extractor `Query`), `crates/api/src/{config,state}.rs`
+- `crates/api/tests/messages.rs`
+
+Teste do portão: `the_same_nonce_twice_produces_exactly_one_message` — o segundo envio responde
+**200** com o mesmo `id`, e o banco tem uma linha. `two_simultaneous_sends_of_one_nonce_still_produce_one_message`
+cobre a corrida com `tokio::join!`.
+
+Decisões registradas: 9 linhas.
+
+**Dois defeitos encontrados por teste, ambos corrigidos:**
+1. A extração de menções andava por índice de byte e estourava no primeiro acento — em um
+   produto em português, isso derrubaria o handler na primeira mensagem real.
+2. A primeira versão do registro de nonce deixava dois envios simultâneos criarem duas
+   mensagens. Passou a usar um portão de um permit por chave.
+
+Ressalva: **o `HEAD` no R2 antes de persistir anexo não existe.** O contrato §6.5 exige, e o
+cliente de armazenamento é do E8. Hoje qualquer `r2_key` é aceito depois da validação de
+tamanho, tipo e quantidade. Registrado no topo deste arquivo como item carregado.
+
+Ressalva 2: o `TYPING_START` é publicado para o canal inteiro, inclusive para quem digitou.
+O protocolo §4.3 diz que todas as sessões recebem tudo, inclusive as originadas por elas, então
+está conforme — mas o cliente do E12 precisa ignorar o próprio.
 
 Pendente de humano: nenhum.

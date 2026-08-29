@@ -6,6 +6,7 @@ pub mod error;
 pub mod extract;
 pub mod gateway;
 pub mod middleware;
+pub mod nonce;
 pub mod permissions;
 pub mod routes;
 pub mod state;

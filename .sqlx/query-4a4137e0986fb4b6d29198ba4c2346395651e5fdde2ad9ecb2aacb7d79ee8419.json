@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT internal_message_id, origin AS \"origin: MessageOrigin\"\n        FROM message_mappings WHERE internal_message_id = ANY($1)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "internal_message_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "origin: MessageOrigin",
+        "type_info": {
+          "Custom": {
+            "name": "message_origin",
+            "kind": {
+              "Enum": [
+                "internal",
+                "discord"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "4a4137e0986fb4b6d29198ba4c2346395651e5fdde2ad9ecb2aacb7d79ee8419"
+}

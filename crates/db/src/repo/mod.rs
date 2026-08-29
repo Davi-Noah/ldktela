@@ -3,8 +3,10 @@
 
 pub mod categories;
 pub mod channels;
+pub mod engagement;
 pub mod guilds;
 pub mod invites;
+pub mod message_view;
 pub mod messages;
 pub mod permissions;
 pub mod refresh_tokens;

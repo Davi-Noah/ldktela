@@ -103,6 +103,16 @@ pub fn test_config(database_url: String) -> Config {
             resume_buffer_size: 500,
             max_connections_per_user: 4,
         },
+        media_base_url: "https://media.exemplo.test".into(),
+        max_attachment_bytes: 26_214_400,
+        max_attachments: 10,
+        allowed_content_types: vec![
+            "image/webp".into(),
+            "image/png".into(),
+            "image/jpeg".into(),
+            "image/gif".into(),
+            "video/mp4".into(),
+        ],
     }
 }
 

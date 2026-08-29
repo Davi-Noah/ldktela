@@ -11,7 +11,7 @@
 //! come back as `400 VALIDATION_FAILED` naming the field — not as a `422` the
 //! client has no handler for.
 
-use axum::extract::rejection::{JsonRejection, PathRejection};
+use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::extract::{FromRequest, FromRequestParts, Request};
 use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
@@ -153,4 +153,35 @@ mod tests {
             "body"
         );
     }
+}
+
+/// `axum::extract::Query` with contract-shaped rejections.
+///
+/// A bad query string is client input, so it answers `400 VALIDATION_FAILED`
+/// rather than axum's plain-text `400`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Query<T>(pub T);
+
+impl<S, T> FromRequestParts<S> for Query<T>
+where
+    T: DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        match axum::extract::Query::<T>::from_request_parts(parts, state).await {
+            Ok(axum::extract::Query(value)) => Ok(Self(value)),
+            Err(rejection) => Err(map_query_rejection(&rejection)),
+        }
+    }
+}
+
+fn map_query_rejection(rejection: &QueryRejection) -> AppError {
+    let detail = rejection.body_text();
+    tracing::debug!(detail = %detail, "rejected query string");
+    AppError::Validation(vec![FieldError {
+        field: field_from_serde_message(&detail),
+        code: "INVALID_FORMAT".into(),
+    }])
 }
