@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT g.owner_id,\n               (gm.user_id IS NOT NULL AND gm.banned_at IS NULL) AS \"is_member!\",\n               er.permissions AS \"everyone_permissions?\"\n        FROM guilds g\n        LEFT JOIN guild_members gm ON gm.guild_id = g.id AND gm.user_id = $2\n        LEFT JOIN roles er ON er.guild_id = g.id AND er.is_default\n        WHERE g.id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "owner_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "is_member!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "everyone_permissions?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "3604b64d304e2ea51ce4b0152781368c52032ac4af2e24139c13dd7bd4969a91"
+}

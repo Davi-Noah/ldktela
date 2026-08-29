@@ -97,3 +97,24 @@ autoridade (`docs/srs/` > `docs/protocol/` > `docs/api/` > `CLAUDE.md`).
 - **[E2] Dois códigos de erro novos: `BRIDGE_NOT_ALLOWED` e `UPSTREAM_FAILURE`** — o §6.10
   do contrato REST exige 409 ao habilitar ponte em DM sem nomear o código, e o `AppError`
   do CLAUDE.md §6 tem a variante `Upstream` sem código correspondente na tabela §3.
+
+- **[E3] Um container Postgres por binário de teste, um banco por teste** — subir um
+  container por teste custava ~4 s cada. O container é criado num `OnceCell` e nunca
+  descartado; o Docker o recolhe quando o processo termina. Alternativa descartada:
+  transação por teste com rollback, que não funciona para testes de concorrência.
+- **[E3] `resolve_for_channel` devolve `Option<Permissions>`** — `None` = canal inexistente,
+  `Some(NONE)` = canal invisível. O repositório mantém os dois estados distintos; é a rota
+  que os colapsa em 404 (`docs/api/rest-api.md` §3). Sem essa distinção não dá para logar
+  a diferença sem vazá-la ao cliente.
+- **[E3] Não-membro e membro banido resolvem para `NONE`** — o §5.3 pressupõe um membro e
+  não trata o caso. Decidido no repositório, antes de aplicar o algoritmo.
+- **[E3] `resolve_for_guild` separado, sem os passos 0 e 5–7** — rotas como `CREATE_INVITE`
+  e `MANAGE_GUILD` não têm canal; um overwrite de canal não pode remover permissão de guild.
+- **[E3] Todos os overwrites do canal são lidos numa consulta e filtrados em Rust** — um
+  canal carrega poucos overwrites; três consultas separadas custariam mais que a filtragem.
+- **[E3] O nonce de idempotência não vira coluna** — nada no SRS §5.2 o prevê, e uma coluna
+  mais índice no caminho quente para uma janela de 60 s é caro. Vai para um mapa em memória
+  no E7, coerente com a instância única do RNF-17. Descartada a heurística de deduplicar por
+  (autor, canal, conteúdo, janela), que apagaria mensagens iguais enviadas de propósito.
+- **[E3] `insert_guild_channel` recebe um `NewGuildChannel`** — oito argumentos posicionais
+  é onde uma troca de `guild_id` por `category_id` passa despercebida, e o clippy recusa.

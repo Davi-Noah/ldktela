@@ -2,8 +2,8 @@
 
 ## Estado atual
 
-Último estágio concluído: E2
-Próximo estágio: E3
+Último estágio concluído: E3
+Próximo estágio: E4
 Portões vermelhos abertos: nenhum
 Pendências de humano:
 - Toolchain instalada por este agente nesta máquina: rustup 1.98.0, `just` 1.42.4,
@@ -140,5 +140,51 @@ validação em `domain` sem o crate `validator`; limites não especificados; `RE
 Ressalva: `Permissions::ALL` vale 1048575, e é esse número que sai em `channel.permissions`
 para um owner ou administrador. Se um bit for adicionado ao SRS §5.3, o valor muda — é
 comportamento pretendido, mas qualquer teste de cliente que fixe a constante vai quebrar.
+
+Pendente de humano: nenhum.
+
+---
+
+## E3 — Persistência · CONCLUÍDO
+
+Portão: `cargo test -p db` → 26 testes verdes contra PostgreSQL 16 real
+(4 migrations + 4 keyset + 10 permissões + 8 transações), 12,5 s no total.
+`just prepare` → 44 entradas em `.sqlx/`, versionadas. `just check` → `OK — tudo verde`.
+
+Entregue: `DbError` com deteção de violação de constraint · enums `channel_type`,
+`overwrite_target` e `message_origin` mapeados com `sqlx::Type` no crate `db`, com conversão
+para os equivalentes de wire · repositórios de `users`, `invites`, `refresh_tokens`,
+`channels` (inclusive participantes de DM e resolução de 1:1 existente) e `messages` ·
+paginação por keyset com os quatro cursores do contrato (`latest`, `before`, `after`,
+`around`), sempre sobre `(channel_id, id)`, com `has_more` obtido lendo uma linha a mais ·
+`repo::permissions` montando o contexto do SRS §5.3 a partir do banco em três consultas e
+delegando o algoritmo a `domain::resolve`.
+
+Arquivos:
+- `crates/db/src/{lib,error,types}.rs`
+- `crates/db/src/repo/{mod,users,invites,refresh_tokens,channels,messages,permissions}.rs`
+- `crates/db/tests/{common/mod,keyset,permissions,transactions}.rs`
+- `.sqlx/` (44 arquivos)
+
+Teste do portão: `keyset_pagination_is_stable_under_concurrent_inserts` — 200 mensagens
+pré-existentes, quatro tarefas inserindo durante toda a varredura, paginação para trás em
+páginas de 25. Prova três propriedades: nenhum id repetido, todas as 200 linhas
+pré-existentes presentes, e ordem estritamente decrescente dentro e entre páginas. O teste
+falha o assert de concorrência se nenhuma escrita concorrente tiver ocorrido, para não passar
+por acidente. Complementado por `uuid_v7_is_strictly_increasing_even_when_generated_concurrently`
+(20.000 ids em 4 threads, zero colisões), que é a premissa de que o keyset depende.
+
+Decisões registradas: 7 linhas (container compartilhado com banco por teste; `Option<Permissions>`
+distinguindo inexistente de invisível; não-membro e banido resolvem para NONE; `resolve_for_guild`
+separado; overwrites lidos numa consulta; nonce fora do schema; `NewGuildChannel`).
+
+Ressalva: repositórios de guilds, categorias, cargos, membros, overwrites, anexos, reações,
+estado de leitura, voz e ponte ainda não existem — entram nos estágios que os consomem
+(E5, E7, E8, E11, E15). O E3 entregou a fundação e os repositórios exigidos pelos portões
+de E3 e E4.
+
+Ressalva 2: `resolve_for_channel` faz três round trips por chamada e roda em toda consulta
+que retorna conteúdo (CLAUDE.md §2.7). Com 30 usuários não é gargalo; se virar, o caminho é
+uma única consulta com CTEs, não um cache.
 
 Pendente de humano: nenhum.

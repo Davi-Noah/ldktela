@@ -1,8 +1,14 @@
 //! Database access: connection pool, embedded migrations and repositories.
 
+pub mod error;
+pub mod repo;
+pub mod types;
+
 use std::time::Duration;
 
-use sqlx::postgres::{PgPool, PgPoolOptions};
+pub use error::{DbError, DbResult};
+pub use sqlx::postgres::PgPool;
+use sqlx::postgres::PgPoolOptions;
 
 /// Migrations embedded in the binary so a deploy cannot drift from the schema.
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");

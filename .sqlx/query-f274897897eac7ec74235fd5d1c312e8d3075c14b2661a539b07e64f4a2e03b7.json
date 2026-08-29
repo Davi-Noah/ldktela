@@ -1,0 +1,90 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE channels\n            SET bridge_enabled = $2,\n                discord_channel_id = COALESCE($3, discord_channel_id)\n            WHERE id = $1\n            RETURNING id, guild_id, category_id, name, topic,\n                      type AS \"kind: ChannelType\", position,\n                      discord_channel_id, bridge_enabled, created_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "guild_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "category_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "topic",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "kind: ChannelType",
+        "type_info": {
+          "Custom": {
+            "name": "channel_type",
+            "kind": {
+              "Enum": [
+                "text",
+                "voice",
+                "dm",
+                "group_dm"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "position",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "discord_channel_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "bridge_enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "f274897897eac7ec74235fd5d1c312e8d3075c14b2661a539b07e64f4a2e03b7"
+}

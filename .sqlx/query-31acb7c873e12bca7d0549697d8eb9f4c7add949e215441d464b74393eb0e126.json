@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT u.id, u.username, u.display_name, u.avatar_url, u.accent_color, u.is_migrated\n        FROM channel_participants p\n        JOIN users u ON u.id = p.user_id\n        WHERE p.channel_id = $1 AND p.left_at IS NULL\n        ORDER BY p.joined_at, u.id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "avatar_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "accent_color",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_migrated",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "31acb7c873e12bca7d0549697d8eb9f4c7add949e215441d464b74393eb0e126"
+}
