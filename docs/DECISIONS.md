@@ -245,3 +245,21 @@ autoridade (`docs/srs/` > `docs/protocol/` > `docs/api/` > `CLAUDE.md`).
   leva mensagem e anexo.
 - **[E8] Erros do SDK da AWS são formatados com `DisplayErrorContext`** — o `Display` puro
   imprime só "service error", sem a cadeia de causa, o que torna o log inútil.
+
+- **[E9] A unicidade da conversa 1:1 usa um lock consultivo sobre o par canônico** — o SRS §5.2
+  diz que a unicidade "é garantida na aplicação", e checar-e-inserir não basta: sob
+  `READ COMMITTED` as duas transações leem antes de qualquer uma commitar e o par termina com
+  dois canais. `pg_advisory_xact_lock` sobre `min(a,b):max(a,b)` dá o ponto de serialização,
+  é liberado por commit ou rollback e não custa nada fora da colisão. Descoberto por teste.
+- **[E9] `POST /dms` responde 200 ao resolver e 201 ao criar** — resolver não é criar, e o
+  cliente precisa distinguir para não duplicar a aba na segunda árvore de navegação.
+- **[E9] Um ghost user não pode ser destinatário** — ele não tem sessão nem forma de ler a
+  conversa; aceitar criaria um canal morto.
+- **[E9] O criador do grupo é quem tem `added_by = user_id`** — `channels` não tem
+  `created_by` no SRS §5.2, e a primeira linha de participante identifica quem abriu.
+  Alternativa descartada: acrescentar coluna, o que é alteração de schema normativo.
+- **[E9] Adicionar participante a um `dm` é 409, não promoção silenciosa a `group_dm`** —
+  mudar o tipo do canal por baixo mudaria a resolução de unicidade do par.
+- **[E9] Quem sai recebe o `DM_PARTICIPANT_REMOVE` explicitamente** — no momento do despacho
+  ele já não está no conjunto de destinatários, e sem o endereçamento direto o cliente dele
+  nunca fecharia a conversa.

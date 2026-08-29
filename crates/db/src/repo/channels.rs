@@ -383,3 +383,45 @@ pub async fn reorder(
     tx.commit().await?;
     Ok(())
 }
+
+/// Who created a direct conversation.
+///
+/// There is no `created_by` on `channels`, so the creator is the participant
+/// who added themselves — `added_by = user_id` on the first row (RF-18b).
+pub async fn direct_creator<'e, E: PgExecutor<'e>>(
+    executor: E,
+    channel_id: Uuid,
+) -> DbResult<Option<Uuid>> {
+    let creator = sqlx::query_scalar!(
+        "SELECT user_id FROM channel_participants \
+         WHERE channel_id = $1 AND added_by = user_id \
+         ORDER BY joined_at LIMIT 1",
+        channel_id
+    )
+    .fetch_optional(executor)
+    .await?;
+    Ok(creator)
+}
+
+/// Serialises the creation of the 1:1 conversation between two users.
+///
+/// SRS §5.2 leaves 1:1 uniqueness to the application, and "check then insert"
+/// is not enough on its own: under `READ COMMITTED` both transactions read
+/// before either commits, and two channels appear for one pair. An advisory
+/// lock keyed on the canonical pair gives the check a serialisation point, and
+/// it costs nothing outside the collision.
+///
+/// The lock is transaction-scoped, so it is released by commit or rollback with
+/// no unlock call to forget.
+pub async fn lock_direct_pair(tx: &mut sqlx::PgConnection, a: Uuid, b: Uuid) -> DbResult<()> {
+    // Canonical order: the pair (a, b) and (b, a) must take the same lock.
+    let (low, high) = if a <= b { (a, b) } else { (b, a) };
+    let pair = format!("{low}:{high}");
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        pair
+    )
+    .execute(tx)
+    .await?;
+    Ok(())
+}

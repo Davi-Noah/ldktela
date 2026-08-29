@@ -2,8 +2,8 @@
 
 ## Estado atual
 
-Último estágio concluído: E8
-Próximo estágio: E9
+Último estágio concluído: E9
+Próximo estágio: E10
 Portões vermelhos abertos: nenhum
 Carregado para estágios seguintes: nenhum.
 Pendências de humano:
@@ -434,3 +434,44 @@ caminho é registrar a última execução em tabela.
 
 Pendente de humano: criar o bucket no R2 e gerar as chaves. O `.env` local usa
 `dev-only-not-a-real-key` e aponta para um endpoint local.
+
+---
+
+## E9 — Conversas diretas · CONCLUÍDO
+
+Portão: `cargo test -p api --test dms` → 11 testes verdes, com servidor HTTP e gateway reais.
+Suíte completa: `cargo test -p api` → 128. `just check` → `OK — tudo verde`.
+
+Entregue: `GET`/`POST /dms` com resolução do canal 1:1 existente, serializada por lock
+consultivo sobre o par canônico · grupos até 10 participantes contando o criador (P-01) ·
+`POST`/`DELETE /dms/{id}/participants` com o criador administrando e qualquer um podendo sair ·
+curto-circuito do passo 0 do §5.3 concedendo exatamente a máscara fixa · fan-out por
+participação ativa, com invalidação do índice a cada mudança de participante · `DM_CHANNEL_CREATE`,
+`DM_PARTICIPANT_ADD` e `DM_PARTICIPANT_REMOVE`.
+
+Arquivos:
+- `crates/api/src/routes/dms.rs`, `crates/api/src/routes/mod.rs`
+- `crates/db/src/repo/channels.rs` (`direct_creator`, `lock_direct_pair`)
+- `crates/api/tests/dms.rs`
+
+Teste do portão: `a_non_participant_gets_404_and_never_appears_in_the_fan_out` — Carla conecta
+ao gateway antes de a conversa existir; não recebe `DM_CHANNEL_CREATE`, não recebe a mensagem,
+nenhum frame dela cita o conteúdo, e pelo REST a conversa responde **404** com mensagem idêntica
+à de um id inexistente.
+
+Decisões registradas: 6 linhas.
+
+**Um defeito encontrado por teste, corrigido:** a resolução do canal 1:1 checava duas vezes
+(fora e dentro da transação) e ainda assim criava dois canais sob abertura simultânea. Passou a
+tomar `pg_advisory_xact_lock` sobre o par canônico antes da segunda checagem.
+
+Ressalva: o SRS §9 (F4a) diz que o aceite é **403**, e o `docs/api/rest-api.md` §3 manda **404**
+para todo recurso invisível. O conflito já estava registrado desde o E0; o teste do portão
+implementa 404, seguindo a regra de vazamento, que é a norma mais específica e cuja justificativa
+(não confirmar existência) se aplica exatamente aqui.
+
+Ressalva 2: canal de voz em conversa direta é permitido pelo passo 0 (P-03 do SRS §10.1), e a
+máscara concedida inclui `CONNECT_VOICE`, `SPEAK`, `VIDEO` e `SCREEN_SHARE`. Nada disso foi
+exercitado: a emissão de token de voz é do E11 e a UI é do E13.
+
+Pendente de humano: nenhum.
