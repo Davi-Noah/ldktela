@@ -42,6 +42,18 @@ pub struct Config {
     pub access_token_ttl_seconds: i64,
     pub refresh_token_ttl_days: i64,
     pub argon2: Argon2Config,
+    pub gateway: GatewayConfig,
+}
+
+/// WebSocket gateway limits (`docs/protocol/websocket.md` §3.2, §3.3, §7).
+#[derive(Debug, Clone, Copy)]
+pub struct GatewayConfig {
+    pub heartbeat_interval_ms: u64,
+    /// How long a disconnected session stays resumable.
+    pub session_ttl_ms: u64,
+    /// Dispatches kept per session for replay.
+    pub resume_buffer_size: usize,
+    pub max_connections_per_user: usize,
 }
 
 /// Anything that can answer "what is the value of this variable".
@@ -108,6 +120,12 @@ impl Config {
             access_token_ttl_seconds: parse(source, "ACCESS_TOKEN_TTL_SECONDS")?,
             refresh_token_ttl_days: parse(source, "REFRESH_TOKEN_TTL_DAYS")?,
             argon2,
+            gateway: GatewayConfig {
+                heartbeat_interval_ms: parse(source, "WS_HEARTBEAT_INTERVAL_MS")?,
+                session_ttl_ms: parse(source, "WS_SESSION_TTL_MS")?,
+                resume_buffer_size: parse(source, "WS_RESUME_BUFFER_SIZE")?,
+                max_connections_per_user: parse(source, "WS_MAX_CONNECTIONS_PER_USER")?,
+            },
         })
     }
 }
@@ -156,6 +174,10 @@ mod tests {
             ("ARGON2_MEMORY_KIB", "65536"),
             ("ARGON2_ITERATIONS", "3"),
             ("ARGON2_PARALLELISM", "4"),
+            ("WS_HEARTBEAT_INTERVAL_MS", "30000"),
+            ("WS_SESSION_TTL_MS", "90000"),
+            ("WS_RESUME_BUFFER_SIZE", "500"),
+            ("WS_MAX_CONNECTIONS_PER_USER", "4"),
         ] {
             m.insert(k, v.to_string());
         }
@@ -168,6 +190,8 @@ mod tests {
         assert_eq!(config.app_env, AppEnv::Development);
         assert_eq!(config.access_token_ttl_seconds, 900);
         assert_eq!(config.argon2.memory_kib, 65_536);
+        assert_eq!(config.gateway.resume_buffer_size, 500);
+        assert_eq!(config.gateway.session_ttl_ms, 90_000);
     }
 
     #[test]

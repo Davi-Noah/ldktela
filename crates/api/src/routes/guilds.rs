@@ -10,7 +10,7 @@ use db::types::ChannelType;
 use domain::validation::{self, limits, Validation};
 use domain::Permissions;
 use protocol::channel::{Channel, CreateChannelRequest, ReorderChannelsRequest};
-use protocol::gateway::ReadyGuild;
+use protocol::gateway::{DispatchEvent, ReadyGuild};
 use protocol::guild::{
     Category, CreateCategoryRequest, CreateRoleRequest, Guild, Member, Role, UpdateCategoryRequest,
     UpdateGuildRequest, UpdateMemberRequest, UpdateRoleRequest,
@@ -175,6 +175,18 @@ async fn update_member(
     let member = guilds::find_member(&state.pool, id, user_id)
         .await?
         .ok_or(AppError::invisible("member"))?;
+    if body.roles.is_some() {
+        // Trigger 2: a role assignment moved.
+        state.hub.invalidate_guild(&state.pool, id).await;
+    }
+    state
+        .hub
+        .publish_to_guild(
+            &state.pool,
+            id,
+            DispatchEvent::GuildMemberUpdate(Box::new(member.to_wire())),
+        )
+        .await;
     Ok(Json(member.to_wire()))
 }
 
@@ -190,9 +202,23 @@ async fn kick_member(
             reason: "cannot_remove_owner",
         });
     }
+    let wire = guilds::find_member(&state.pool, id, user_id)
+        .await?
+        .map(|m| m.to_wire())
+        .ok_or(AppError::invisible("member"))?;
     if !guilds::remove_member(&state.pool, id, user_id).await? {
         return Err(AppError::invisible("member"));
     }
+    // Trigger 5: the membership set moved.
+    state.hub.invalidate_guild(&state.pool, id).await;
+    state
+        .hub
+        .publish_to_guild(
+            &state.pool,
+            id,
+            DispatchEvent::GuildMemberRemove(Box::new(wire)),
+        )
+        .await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -208,7 +234,21 @@ async fn ban_member(
             reason: "cannot_remove_owner",
         });
     }
+    let wire = guilds::find_member(&state.pool, id, user_id)
+        .await?
+        .map(|m| m.to_wire());
     guilds::ban_member(&state.pool, id, user_id).await?;
+    state.hub.invalidate_guild(&state.pool, id).await;
+    if let Some(wire) = wire {
+        state
+            .hub
+            .publish_to_guild(
+                &state.pool,
+                id,
+                DispatchEvent::GuildMemberRemove(Box::new(wire)),
+            )
+            .await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -238,6 +278,14 @@ async fn create_category(
         body.position.unwrap_or(0),
     )
     .await?;
+    state
+        .hub
+        .publish_to_guild(
+            &state.pool,
+            id,
+            DispatchEvent::CategoryCreate(category.to_wire()),
+        )
+        .await;
     Ok((StatusCode::CREATED, Json(category.to_wire())))
 }
 
@@ -258,6 +306,14 @@ async fn update_category(
     }
     v.finish()?;
     let category = categories::update(&state.pool, id, cid, body.name, body.position).await?;
+    state
+        .hub
+        .publish_to_guild(
+            &state.pool,
+            id,
+            DispatchEvent::CategoryUpdate(category.to_wire()),
+        )
+        .await;
     Ok(Json(category.to_wire()))
 }
 
@@ -268,9 +324,18 @@ async fn delete_category(
     Path((id, cid)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, AppError> {
     require_guild(&state, caller.id, id, Permissions::MANAGE_CHANNELS).await?;
+    let existing = categories::list_by_guild(&state.pool, id).await?;
+    let Some(category) = existing.iter().find(|c| c.id == cid) else {
+        return Err(AppError::invisible("category"));
+    };
+    let wire = category.to_wire();
     if !categories::delete(&state.pool, id, cid).await? {
         return Err(AppError::invisible("category"));
     }
+    state
+        .hub
+        .publish_to_guild(&state.pool, id, DispatchEvent::CategoryDelete(wire))
+        .await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -326,6 +391,20 @@ async fn create_channel(
     let mask = db::repo::permissions::resolve_for_channel(&state.pool, caller.id, channel.id)
         .await?
         .unwrap_or(access.permissions);
+
+    // Trigger 4 of the five in websocket.md 4.2: a new channel moves the index.
+    state
+        .hub
+        .invalidate_channel(&state.pool, channel.id, Some(id))
+        .await;
+    state
+        .hub
+        .publish_to_channel(
+            &state.pool,
+            channel.id,
+            DispatchEvent::ChannelCreate(Box::new(channel.to_wire(mask.bits(), None))),
+        )
+        .await;
     Ok((
         StatusCode::CREATED,
         Json(channel.to_wire(mask.bits(), None)),
@@ -346,6 +425,18 @@ async fn reorder_channels(
         .map(|p| (p.id, p.position, p.category_id))
         .collect();
     channels::reorder(&state.pool, id, &positions).await?;
+    for channel in channels::list_by_guild(&state.pool, id).await? {
+        if positions.iter().any(|(cid, _, _)| *cid == channel.id) {
+            state
+                .hub
+                .publish_to_channel(
+                    &state.pool,
+                    channel.id,
+                    DispatchEvent::ChannelUpdate(Box::new(channel.to_wire(0, None))),
+                )
+                .await;
+        }
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -399,6 +490,12 @@ async fn create_role(
         },
     )
     .await?;
+    // Trigger 1: a role changed.
+    state.hub.invalidate_guild(&state.pool, id).await;
+    state
+        .hub
+        .publish_to_guild(&state.pool, id, DispatchEvent::RoleCreate(role.to_wire()))
+        .await;
     Ok((StatusCode::CREATED, Json(role.to_wire())))
 }
 
@@ -441,6 +538,11 @@ async fn update_role(
         body.hoist,
     )
     .await?;
+    state.hub.invalidate_guild(&state.pool, id).await;
+    state
+        .hub
+        .publish_to_guild(&state.pool, id, DispatchEvent::RoleUpdate(role.to_wire()))
+        .await;
     Ok(Json(role.to_wire()))
 }
 
@@ -451,10 +553,19 @@ async fn delete_role(
     Path((id, rid)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, AppError> {
     require_guild(&state, caller.id, id, Permissions::MANAGE_ROLES).await?;
+    let wire = roles::find_by_id(&state.pool, id, rid)
+        .await
+        .map(|r| r.to_wire())
+        .map_err(|_| AppError::invisible("role"))?;
     if !roles::delete(&state.pool, id, rid).await? {
         // Either it does not exist, or it is `@everyone`, which has no delete.
         return Err(AppError::invisible("role"));
     }
+    state.hub.invalidate_guild(&state.pool, id).await;
+    state
+        .hub
+        .publish_to_guild(&state.pool, id, DispatchEvent::RoleDelete(wire))
+        .await;
     Ok(StatusCode::NO_CONTENT)
 }
 

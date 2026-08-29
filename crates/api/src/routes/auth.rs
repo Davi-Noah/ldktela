@@ -100,6 +100,21 @@ async fn register(
     .await?;
 
     tx.commit().await.map_err(db::DbError::from)?;
+
+    // Trigger 5 of websocket.md 4.2: the membership set moved.
+    if let Some(guild_id) = invite.guild_id {
+        state.hub.invalidate_guild(&state.pool, guild_id).await;
+        if let Some(member) = guilds::find_member(&state.pool, guild_id, user.id).await? {
+            state
+                .hub
+                .publish_to_guild(
+                    &state.pool,
+                    guild_id,
+                    protocol::gateway::DispatchEvent::GuildMemberAdd(Box::new(member.to_wire())),
+                )
+                .await;
+        }
+    }
     tracing::info!(user_id = %user.id, "account created");
     Ok((StatusCode::CREATED, Json(response)))
 }

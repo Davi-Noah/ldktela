@@ -4,6 +4,7 @@ pub mod auth;
 pub mod config;
 pub mod error;
 pub mod extract;
+pub mod gateway;
 pub mod middleware;
 pub mod permissions;
 pub mod routes;
@@ -26,6 +27,7 @@ const MAX_BODY_BYTES: usize = 256 * 1024;
 pub fn router(state: AppState) -> Router {
     Router::new()
         .nest(API_BASE, routes::router())
+        .merge(gateway::router())
         .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
         .layer(axum::middleware::from_fn(middleware::request_id::propagate))
         .with_state(state)

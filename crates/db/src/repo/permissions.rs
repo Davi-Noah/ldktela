@@ -264,3 +264,126 @@ async fn channel_overwrites<'e, E: PgExecutor<'e>>(
         })
         .collect())
 }
+
+/// Everyone who can currently see a channel.
+///
+/// This is the **only** consumer allowed to cache its answer: the gateway keeps
+/// it in memory for notification routing (`docs/protocol/websocket.md` §4.2).
+/// Any response carrying content resolves per request instead.
+///
+/// Four queries regardless of member count: the algorithm then runs in Rust once
+/// per member. Resolving member by member would be three queries each, which at
+/// thirty members is ninety round trips for one message.
+pub async fn viewers_of_channel(pool: &sqlx::PgPool, channel_id: Uuid) -> DbResult<Vec<Uuid>> {
+    let channel = sqlx::query!(
+        r#"SELECT type AS "kind: ChannelType", guild_id FROM channels WHERE id = $1"#,
+        channel_id
+    )
+    .fetch_optional(pool)
+    .await?;
+    let Some(channel) = channel else {
+        return Ok(Vec::new());
+    };
+
+    // Passo 0: em conversa direta o conjunto é a lista de participantes ativos.
+    if channel.kind.is_direct() {
+        return crate::repo::channels::participant_ids(pool, channel_id).await;
+    }
+    let Some(guild_id) = channel.guild_id else {
+        return Ok(Vec::new());
+    };
+
+    let owner_id = sqlx::query_scalar!("SELECT owner_id FROM guilds WHERE id = $1", guild_id)
+        .fetch_optional(pool)
+        .await?;
+    let Some(owner_id) = owner_id else {
+        return Ok(Vec::new());
+    };
+
+    let everyone = sqlx::query!(
+        "SELECT id, permissions FROM roles WHERE guild_id = $1 AND is_default",
+        guild_id
+    )
+    .fetch_optional(pool)
+    .await?;
+    let everyone_role_id = everyone.as_ref().map(|r| r.id);
+    let everyone_permissions =
+        Permissions::from_bits_truncate(everyone.as_ref().map_or(0, |r| r.permissions));
+
+    let members = sqlx::query!(
+        "SELECT user_id FROM guild_members WHERE guild_id = $1 AND banned_at IS NULL",
+        guild_id
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let assignments = sqlx::query!(
+        r#"
+        SELECT mr.user_id, r.id AS role_id, r.permissions
+        FROM member_roles mr
+        JOIN roles r ON r.id = mr.role_id
+        WHERE mr.guild_id = $1
+        "#,
+        guild_id
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let overwrites = channel_overwrites(pool, channel_id).await?;
+
+    let mut viewers = Vec::new();
+    for member in members {
+        let user_id = member.user_id;
+        let mut role_permissions = Vec::new();
+        let mut role_ids = Vec::new();
+        for a in assignments.iter().filter(|a| a.user_id == user_id) {
+            role_permissions.push(Permissions::from_bits_truncate(a.permissions));
+            role_ids.push(a.role_id);
+        }
+
+        let mut everyone_overwrite = None;
+        let mut member_overwrite = None;
+        let mut member_role_overwrites = Vec::new();
+        for ow in &overwrites {
+            let pair = Overwrite::new(
+                Permissions::from_bits_truncate(ow.allow),
+                Permissions::from_bits_truncate(ow.deny),
+            );
+            match ow.target_type {
+                OverwriteTarget::Member if ow.target_id == user_id => member_overwrite = Some(pair),
+                OverwriteTarget::Role if Some(ow.target_id) == everyone_role_id => {
+                    everyone_overwrite = Some(pair)
+                }
+                OverwriteTarget::Role if role_ids.contains(&ow.target_id) => {
+                    member_role_overwrites.push(pair)
+                }
+                _ => {}
+            }
+        }
+
+        let mask = resolve(&PermissionContext::Guild(GuildContext {
+            is_guild_owner: owner_id == user_id,
+            everyone_permissions,
+            member_role_permissions: &role_permissions,
+            everyone_overwrite,
+            member_role_overwrites: &member_role_overwrites,
+            member_overwrite,
+        }));
+        if mask.contains(Permissions::VIEW_CHANNEL) {
+            viewers.push(user_id);
+        }
+    }
+    Ok(viewers)
+}
+
+/// Unbanned members of a guild. Used for events that belong to no channel
+/// (presence, member, role).
+pub async fn guild_member_ids(pool: &sqlx::PgPool, guild_id: Uuid) -> DbResult<Vec<Uuid>> {
+    let ids = sqlx::query_scalar!(
+        "SELECT user_id FROM guild_members WHERE guild_id = $1 AND banned_at IS NULL",
+        guild_id
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(ids)
+}

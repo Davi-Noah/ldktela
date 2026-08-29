@@ -2,12 +2,10 @@
 
 ## Estado atual
 
-Último estágio concluído: E5
-Próximo estágio: E6
+Último estágio concluído: E6
+Próximo estágio: E7
 Portões vermelhos abertos: nenhum
 Carregado para estágios seguintes:
-- E6 precisa emitir `PERMISSIONS_STALE` e invalidar o índice de fan-out nas mutações do E5
-  (contrato §6.4). O E5 entregou as rotas sem o dispatch, porque o gateway ainda não existe.
 - O portão do E5 cita canal, **mensagem** e **anexo**. As rotas de mensagem (E7) e de anexo
   (E8) ainda não existem; as duas asserções de 404 correspondentes ficam devendo e serão
   escritas nos respectivos estágios.
@@ -292,5 +290,63 @@ barramento de eventos.
 Ressalva 3: o defeito do 422 foi encontrado pelo teste de máscara-como-número, não previsto no
 plano: todo corpo com forma errada estava escapando do formato de erro do §3. Corrigido na
 origem com extractors próprios, o que afeta todas as rotas, inclusive as de E4.
+
+Pendente de humano: nenhum.
+
+---
+
+## E6 — Gateway WebSocket · CONCLUÍDO
+
+Portão: `cargo test -p api` → 90 testes verdes (50 unitários + 13 auth + 17 estrutura +
+10 gateway), com servidor HTTP real em porta efêmera e cliente `tokio-tungstenite`.
+`just check` → `OK — tudo verde`.
+
+Entregue: envelope e opcodes do §2 · `HELLO` com os dois intervalos · `IDENTIFY` e `RESUME`
+com verificação de token e de dono da sessão · batimento com `HEARTBEAT_ACK` e detecção de
+zumbi nos dois sentidos · buffer circular de 500 dispatches por sessão, com `TYPING_START`
+fora dele · índice `channel_id -> Set<user_id>` com invalidação nos cinco gatilhos do §4.2 ·
+`PERMISSIONS_STALE` em toda alteração de cargo, atribuição, overwrite, canal e membro ·
+`RECONNECT` no desligamento gracioso e ao estourar as 4 conexões por usuário · limites do §7
+(10 s para identificar, 30 frames/60 s, 4 KB por frame, TTL de 90 s com varredura) ·
+presença derivada do batimento, com `invisible` reportado como `offline` a terceiros ·
+`READY` com estrutura, sem histórico, só com os canais visíveis no momento da identificação.
+
+Arquivos:
+- `crates/api/src/gateway/{mod,hub,index,ready,session}.rs`
+- `crates/api/src/{state,config}.rs`, `crates/api/src/routes/{guilds,channels,auth,users}.rs`
+  (emissão de eventos e `PATCH /users/@me/presence`)
+- `crates/db/src/repo/permissions.rs` (`viewers_of_channel`, `guild_member_ids`)
+- `crates/server/src/main.rs` (varredura de sessões e `RECONNECT` no shutdown)
+- `crates/api/tests/{gateway.rs,common/gateway.rs}`
+
+Testes do portão: `a_resume_replays_exactly_the_dispatches_missed_while_disconnected` — mata o
+socket sem handshake, gera três eventos, reconecta com `RESUME`, e prova que os três voltaram
+na ordem original, que as sequências são contíguas e que começam exatamente em `last_seq + 1`.
+`an_event_from_a_private_channel_never_reaches_who_cannot_see_it` — o dono renomeia um canal
+negado por overwrite; o dono recebe `CHANNEL_UPDATE`, o membro não recebe nada, e nenhum frame
+dele cita o nome novo. `granting_a_role_makes_a_private_channel_appear_and_invalidates_the_index`
+fecha o ciclo dos gatilhos: antes do cargo o evento não chega, depois chega, com
+`PERMISSIONS_STALE` no meio.
+
+Decisões registradas: 8 linhas.
+
+**Dois defeitos encontrados por teste, ambos corrigidos:**
+1. `READY` podia perder a sequência 1 para o `PRESENCE_UPDATE` de outra conexão, porque a
+   sessão entrava no registro antes de o payload ser montado. `create_session`/`attach` agora
+   são separados.
+2. A detecção de lacuna no resume usava o `s` mais antigo do buffer, o que transformava um
+   `TYPING_START` pulado em lacuna irrecuperável. Passou a usar o maior `s` efetivamente
+   descartado por estouro.
+
+Ressalva: a checagem de zumbi do lado do servidor usa o intervalo configurado (30 s), então o
+teste de zumbi levaria mais de um minuto e **não foi escrito**. O caminho está implementado e
+exercitado só na direção cliente→servidor (`HEARTBEAT_ACK`). Verificação de desconexão por
+falta de batimento fica sem cobertura automática.
+
+Ressalva 2: `voice_states` no `READY` sai sempre vazio — a tabela existe, mas quem a alimenta
+é o webhook do LiveKit, do E11.
+
+Ressalva 3: o protocolo não define `GUILD_UPDATE`, então renomear um guild não notifica
+ninguém. Registrado em DECISIONS.md como lacuna.
 
 Pendente de humano: nenhum.

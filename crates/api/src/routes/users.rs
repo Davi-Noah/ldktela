@@ -1,11 +1,14 @@
 //! `/users/*` (`docs/api/rest-api.md` §6.1).
 
 use axum::extract::State;
-use axum::routing::get;
+use axum::routing::{get, patch};
 use axum::Router;
 use db::repo::users;
 use domain::validation::{self, limits, Validation};
-use protocol::user::{CurrentUser, PresenceStatus, UpdateCurrentUserRequest, User};
+use protocol::gateway::DispatchEvent;
+use protocol::user::{
+    CurrentUser, Presence, UpdateCurrentUserRequest, UpdatePresenceRequest, User,
+};
 use uuid::Uuid;
 
 use crate::error::AppError;
@@ -17,6 +20,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/users/@me", get(me).patch(update_me))
         .route("/users/{id}", get(profile))
+        .route("/users/@me/presence", patch(update_presence))
 }
 
 #[tracing::instrument(skip(state), fields(user_id = %caller.id))]
@@ -25,9 +29,8 @@ async fn me(
     caller: AuthUser,
 ) -> Result<Json<CurrentUser>, AppError> {
     let user = users::find_by_id(&state.pool, caller.id).await?;
-    // Presence lives in the gateway; until E6 wires it in, a REST read reports
-    // the durable part of the profile and `offline`.
-    Ok(Json(user.to_current(PresenceStatus::Offline)))
+    let status = state.hub.presence_of(caller.id, caller.id).await;
+    Ok(Json(user.to_current(status)))
 }
 
 #[tracing::instrument(skip(state, body), fields(user_id = %caller.id))]
@@ -66,7 +69,46 @@ async fn update_me(
         body.accent_color,
     )
     .await?;
-    Ok(Json(user.to_current(PresenceStatus::Offline)))
+    let status = state.hub.presence_of(caller.id, caller.id).await;
+    Ok(Json(user.to_current(status)))
+}
+
+/// `PATCH /users/@me/presence`. The only source of `idle`, `dnd` and
+/// `invisible`; `online` and `offline` derive from the heartbeat.
+#[tracing::instrument(skip(state, body), fields(user_id = %caller.id))]
+async fn update_presence(
+    State(state): State<AppState>,
+    caller: AuthUser,
+    Json(body): Json<UpdatePresenceRequest>,
+) -> Result<Json<Presence>, AppError> {
+    if !body.status.is_settable() {
+        return Err(AppError::Validation(vec![protocol::error::FieldError {
+            field: "status".into(),
+            code: "NOT_ALLOWED".into(),
+        }]));
+    }
+    state.hub.declare_presence(caller.id, body.status).await;
+
+    // Third parties never see `invisible` (RF-04), so the broadcast carries the
+    // masked value while the response to the user carries the real one.
+    let public = state.hub.presence_of(caller.id, Uuid::nil()).await;
+    for guild in db::repo::guilds::list_for_user(&state.pool, caller.id).await? {
+        state
+            .hub
+            .publish_to_guild(
+                &state.pool,
+                guild.id,
+                DispatchEvent::PresenceUpdate(Presence {
+                    user_id: caller.id,
+                    status: public,
+                }),
+            )
+            .await;
+    }
+    Ok(Json(Presence {
+        user_id: caller.id,
+        status: state.hub.presence_of(caller.id, caller.id).await,
+    }))
 }
 
 /// Public profile. Any authenticated user may read any profile: the community is

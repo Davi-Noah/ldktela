@@ -10,6 +10,8 @@
 
 #![allow(dead_code)]
 
+pub mod gateway;
+
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
@@ -26,7 +28,7 @@ use testcontainers_modules::postgres::Postgres;
 use tokio::sync::{Mutex, OnceCell};
 use tower::ServiceExt;
 
-use api::config::{AppEnv, Argon2Config, Config};
+use api::config::{AppEnv, Argon2Config, Config, GatewayConfig};
 use api::state::AppState;
 use uuid::Uuid;
 
@@ -94,6 +96,12 @@ pub fn test_config(database_url: String) -> Config {
             memory_kib: 8192,
             iterations: 1,
             parallelism: 1,
+        },
+        gateway: GatewayConfig {
+            heartbeat_interval_ms: 30_000,
+            session_ttl_ms: 90_000,
+            resume_buffer_size: 500,
+            max_connections_per_user: 4,
         },
     }
 }

@@ -10,6 +10,7 @@ use db::types::OverwriteTarget;
 use domain::validation::{self, limits, Validation};
 use domain::Permissions;
 use protocol::channel::{Channel, UpdateChannelRequest};
+use protocol::gateway::DispatchEvent;
 use protocol::guild::{ChannelOverwrite, PutOverwriteRequest};
 use uuid::Uuid;
 
@@ -73,6 +74,14 @@ async fn update(
         body.position,
     )
     .await?;
+    state
+        .hub
+        .publish_to_channel(
+            &state.pool,
+            id,
+            DispatchEvent::ChannelUpdate(Box::new(updated.to_wire(0, None))),
+        )
+        .await;
     Ok(Json(updated.to_wire(access.permissions.bits(), None)))
 }
 
@@ -89,9 +98,22 @@ async fn delete(
             reason: "direct_channel_not_deletable",
         });
     }
+    // The recipient set has to be captured first: after the row is deleted
+    // there is nothing left to resolve it from.
+    let recipients = state.hub.viewers(&state.pool, id).await;
+    let wire = access.channel.to_wire(0, None);
     if !channels::delete(&state.pool, id).await? {
         return Err(AppError::invisible("channel"));
     }
+    // Trigger 4 of the five in websocket.md 4.2.
+    state
+        .hub
+        .invalidate_channel(&state.pool, id, access.channel.guild_id)
+        .await;
+    state
+        .hub
+        .publish_to_users(&recipients, DispatchEvent::ChannelDelete(Box::new(wire)))
+        .await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -162,6 +184,13 @@ async fn put_overwrite(
         deny.bits(),
     )
     .await?;
+    // Trigger 3: a channel overwrite changed. This also emits
+    // PERMISSIONS_STALE, without which a demoted user keeps seeing controls
+    // the server will refuse.
+    state
+        .hub
+        .invalidate_channel(&state.pool, id, Some(guild_id))
+        .await;
     Ok(Json(row.to_wire()))
 }
 
@@ -171,11 +200,15 @@ async fn delete_overwrite(
     caller: AuthUser,
     Path((id, target_type, target_id)): Path<(Uuid, String, Uuid)>,
 ) -> Result<StatusCode, AppError> {
-    require_channel(&state, caller.id, id, Permissions::MANAGE_ROLES).await?;
+    let access = require_channel(&state, caller.id, id, Permissions::MANAGE_ROLES).await?;
     let target = parse_target(&target_type)?;
     if !roles::delete_overwrite(&state.pool, id, target, target_id).await? {
         return Err(AppError::invisible("overwrite"));
     }
+    state
+        .hub
+        .invalidate_channel(&state.pool, id, access.channel.guild_id)
+        .await;
     Ok(StatusCode::NO_CONTENT)
 }
 

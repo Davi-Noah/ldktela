@@ -175,3 +175,28 @@ autoridade (`docs/srs/` > `docs/protocol/` > `docs/api/` > `CLAUDE.md`).
 - **[E5] O E5 não emite `PERMISSIONS_STALE`** — o contrato §6.4 exige o dispatch, mas o
   gateway é do E6. O barramento de eventos e a ligação das rotas de E5 nele entram no E6.
   Não foi criada interface vazia para isso (CLAUDE.md §2.10).
+
+- **[E6] `READY` é despachado antes de a sessão entrar no registro** — registrar primeiro
+  deixa uma janela em que o `PRESENCE_UPDATE` de outra conexão toma a sequência 1, e o §3.1
+  exige `READY` como primeiro frame da sessão. `Hub::create_session` e `Hub::attach` são
+  separados exatamente por isso. Encontrado por teste, não por leitura.
+- **[E6] A lacuna de resume é medida por evicção, não pelo `s` mais antigo do buffer** —
+  `TYPING_START` consome sequência e nunca entra no buffer (§5), então comparar contra o
+  frame mais antigo bufferizado chamaria de lacuna um evento efêmero pulado. A sessão guarda
+  `evicted_through`, o maior `s` descartado por estouro; só isso torna a retomada impossível.
+- **[E6] `session_id` só retoma para o próprio usuário** — o §3.3 não diz, e sem a checagem um
+  `session_id` vazado entrega o histórico de eventos da sessão alheia.
+- **[E6] Presença fica em memória no hub, não no banco** — `online`/`offline` derivam do
+  batimento e `idle`/`dnd`/`invisible` vêm do `PATCH /users/@me/presence`. Nada disso
+  sobrevive a um reinício, o que é correto: sem socket não há presença. O SRS §5.2 não tem
+  tabela de presença, o que confirma a leitura.
+- **[E6] Um status declarado não sobrevive à queda da conexão** — quem estava em `dnd` e caiu
+  aparece `offline`, não `dnd`. Do contrário um cliente que morre deixa presença fantasma.
+- **[E6] O índice de fan-out falha fechado** — se calcular os espectadores der erro, o conjunto
+  volta vazio e o evento não sai. Falhar aberto viraria broadcast.
+- **[E6] `GET /guilds/{id}` não emite evento** — o §5 do protocolo não define `GUILD_UPDATE`.
+  `PATCH /guilds/{id}` também não emite, pelo mesmo motivo. Registrado como lacuna: o cliente
+  descobre renomeação de guild na próxima leitura por REST.
+- **[E6] Versão do cliente abaixo do mínimo fecha com 4010, não 4001** — 4010 dispara o fluxo
+  de atualização automática (RF-36); 4001 faria o app deslogar o usuário, que não tem nada a
+  ver com o problema.

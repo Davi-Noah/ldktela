@@ -45,8 +45,21 @@ async fn serve(config: api::config::Config) -> anyhow::Result<()> {
     tracing::info!(addr = %bind_addr, env = ?config.app_env, "listening");
 
     let state = api::AppState::new(pool, config);
+
+    // Expires gateway sessions past their TTL and reports whoever went
+    // offline as a result.
+    tokio::spawn(api::gateway::run_session_sweeper(state.clone()));
+
+    let shutdown_state = state.clone();
     axum::serve(listener, api::router(state))
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(async move {
+            shutdown_signal().await;
+            // The system runs as a single instance (RNF-17), so a deploy
+            // drops every socket. RECONNECT first: the 90 s session TTL gives
+            // the process time to come back and every client resumes.
+            shutdown_state.hub.broadcast_reconnect().await;
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        })
         .await
         .context("serving http")
 }
