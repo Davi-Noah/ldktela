@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS read_states;
+DROP TABLE IF EXISTS mentions;
+DROP TABLE IF EXISTS reactions;
+DROP TABLE IF EXISTS attachments;
+DROP TABLE IF EXISTS messages;

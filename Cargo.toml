@@ -71,7 +71,7 @@ serenity = { version = "0.12", default-features = false, features = ["client", "
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-tls", "stream"] }
 
 # --- dev ---
-testcontainers = "0.28"
+testcontainers = "0.27"
 testcontainers-modules = { version = "0.15", features = ["postgres"] }
 futures = "0.3"
 tokio-tungstenite = "0.29"

@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS channel_overwrites;
+DROP TYPE  IF EXISTS overwrite_target;
+DROP TABLE IF EXISTS channel_participants;
+DROP TABLE IF EXISTS channels;
+DROP TYPE  IF EXISTS channel_type;
+DROP TABLE IF EXISTS categories;
+DROP TABLE IF EXISTS member_roles;
+DROP TABLE IF EXISTS roles;
+DROP TABLE IF EXISTS guild_members;
+DROP TABLE IF EXISTS guilds;

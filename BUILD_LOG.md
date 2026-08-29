@@ -2,8 +2,8 @@
 
 ## Estado atual
 
-Último estágio concluído: E0
-Próximo estágio: E1
+Último estágio concluído: E1
+Próximo estágio: E2
 Portões vermelhos abertos: nenhum
 Pendências de humano:
 - Toolchain instalada por este agente nesta máquina: rustup 1.98.0, `just` 1.42.4,
@@ -61,3 +61,44 @@ contra `ubuntu-latest` + `windows-latest` e não foi validado por execução rea
 
 Pendente de humano: criar o repositório remoto e rodar o CI uma vez; instalar WebView2
 Runtime se ausente (o app Tauri não abre sem ele — não verificado nesta máquina).
+
+---
+
+## E1 — Schema · CONCLUÍDO
+
+Portão: `just db-reset` → 6 migrations aplicadas, sem erro. `cargo test -p db` → 4 testes
+verdes (13,98 s, PostgreSQL 16 real via testcontainers). `just check` → `OK — tudo verde`.
+
+Entregue: as 20 tabelas do SRS §5.2 transcritas literalmente (nomes, tipos, defaults,
+constraints e comentários preservados) em seis migrations reversíveis · os três enums
+(`channel_type`, `overwrite_target`, `message_origin`) · os índices parciais
+(`idx_users_email`, `idx_users_username`, `idx_roles_default`, `idx_messages_channel`,
+`idx_messages_pinned`, `idx_participants_user`, `idx_refresh_user`, `idx_outbox_pending`) ·
+o índice GIN de busca em `to_tsvector('portuguese', content)` · `voice_states` UNLOGGED ·
+`pg_trgm` criada com o índice de trigrama comentado (P-02, desativado por padrão) ·
+fixture `TestDb` para os estágios seguintes.
+
+Arquivos:
+- `migrations/000{1..6}_{extensions,identity,structure,messages,voice,bridge}.{up,down}.sql`
+- `crates/db/tests/{migrations.rs,common/mod.rs}`, `crates/db/Cargo.toml`
+
+Testes que expressam o critério: `migrations_apply_revert_and_reapply_leaving_no_residue`
+(aplica, compara o conjunto de tabelas e enums contra a lista do SRS, reverte tudo com
+`Migrator::undo(…, 0)`, prova resíduo zero, reaplica) ·
+`schema_enforces_the_srs_constraints_that_carry_meaning` (chk_real_user_credentials,
+username único só para conta real, chk_channel_scope nos dois sentidos, chk_bridge_scope
+em DM, idx_roles_default) · `voice_states_is_unlogged_as_the_srs_requires` ·
+`full_text_index_uses_the_portuguese_configuration`.
+
+Decisões registradas: 3 linhas (testcontainers 0.27 corrigindo o E0; migrations fatiadas
+por bloco do SRS; o schema normativo tem 20 tabelas e não as 17 citadas no changelog C-07).
+
+Ressalva: `invites.guild_id` não tem chave estrangeira no SRS §5.2 e foi transcrito assim.
+É provável lapso da especificação — um convite pode apontar para um guild inexistente.
+Não corrigido (C6); registrado aqui.
+
+Ressalva 2: `mentions` não tem chave primária no SRS §5.2, o que permite linhas duplicadas
+idênticas. Transcrito literalmente. A extração de menções do E7 precisa deduplicar na
+aplicação.
+
+Pendente de humano: nenhum.

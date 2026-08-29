@@ -55,3 +55,13 @@ autoridade (`docs/srs/` > `docs/protocol/` > `docs/api/` > `CLAUDE.md`).
 - **[E0] CI em dois jobs** — `check` completo em `ubuntu-latest` (único runner com Docker
   para testcontainers e serviço de Postgres) e `windows-compile` em `windows-latest`
   apenas com `cargo check`, para pegar quebra específica da plataforma de distribuição.
+
+- **[E1] `testcontainers` fixado em 0.27, não 0.28** — `testcontainers-modules` 0.15
+  ainda exige `testcontainers ^0.27`; as duas versões conflitam em `bollard`.
+  Corrige a linha registrada no E0.
+- **[E1] Migrations em seis arquivos reversíveis por bloco do SRS §5.2** — extensions,
+  identity, structure, messages, voice, bridge. Alternativa descartada: um arquivo único,
+  que impede reverter parcialmente e torna o `down` uma bomba.
+- **[E1] O schema tem 20 tabelas, não 17** — o changelog C-07 do SRS fala em 17, mas o
+  bloco normativo §5.2 (com C-11 a C-14 aplicados) define 20. Adotado o §5.2, que é o
+  texto normativo. Sem alteração na especificação.
