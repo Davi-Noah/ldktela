@@ -3,15 +3,15 @@
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::post;
-use axum::{Json, Router};
-use db::repo::{invites, users};
+use axum::Router;
+use db::repo::{guilds, invites, users};
 use domain::validation::{self, Validation};
 use protocol::auth::{AuthResponse, LoginRequest, RefreshRequest, RegisterRequest};
-use protocol::user::PresenceStatus;
 use uuid::Uuid;
 
 use crate::auth::{password, session};
 use crate::error::AppError;
+use crate::extract::Json;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -57,6 +57,12 @@ async fn register(
             reason: "invite_consumed",
         })?;
 
+    let invite = invites::find_by_code(&mut *tx, body.invite_code.trim())
+        .await?
+        .ok_or(AppError::Conflict {
+            reason: "invite_consumed",
+        })?;
+
     let user = users::insert_real(
         &mut *tx,
         Uuid::now_v7(),
@@ -78,6 +84,12 @@ async fn register(
             AppError::from(e)
         }
     })?;
+
+    // The invite carries the guild the account joins (RF-02); without this the
+    // new account exists and can see nothing.
+    if let Some(guild_id) = invite.guild_id {
+        guilds::add_member(&mut *tx, guild_id, user.id).await?;
+    }
 
     let response = session::issue_session(
         &mut *tx,
@@ -151,8 +163,3 @@ async fn logout(
     session::revoke_session(&state.pool, &body.refresh_token).await?;
     Ok(StatusCode::NO_CONTENT)
 }
-
-/// Presence is not persisted; a freshly authenticated user is offline until the
-/// gateway sees them. Kept next to the routes that build `AuthResponse` so the
-/// two never drift.
-pub const INITIAL_PRESENCE: PresenceStatus = PresenceStatus::Offline;

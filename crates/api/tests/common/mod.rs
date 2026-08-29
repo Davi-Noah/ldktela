@@ -28,6 +28,7 @@ use tower::ServiceExt;
 
 use api::config::{AppEnv, Argon2Config, Config};
 use api::state::AppState;
+use uuid::Uuid;
 
 static SERVER: OnceCell<PgServer> = OnceCell::const_new();
 static NEXT_DB: AtomicU32 = AtomicU32::new(0);
@@ -191,12 +192,11 @@ impl TestApp {
         (status, json)
     }
 
-    /// Creates an invite directly, since `POST /invites` belongs to E5.
-    pub async fn seed_invite(&self, code: &str, max_uses: i32) {
-        let admin = uuid::Uuid::now_v7();
+    /// Creates an invite bound to a guild.
+    pub async fn seed_invite(&self, code: &str, max_uses: i32, guild_id: Option<Uuid>) {
+        let admin = Uuid::now_v7();
         sqlx::query(
-            "INSERT INTO users (id, email, username, password_hash, is_migrated) \
-             VALUES ($1, $2, $3, 'x', FALSE) ON CONFLICT DO NOTHING",
+            "INSERT INTO users (id, email, username, password_hash, is_migrated)              VALUES ($1, $2, $3, 'x', FALSE) ON CONFLICT DO NOTHING",
         )
         .bind(admin)
         .bind(format!("admin-{code}@exemplo.test"))
@@ -204,19 +204,27 @@ impl TestApp {
         .execute(&self.pool)
         .await
         .expect("seeding admin");
-        sqlx::query("INSERT INTO invites (id, code, created_by, max_uses) VALUES ($1, $2, $3, $4)")
-            .bind(uuid::Uuid::now_v7())
-            .bind(code)
-            .bind(admin)
-            .bind(max_uses)
-            .execute(&self.pool)
-            .await
-            .expect("seeding invite");
+        sqlx::query(
+            "INSERT INTO invites (id, code, created_by, guild_id, max_uses)              VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(code)
+        .bind(admin)
+        .bind(guild_id)
+        .bind(max_uses)
+        .execute(&self.pool)
+        .await
+        .expect("seeding invite");
     }
 
     /// Registers an account and returns the auth response body.
     pub async fn register(&self, username: &str, code: &str) -> Value {
-        self.seed_invite(code, 1).await;
+        self.register_into(username, code, None).await
+    }
+
+    /// Registers an account that joins `guild_id` through the invite.
+    pub async fn register_into(&self, username: &str, code: &str, guild_id: Option<Uuid>) -> Value {
+        self.seed_invite(code, 1, guild_id).await;
         let (status, body) = self
             .post(
                 "/auth/register",
@@ -238,4 +246,118 @@ pub fn error_code(body: &Value) -> &str {
     body["error"]["code"]
         .as_str()
         .unwrap_or_else(|| panic!("corpo de erro fora do formato do contrato: {body}"))
+}
+
+/// Structural seeding for the routes under test. These write directly because
+/// the REST contract has no guild-creation endpoint (see `docs/DECISIONS.md`).
+impl TestApp {
+    pub async fn seed_guild(&self, owner: Uuid, everyone_permissions: i64) -> (Uuid, Uuid) {
+        let guild = Uuid::now_v7();
+        sqlx::query("INSERT INTO guilds (id, name, owner_id) VALUES ($1, 'guild', $2)")
+            .bind(guild)
+            .bind(owner)
+            .execute(&self.pool)
+            .await
+            .expect("seeding guild");
+        let everyone = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO roles (id, guild_id, name, permissions, is_default)              VALUES ($1, $2, '@everyone', $3, TRUE)",
+        )
+        .bind(everyone)
+        .bind(guild)
+        .bind(everyone_permissions)
+        .execute(&self.pool)
+        .await
+        .expect("seeding @everyone");
+        self.join_guild(guild, owner).await;
+        (guild, everyone)
+    }
+
+    pub async fn join_guild(&self, guild: Uuid, user: Uuid) {
+        sqlx::query(
+            "INSERT INTO guild_members (guild_id, user_id) VALUES ($1, $2)              ON CONFLICT DO NOTHING",
+        )
+        .bind(guild)
+        .bind(user)
+        .execute(&self.pool)
+        .await
+        .expect("joining guild");
+    }
+
+    pub async fn seed_channel(&self, guild: Uuid, name: &str) -> Uuid {
+        let id = Uuid::now_v7();
+        sqlx::query("INSERT INTO channels (id, guild_id, name, type) VALUES ($1, $2, $3, 'text')")
+            .bind(id)
+            .bind(guild)
+            .bind(name)
+            .execute(&self.pool)
+            .await
+            .expect("seeding channel");
+        id
+    }
+
+    pub async fn set_overwrite(
+        &self,
+        channel: Uuid,
+        target_type: &str,
+        target: Uuid,
+        allow: i64,
+        deny: i64,
+    ) {
+        sqlx::query(
+            "INSERT INTO channel_overwrites (channel_id, target_type, target_id, allow, deny)              VALUES ($1, $2::overwrite_target, $3, $4, $5)              ON CONFLICT (channel_id, target_type, target_id)              DO UPDATE SET allow = EXCLUDED.allow, deny = EXCLUDED.deny",
+        )
+        .bind(channel)
+        .bind(target_type)
+        .bind(target)
+        .bind(allow)
+        .bind(deny)
+        .execute(&self.pool)
+        .await
+        .expect("setting overwrite");
+    }
+
+    /// The user id carried by an access token, without decoding the JWT here.
+    pub async fn user_id_by_username(&self, username: &str) -> Uuid {
+        sqlx::query_scalar("SELECT id FROM users WHERE username = $1")
+            .bind(username)
+            .fetch_one(&self.pool)
+            .await
+            .expect("user exists")
+    }
+
+    pub async fn put(&self, path: &str, token: &str, body: Value) -> (StatusCode, Value) {
+        let request = Request::builder()
+            .method("PUT")
+            .uri(format!("/api/v1{path}"))
+            .header("content-type", "application/json")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let (status, json, _) = self.send(request).await;
+        (status, json)
+    }
+
+    pub async fn delete(&self, path: &str, token: &str) -> (StatusCode, Value) {
+        let request = Request::builder()
+            .method("DELETE")
+            .uri(format!("/api/v1{path}"))
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        let (status, json, _) = self.send(request).await;
+        (status, json)
+    }
+
+    pub async fn post_auth(&self, path: &str, token: &str, body: Value) -> (StatusCode, Value) {
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/api/v1{path}"))
+            .header("content-type", "application/json")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let (status, json, _) = self.send(request).await;
+        (status, json)
+    }
 }

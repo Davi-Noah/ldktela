@@ -1,14 +1,15 @@
 //! `/users/*` (`docs/api/rest-api.md` §6.1).
 
-use axum::extract::{Path, State};
+use axum::extract::State;
 use axum::routing::get;
-use axum::{Json, Router};
+use axum::Router;
 use db::repo::users;
 use domain::validation::{self, limits, Validation};
 use protocol::user::{CurrentUser, PresenceStatus, UpdateCurrentUserRequest, User};
 use uuid::Uuid;
 
 use crate::error::AppError;
+use crate::extract::{Json, Path};
 use crate::middleware::auth::AuthUser;
 use crate::state::AppState;
 

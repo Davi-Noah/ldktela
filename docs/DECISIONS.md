@@ -143,3 +143,35 @@ autoridade (`docs/srs/` > `docs/protocol/` > `docs/api/` > `CLAUDE.md`).
 - **[E4] `find_by_id` de usuário não distingue visibilidade** — a comunidade é fechada e
   qualquer membro autenticado pode ler qualquer perfil. Esconder perfis entre membros não
   compra nada e complica menções.
+
+- **[E5] LACUNA DE ESPECIFICAÇÃO: não existe endpoint de criação de guild.** O
+  `docs/api/rest-api.md` §6.3 só tem `GET`/`PATCH /guilds/{id}` e `GET /guilds`. Sem
+  criação, nenhum guild existe e nada mais funciona. Em vez de inventar superfície de wire
+  (C4), a criação virou subcomando de CLI: `server bootstrap --guild <nome> --owner <username>`,
+  que cria o guild, o cargo `@everyone`, o canal `geral` e a associação do dono, em transação.
+  Reversível e fora do contrato REST.
+- **[E5] `POST /invites` exige `guild_id`** — o contrato não define o escopo de um convite
+  sem guild, e `CREATE_INVITE` só é verificável contra um guild. Além disso, o cadastro
+  passa a inserir a conta nova em `guild_members` do guild do convite: sem isso a conta
+  nasce sem enxergar nada.
+- **[E5] `GET /guilds/{id}` responde `ReadyGuild`** — é a mesma estrutura que o `READY` do
+  gateway entrega (canais visíveis, categorias, cargos, membros). Um segundo tipo com os
+  mesmos campos só criaria oportunidade de divergir.
+- **[E5] Visibilidade de guild = ser membro não banido; visibilidade de canal = `VIEW_CHANNEL`.**
+  O §5.3 pressupõe um membro e não trata o caso de não-membro. `GET /guilds/{id}` aplica
+  adicionalmente a regra do contrato (ao menos um canal visível) e responde 404 quando falha.
+- **[E5] Ninguém concede permissão que não tem** (`clamp_to_own`, em criação/edição de cargo
+  e em overwrite de canal). O SRS não diz isso, e sem a regra `MANAGE_ROLES` equivale a
+  `ADMINISTRATOR` por escalada. Exceção: quem tem `ADMINISTRATOR` concede qualquer coisa.
+- **[E5] `axum::Json` e `axum::extract::Path` foram embrulhados em `crate::extract`** — o
+  rejection padrão do axum devolve `422` com corpo de texto puro, e o contrato §3 não tem
+  `422` nem um segundo formato de erro. Corpo com forma errada vira `400 VALIDATION_FAILED`
+  nomeando o campo (extraído do caminho do `serde_path_to_error`); id malformado no path vira
+  `404`, igual a um id invisível.
+- **[E5] `@everyone` não pode ser apagado** — o guard está no `WHERE` do `DELETE`, então a
+  linha simplesmente não casa e a rota responde 404.
+- **[E5] Kick apaga a linha de `guild_members`; ban mantém a linha com `banned_at`** — assim
+  o banimento sobrevive a um novo convite, e o kick não.
+- **[E5] O E5 não emite `PERMISSIONS_STALE`** — o contrato §6.4 exige o dispatch, mas o
+  gateway é do E6. O barramento de eventos e a ligação das rotas de E5 nele entram no E6.
+  Não foi criada interface vazia para isso (CLAUDE.md §2.10).

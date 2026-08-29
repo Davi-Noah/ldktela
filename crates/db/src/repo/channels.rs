@@ -311,3 +311,75 @@ pub async fn set_bridge_enabled(
         .await,
     )
 }
+
+pub async fn update(
+    pool: &PgPool,
+    id: Uuid,
+    name: Option<String>,
+    topic: Option<Option<String>>,
+    category_id: Option<Option<Uuid>>,
+    position: Option<i32>,
+) -> DbResult<ChannelRow> {
+    missing(
+        "channel",
+        sqlx::query_as!(
+            ChannelRow,
+            r#"
+            UPDATE channels SET
+                name        = COALESCE($2, name),
+                topic       = CASE WHEN $3 THEN $4 ELSE topic END,
+                category_id = CASE WHEN $5 THEN $6 ELSE category_id END,
+                position    = COALESCE($7, position)
+            WHERE id = $1
+            RETURNING id, guild_id, category_id, name, topic,
+                      type AS "kind: ChannelType", position,
+                      discord_channel_id, bridge_enabled, created_at
+            "#,
+            id,
+            name,
+            topic.is_some(),
+            topic.flatten(),
+            category_id.is_some(),
+            category_id.flatten(),
+            position,
+        )
+        .fetch_one(pool)
+        .await,
+    )
+}
+
+/// Structural deletion is physical, with `ON DELETE CASCADE` taking the
+/// messages with it (SRS §5.1).
+pub async fn delete(pool: &PgPool, id: Uuid) -> DbResult<bool> {
+    let result = sqlx::query!("DELETE FROM channels WHERE id = $1", id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() == 1)
+}
+
+/// Batch reorder, transactional: a partial apply leaves the sidebar in an order
+/// nobody asked for (`docs/api/rest-api.md` §6.3).
+pub async fn reorder(
+    pool: &PgPool,
+    guild_id: Uuid,
+    positions: &[(Uuid, i32, Option<Option<Uuid>>)],
+) -> DbResult<()> {
+    let mut tx = pool.begin().await?;
+    for (id, position, category_id) in positions {
+        let result = sqlx::query!(
+            "UPDATE channels SET position = $3,                     category_id = CASE WHEN $4 THEN $5 ELSE category_id END              WHERE id = $1 AND guild_id = $2",
+            id,
+            guild_id,
+            position,
+            category_id.is_some(),
+            category_id.flatten(),
+        )
+        .execute(&mut *tx)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(crate::DbError::NotFound("channel"));
+        }
+    }
+    tx.commit().await?;
+    Ok(())
+}

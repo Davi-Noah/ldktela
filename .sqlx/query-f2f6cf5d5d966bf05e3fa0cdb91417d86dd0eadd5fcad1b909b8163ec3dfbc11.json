@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE channels SET\n                name        = COALESCE($2, name),\n                topic       = CASE WHEN $3 THEN $4 ELSE topic END,\n                category_id = CASE WHEN $5 THEN $6 ELSE category_id END,\n                position    = COALESCE($7, position)\n            WHERE id = $1\n            RETURNING id, guild_id, category_id, name, topic,\n                      type AS \"kind: ChannelType\", position,\n                      discord_channel_id, bridge_enabled, created_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "guild_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "category_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "topic",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "kind: ChannelType",
+        "type_info": {
+          "Custom": {
+            "name": "channel_type",
+            "kind": {
+              "Enum": [
+                "text",
+                "voice",
+                "dm",
+                "group_dm"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "position",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "discord_channel_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "bridge_enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        "Bool",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "f2f6cf5d5d966bf05e3fa0cdb91417d86dd0eadd5fcad1b909b8163ec3dfbc11"
+}

@@ -166,7 +166,7 @@ async fn an_unknown_refresh_token_is_unauthenticated_not_reused() {
 #[tokio::test]
 async fn registration_consumes_the_invite_exactly_once() {
     let app = TestApp::spawn().await;
-    app.seed_invite("UMAVEZ", 1).await;
+    app.seed_invite("UMAVEZ", 1, None).await;
 
     let body = json!({
         "invite_code": "UMAVEZ",
@@ -195,7 +195,7 @@ async fn registration_consumes_the_invite_exactly_once() {
 #[tokio::test]
 async fn a_failed_registration_gives_the_invite_use_back() {
     let app = TestApp::spawn().await;
-    app.seed_invite("DEVOLVE", 1).await;
+    app.seed_invite("DEVOLVE", 1, None).await;
     app.register("existente", "OUTRO1").await;
 
     // Username já em uso: a transação inteira reverte, inclusive o consumo.

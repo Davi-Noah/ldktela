@@ -2,9 +2,15 @@
 
 ## Estado atual
 
-Último estágio concluído: E4
-Próximo estágio: E5
+Último estágio concluído: E5
+Próximo estágio: E6
 Portões vermelhos abertos: nenhum
+Carregado para estágios seguintes:
+- E6 precisa emitir `PERMISSIONS_STALE` e invalidar o índice de fan-out nas mutações do E5
+  (contrato §6.4). O E5 entregou as rotas sem o dispatch, porque o gateway ainda não existe.
+- O portão do E5 cita canal, **mensagem** e **anexo**. As rotas de mensagem (E7) e de anexo
+  (E8) ainda não existem; as duas asserções de 404 correspondentes ficam devendo e serão
+  escritas nos respectivos estágios.
 Pendências de humano:
 - **Limite de taxa ainda não existe.** `POST /auth/login` e `/auth/register` estão sem os
   5/min por IP e por conta do contrato REST §5. O RNF-06 conta com esse limite como parte da
@@ -214,7 +220,7 @@ Arquivos:
 - `crates/api/src/routes/{mod,auth,users,health}.rs`
 - `crates/api/tests/{common/mod,auth}.rs`, `crates/server/src/main.rs`
 
-Teste do portão: `reusing_a_consumed_refresh_token_revogates_the_entire_family` — gira o token
+Teste do portão: `reusing_a_consumed_refresh_token_revokes_the_entire_family` — gira o token
 três vezes, reapresenta o primeiro (já consumido), prova 401 `TOKEN_REUSED`, e prova que o
 terceiro token — que estava vivo — também deixou de funcionar. Conta as linhas no banco:
 três emitidas, zero utilizáveis. Complementado por
@@ -241,3 +247,50 @@ Ressalva 2: `GET /users/@me` reporta `status: "offline"` sempre, porque presenç
 gateway e o gateway é do E6. Não é stub — é o valor correto até existir sessão de WebSocket.
 
 Pendente de humano: medir o custo do Argon2id na VM ARM real antes de produção.
+
+---
+
+## E5 — Estrutura · CONCLUÍDO
+
+Portão: `cargo test -p api` → 53 testes verdes (23 unitários + 13 de auth + 17 de estrutura).
+`just check` → `OK — tudo verde`.
+
+Entregue: CRUD de guilds, categorias, canais, cargos, membros e overwrites, com a permissão
+exigida por rota do contrato §6.2–§6.4 · guardas `channel_visible`/`require_channel` e
+`guild_visible`/`require_guild`, que separam "posso ver?" de "posso agir?" e nunca colapsam
+as duas · convites ligados a guild, com o cadastro inserindo a conta nova em `guild_members` ·
+extractors `Json`/`Path` próprios, para que corpo malformado e id malformado saiam no formato
+de erro único · `clamp_to_own`, impedindo escalada por `MANAGE_ROLES` · subcomando
+`server bootstrap` criando o primeiro guild.
+
+Arquivos:
+- `crates/db/src/repo/{guilds,roles,categories}.rs`, `crates/db/src/repo/channels.rs` (update,
+  delete, reorder), `crates/db/src/repo/mod.rs`
+- `crates/api/src/{permissions,extract}.rs`, `crates/api/src/routes/{guilds,channels,invites}.rs`,
+  `crates/api/src/routes/auth.rs` (entrada no guild pelo convite)
+- `crates/server/src/main.rs` (subcomando `bootstrap`)
+- `crates/api/tests/structure.rs`, `crates/api/tests/common/mod.rs`
+
+Teste do portão: `a_channel_denied_by_overwrite_answers_404_not_403` — um canal aberto e um
+canal privado no mesmo guild; o membro recebe **403** no aberto (visível, ação negada) e
+**404** no privado, e a mensagem do 404 é byte a byte igual à de um id inexistente.
+`deleting_and_overwriting_an_invisible_channel_answer_404_too` cobre as outras três rotas de
+canal. `a_guild_the_caller_does_not_belong_to_answers_404` e
+`a_member_with_no_visible_channel_cannot_see_the_guild_either` cobrem o nível de guild.
+
+Decisões registradas: 9 linhas, incluindo uma **lacuna de especificação**: o contrato REST não
+tem endpoint de criação de guild. Resolvido fora do wire, com subcomando de CLI.
+
+Ressalva: o portão do E5 pede a prova de 404 também em **mensagem** e **anexo**. Essas rotas
+pertencem a E7 e E8 e ainda não existem, então essas duas asserções não foram escritas. Está
+registrado no topo deste arquivo como item carregado.
+
+Ressalva 2: nenhuma mutação de E5 emite evento de gateway. O contrato §6.4 exige
+`PERMISSIONS_STALE` em toda alteração de cargo ou overwrite. Entra no E6 junto com o
+barramento de eventos.
+
+Ressalva 3: o defeito do 422 foi encontrado pelo teste de máscara-como-número, não previsto no
+plano: todo corpo com forma errada estava escapando do formato de erro do §3. Corrigido na
+origem com extractors próprios, o que afeta todas as rotas, inclusive as de E4.
+
+Pendente de humano: nenhum.

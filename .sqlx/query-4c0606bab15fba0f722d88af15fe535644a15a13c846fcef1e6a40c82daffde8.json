@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT m.guild_id, m.user_id, u.username, u.display_name, u.avatar_url,\n               u.accent_color, u.is_migrated, m.nickname, m.joined_at, m.banned_at,\n               COALESCE(\n                   ARRAY_AGG(mr.role_id) FILTER (WHERE mr.role_id IS NOT NULL),\n                   '{}'\n               ) AS \"roles!: Vec<Uuid>\"\n        FROM guild_members m\n        JOIN users u ON u.id = m.user_id\n        LEFT JOIN member_roles mr ON mr.guild_id = m.guild_id AND mr.user_id = m.user_id\n        WHERE m.guild_id = $1 AND m.user_id = $2\n        GROUP BY m.guild_id, m.user_id, u.username, u.display_name, u.avatar_url,\n                 u.accent_color, u.is_migrated, m.nickname, m.joined_at, m.banned_at\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "guild_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "display_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "avatar_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "accent_color",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_migrated",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "nickname",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "joined_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "banned_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "roles!: Vec<Uuid>",
+        "type_info": "UuidArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "4c0606bab15fba0f722d88af15fe535644a15a13c846fcef1e6a40c82daffde8"
+}
