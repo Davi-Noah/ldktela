@@ -52,8 +52,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # --- auth ---
-argon2 = { version = "0.6", features = ["std"] }
-jsonwebtoken = "11"
+argon2 = "0.5"
+jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
 rand = "0.9"
 sha2 = "0.10"
 base64 = "0.22"

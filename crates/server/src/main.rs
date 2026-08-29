@@ -36,12 +36,14 @@ async fn serve(config: api::config::Config) -> anyhow::Result<()> {
         .await
         .context("applying migrations")?;
 
-    let listener = tokio::net::TcpListener::bind(config.bind_addr)
+    let bind_addr = config.bind_addr;
+    let listener = tokio::net::TcpListener::bind(bind_addr)
         .await
-        .with_context(|| format!("binding {}", config.bind_addr))?;
-    tracing::info!(addr = %config.bind_addr, env = ?config.app_env, "listening");
+        .with_context(|| format!("binding {bind_addr}"))?;
+    tracing::info!(addr = %bind_addr, env = ?config.app_env, "listening");
 
-    axum::serve(listener, api::router())
+    let state = api::AppState::new(pool, config);
+    axum::serve(listener, api::router(state))
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("serving http")

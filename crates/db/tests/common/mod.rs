@@ -3,30 +3,39 @@
 //!
 //! CLAUDE.md §2.10 forbids repository mocks; integration tests run against a real
 //! database. Panicking here is fine — this is test-only setup code.
+//!
+//! Note on what is and is not shared: only the container and its base URL live
+//! in the `OnceCell`. A `PgPool` must **not**, because `#[tokio::test]` gives
+//! every test its own runtime and a pool spawns a reaper task on the runtime
+//! that created it — once that runtime shuts down, later tests fail with
+//! "a Tokio 1.x context was found, but it is being shutdown". Each test opens
+//! its own short-lived maintenance connection instead.
 
 #![allow(dead_code)]
 
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
 
 use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::{Connection, PgConnection};
 use testcontainers::{runners::AsyncRunner, ContainerAsync, ImageExt};
 use testcontainers_modules::postgres::Postgres;
-use tokio::sync::OnceCell;
+use tokio::sync::{Mutex, OnceCell};
 use uuid::Uuid;
 
-/// The container is started once per test binary and deliberately never dropped:
-/// tests share it, and Docker reclaims it when the process exits.
 static SERVER: OnceCell<PgServer> = OnceCell::const_new();
 static NEXT_DB: AtomicU32 = AtomicU32::new(0);
+/// `CREATE DATABASE` serialises on `template1` inside PostgreSQL anyway.
+static CREATING: Mutex<()> = Mutex::const_new(());
 
 struct PgServer {
-    admin: PgPool,
     base_url: String,
+    /// Kept alive for the life of the process; Docker reclaims it on exit.
     _container: ContainerAsync<Postgres>,
 }
 
-async fn server() -> &'static PgServer {
-    SERVER
+async fn base_url() -> &'static str {
+    &SERVER
         .get_or_init(|| async {
             let container = Postgres::default()
                 .with_tag("16-alpine")
@@ -37,19 +46,38 @@ async fn server() -> &'static PgServer {
                 .get_host_port_ipv4(5432)
                 .await
                 .expect("resolving mapped port");
-            let base_url = format!("postgres://postgres:postgres@127.0.0.1:{port}");
-            let admin = PgPoolOptions::new()
-                .max_connections(2)
-                .connect(&format!("{base_url}/postgres"))
-                .await
-                .expect("connecting to the maintenance database");
             PgServer {
-                admin,
-                base_url,
+                base_url: format!("postgres://postgres:postgres@127.0.0.1:{port}"),
                 _container: container,
             }
         })
         .await
+        .base_url
+}
+
+/// Creates a fresh database and returns its URL.
+pub async fn create_database(prefix: &str) -> String {
+    let base = base_url().await;
+    let name = format!("{prefix}{}", NEXT_DB.fetch_add(1, Ordering::SeqCst));
+    let _guard = CREATING.lock().await;
+    let mut conn = PgConnection::connect(&format!("{base}/postgres"))
+        .await
+        .expect("connecting to the maintenance database");
+    sqlx::query(&format!(r#"CREATE DATABASE "{name}""#))
+        .execute(&mut conn)
+        .await
+        .expect("creating the test database");
+    let _ = conn.close().await;
+    format!("{base}/{name}")
+}
+
+pub async fn pool_for(url: &str) -> PgPool {
+    PgPoolOptions::new()
+        .max_connections(8)
+        .acquire_timeout(Duration::from_secs(30))
+        .connect(url)
+        .await
+        .expect("connecting to the test database")
 }
 
 /// A database of its own, with the full schema applied.
@@ -60,35 +88,20 @@ pub struct TestDb {
 impl TestDb {
     /// Creates a fresh database and applies every migration.
     pub async fn migrated() -> Self {
-        let server = server().await;
-        let name = format!("t{}", NEXT_DB.fetch_add(1, Ordering::SeqCst));
-        sqlx::query(&format!(r#"CREATE DATABASE "{name}""#))
-            .execute(&server.admin)
+        let db = Self::empty().await;
+        db::MIGRATOR
+            .run(&db.pool)
             .await
-            .expect("creating the test database");
-        let pool = PgPoolOptions::new()
-            .max_connections(16)
-            .connect(&format!("{}/{name}", server.base_url))
-            .await
-            .expect("connecting to the test database");
-        db::MIGRATOR.run(&pool).await.expect("applying migrations");
-        Self { pool }
+            .expect("applying migrations");
+        db
     }
 
     /// Creates a fresh database with no schema.
     pub async fn empty() -> Self {
-        let server = server().await;
-        let name = format!("t{}", NEXT_DB.fetch_add(1, Ordering::SeqCst));
-        sqlx::query(&format!(r#"CREATE DATABASE "{name}""#))
-            .execute(&server.admin)
-            .await
-            .expect("creating the test database");
-        let pool = PgPoolOptions::new()
-            .max_connections(16)
-            .connect(&format!("{}/{name}", server.base_url))
-            .await
-            .expect("connecting to the test database");
-        Self { pool }
+        let url = create_database("t").await;
+        Self {
+            pool: pool_for(&url).await,
+        }
     }
 }
 

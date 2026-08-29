@@ -1,7 +1,16 @@
+//! REST routes. One module per section of `docs/api/rest-api.md` §6.
+
+pub mod auth;
 pub mod health;
+pub mod users;
 
 use axum::Router;
 
-pub fn router() -> Router {
-    Router::new().merge(health::router())
+use crate::state::AppState;
+
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .merge(health::router())
+        .merge(auth::router())
+        .merge(users::router())
 }

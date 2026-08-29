@@ -2,10 +2,13 @@
 
 ## Estado atual
 
-Último estágio concluído: E3
-Próximo estágio: E4
+Último estágio concluído: E4
+Próximo estágio: E5
 Portões vermelhos abertos: nenhum
 Pendências de humano:
+- **Limite de taxa ainda não existe.** `POST /auth/login` e `/auth/register` estão sem os
+  5/min por IP e por conta do contrato REST §5. O RNF-06 conta com esse limite como parte da
+  defesa. Está atribuído ao E16; até lá, não expor o servidor à internet.
 - Toolchain instalada por este agente nesta máquina: rustup 1.98.0, `just` 1.42.4,
   `sqlx-cli` 0.8.6 em `~/.cargo/bin` (adicionado ao PATH de usuário). Docker Desktop
   precisa estar rodando antes de `just infra-up`.
@@ -188,3 +191,53 @@ que retorna conteúdo (CLAUDE.md §2.7). Com 30 usuários não é gargalo; se vi
 uma única consulta com CTEs, não um cache.
 
 Pendente de humano: nenhum.
+
+---
+
+## E4 — Autenticação · CONCLUÍDO
+
+Portão: `cargo test -p api` → 36 testes verdes (23 unitários + 13 de integração HTTP contra
+PostgreSQL real), 10,1 s. `just check` → `OK — tudo verde`.
+
+Entregue: Argon2id com os parâmetros do RNF-06, recusados na partida se estiverem abaixo ·
+access token JWT HS256 de 15 min com `sub`, `jti`, `iat`, `exp` · refresh opaco de 256 bits
+armazenado como SHA-256, rotativo, com família e detecção de reúso · `AppError` com
+`IntoResponse` e o formato de erro único do §3, incluindo `Retry-After` em 429 ·
+middleware de `request_id` propagado para o span de tracing, para o cabeçalho e para o corpo
+de erro · `POST /auth/{register,login,refresh,logout}` · `GET/PATCH /users/@me`,
+`GET /users/{id}`.
+
+Arquivos:
+- `crates/api/src/{lib,config,error,state}.rs`
+- `crates/api/src/auth/{mod,password,token,session}.rs`
+- `crates/api/src/middleware/{mod,auth,request_id}.rs`
+- `crates/api/src/routes/{mod,auth,users,health}.rs`
+- `crates/api/tests/{common/mod,auth}.rs`, `crates/server/src/main.rs`
+
+Teste do portão: `reusing_a_consumed_refresh_token_revogates_the_entire_family` — gira o token
+três vezes, reapresenta o primeiro (já consumido), prova 401 `TOKEN_REUSED`, e prova que o
+terceiro token — que estava vivo — também deixou de funcionar. Conta as linhas no banco:
+três emitidas, zero utilizáveis. Complementado por
+`two_simultaneous_refreshes_with_the_same_token_kill_the_family` (corrida real com
+`tokio::join!`) e `revoking_one_family_leaves_the_other_sessions_of_the_same_user_alive`.
+
+Decisões registradas: 8 linhas (argon2 0.5 e jsonwebtoken com `rust_crypto`; SHA-256 no
+refresh; perdedor da corrida derruba a família; `verify_dummy` no login; validação de
+configuração na partida; sanitização do `X-Request-Id`; fixtures sem pool compartilhado;
+perfis visíveis entre membros).
+
+**Número medido — RNF-06.** `argon2id verify (m=65536, t=3, p=4)`, build de release, nesta
+máquina (x86_64 desktop): **167 ms por verificação**. Em debug: 3,02 s — relevante porque
+os testes de integração usariam esse custo se não usassem parâmetros baratos. O SRS estima
+~100 ms na VM ARM de 2 OCPU; o número real dela ainda não foi medido. O crate `argon2` roda
+as 4 lanes sequencialmente sem a feature `parallel` (rayon), então o custo em relógio é
+maior do que uma implementação paralela daria.
+
+Ressalva: **não há limite de taxa em nenhuma rota.** O contrato §5 exige 5/min em login e
+registro, por IP e por conta, e o RNF-06 conta com isso. Está no E16; registrado como
+pendência aberta no topo deste arquivo.
+
+Ressalva 2: `GET /users/@me` reporta `status: "offline"` sempre, porque presença vive no
+gateway e o gateway é do E6. Não é stub — é o valor correto até existir sessão de WebSocket.
+
+Pendente de humano: medir o custo do Argon2id na VM ARM real antes de produção.

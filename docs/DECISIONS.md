@@ -118,3 +118,28 @@ autoridade (`docs/srs/` > `docs/protocol/` > `docs/api/` > `CLAUDE.md`).
   (autor, canal, conteúdo, janela), que apagaria mensagens iguais enviadas de propósito.
 - **[E3] `insert_guild_channel` recebe um `NewGuildChannel`** — oito argumentos posicionais
   é onde uma troca de `guild_id` por `category_id` passa despercebida, e o clippy recusa.
+
+- **[E4] `argon2` fixado em 0.5, não 0.6** — a 0.6 reescreveu a API (`SaltString` saiu da
+  raiz, `hash_password` perdeu o parâmetro de salt, `PasswordHash` virou alias depreciado).
+  Corrige a linha de versões do E0. `jsonwebtoken` 11 exige feature de provider explícita:
+  `default-features = false, features = ["rust_crypto"]`.
+- **[E4] Hash do refresh token com SHA-256, não Argon2** — o token é 256 bits uniformes,
+  não há dicionário a atacar. Argon2 custaria ~167 ms por refresh (medido) sem ganho.
+- **[E4] O perdedor de uma corrida de rotação derruba a família** — duas rotações simultâneas
+  com o mesmo token são indistinguíveis de um roubo. O viés correto é derrubar: o cliente
+  honesto sempre pode logar de novo, o token roubado vira inútil.
+- **[E4] Login gasta Argon2 mesmo para e-mail inexistente** (`verify_dummy`) — sem isso o
+  tempo de resposta enumera contas. O `DUMMY_HASH` tem teste próprio provando que parseia,
+  porque um PHC inválido faz `verify` retornar cedo e a defesa evapora em silêncio.
+- **[E4] `Config::from_source` recusa Argon2 abaixo do RNF-06 e chave JWT com menos de 32
+  caracteres** — os dois erros são invisíveis em runtime: logins continuam funcionando,
+  só que baratos de quebrar.
+- **[E4] `X-Request-Id` vindo do cliente só é aceito se for alfanumérico e tiver 8..64
+  caracteres** — o id vai para linha de log; string arbitrária ali é injeção de log.
+- **[E4] Fixtures de teste não compartilham `PgPool`** — `#[tokio::test]` cria um runtime
+  por teste e um pool registra tarefa de manutenção no runtime que o criou; ao compartilhar,
+  os testes seguintes falham com "a Tokio 1.x context ... is being shutdown". Só o container
+  e a URL base ficam no `OnceCell`; cada teste abre sua própria conexão de manutenção.
+- **[E4] `find_by_id` de usuário não distingue visibilidade** — a comunidade é fechada e
+  qualquer membro autenticado pode ler qualquer perfil. Esconder perfis entre membros não
+  compra nada e complica menções.
