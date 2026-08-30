@@ -186,7 +186,6 @@ pub fn test_config(database_url: String, storage_endpoint: String) -> Config {
             api_secret: "dev-only-not-a-real-key-0123456789abcdef".into(),
             token_ttl_seconds: 3600,
             max_camera_publishers: 3,
-            idle_room_timeout_seconds: 900,
         },
     }
 }

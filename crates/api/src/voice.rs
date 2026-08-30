@@ -30,8 +30,6 @@ pub struct VoiceConfig {
     pub token_ttl_seconds: u64,
     /// RNF-10: camera publishers per room.
     pub max_camera_publishers: usize,
-    /// RNF-10: rooms with no audio for this long are closed.
-    pub idle_room_timeout_seconds: u64,
 }
 
 /// The hard ceiling from RNF-07. A configuration above it is clamped rather
@@ -60,8 +58,6 @@ pub struct Voice {
     /// (SRS §5.2 has `streaming` for screen share only), and the process is a
     /// single instance (RNF-17), so the ledger lives in memory.
     camera_grants: RwLock<HashMap<Uuid, HashSet<Uuid>>>,
-    /// Last time a room was seen carrying audio, for the idle sweep.
-    audio_seen: RwLock<HashMap<Uuid, tokio::time::Instant>>,
 }
 
 impl Voice {
@@ -74,7 +70,6 @@ impl Voice {
             config,
             receiver,
             camera_grants: RwLock::new(HashMap::new()),
-            audio_seen: RwLock::new(HashMap::new()),
         }
     }
 
@@ -179,30 +174,14 @@ impl Voice {
         }
     }
 
-    /// Records that a room is carrying audio right now.
-    pub async fn mark_audio(&self, channel_id: Uuid) {
-        self.audio_seen
-            .write()
-            .await
-            .insert(channel_id, tokio::time::Instant::now());
-    }
-
+    /// Drops the camera ledger for a room LiveKit has closed.
+    ///
+    /// Closing the room itself is LiveKit's job, not ours: `empty_timeout` and
+    /// `departure_timeout` in the server configuration expire an unoccupied room
+    /// after 15 minutes (RNF-10). A sweeper here would be a second, weaker
+    /// implementation of a lifecycle the SFU already owns.
     pub async fn forget_room(&self, channel_id: Uuid) {
-        self.audio_seen.write().await.remove(&channel_id);
         self.camera_grants.write().await.remove(&channel_id);
-    }
-
-    /// Rooms that have gone quiet past the RNF-10 timeout.
-    pub async fn idle_rooms(&self) -> Vec<Uuid> {
-        let timeout = Duration::from_secs(self.config.idle_room_timeout_seconds);
-        let now = tokio::time::Instant::now();
-        self.audio_seen
-            .read()
-            .await
-            .iter()
-            .filter(|(_, seen)| now.duration_since(**seen) >= timeout)
-            .map(|(channel_id, _)| *channel_id)
-            .collect()
     }
 }
 
@@ -241,7 +220,6 @@ mod tests {
             api_secret: "dev-only-not-a-real-key-0123456789abcdef".into(),
             token_ttl_seconds: 3600,
             max_camera_publishers: 3,
-            idle_room_timeout_seconds: 900,
         }
     }
 
@@ -360,20 +338,138 @@ mod tests {
         assert!(voice.verify_webhook("{}", &forged).is_none());
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn a_room_goes_idle_only_after_the_configured_timeout() {
+    /// Signs a body the way LiveKit does: a JWT carrying the base64 SHA-256 of
+    /// the body, so the signature covers the bytes and not just the sender.
+    fn sign(body: &str, secret: &str) -> String {
+        use base64::Engine;
+        use sha2::{Digest, Sha256};
+        let digest =
+            base64::engine::general_purpose::STANDARD.encode(Sha256::digest(body.as_bytes()));
+        AccessToken::with_api_key("devkey", secret)
+            .with_sha256(&digest)
+            .with_ttl(Duration::from_secs(300))
+            .to_jwt()
+            .expect("signing")
+    }
+
+    /// Bodies captured from `livekit/livekit-server:v1.8` (1.8.4) driven by
+    /// `livekit-cli` 2.18.4 against `docker/compose.dev.yml`, stored byte for
+    /// byte. They are here because the hand-written bodies in the integration
+    /// tests are a simplification: the real ones carry protobuf-JSON encodings —
+    /// enums as names (`"source": "CAMERA"`), 64-bit integers as strings
+    /// (`"createdAt": "1788099734"`), camelCase keys and fields this code has
+    /// never heard of. If the deserialiser choked on any of that, every real
+    /// webhook would answer 401 and voice state would silently never update,
+    /// with the whole suite still green.
+    const REAL_IDENTITY: &str = "0192aaaa-0000-7000-8000-00000000f00d";
+
+    fn fixture(name: &str) -> &'static str {
+        match name {
+            "room_started" => include_str!("../fixtures/livekit/room_started.json"),
+            "participant_joined" => include_str!("../fixtures/livekit/participant_joined.json"),
+            "track_published" => include_str!("../fixtures/livekit/track_published.json"),
+            "track_unpublished" => include_str!("../fixtures/livekit/track_unpublished.json"),
+            "participant_left" => include_str!("../fixtures/livekit/participant_left.json"),
+            "room_finished" => include_str!("../fixtures/livekit/room_finished.json"),
+            // Same captured body with the source enum swapped: `lk` publishes as
+            // CAMERA and offers no way to claim the screen-share source.
+            "screen_share" => include_str!("../fixtures/livekit/track_published_screen_share.json"),
+            other => panic!("fixture desconhecida: {other}"),
+        }
+    }
+
+    #[test]
+    fn every_real_webhook_body_parses_into_the_fields_this_code_reads() {
         let voice = Voice::new(config());
-        let channel = Uuid::now_v7();
-        voice.mark_audio(channel).await;
-        assert!(voice.idle_rooms().await.is_empty());
+        for name in [
+            "room_started",
+            "participant_joined",
+            "track_published",
+            "track_unpublished",
+            "participant_left",
+            "room_finished",
+        ] {
+            let body = fixture(name);
+            let event = voice
+                .verify_webhook(body, &sign(body, &config().api_secret))
+                .unwrap_or_else(|| panic!("corpo real de {name} recusado pelo parser"));
 
-        tokio::time::advance(Duration::from_secs(899)).await;
-        assert!(voice.idle_rooms().await.is_empty());
+            assert_eq!(event.event, name, "o nome do evento vem do campo `event`");
+            let room = event
+                .room
+                .unwrap_or_else(|| panic!("{name}: sem sala não há canal a atualizar"));
+            assert!(
+                channel_of_room(&room).is_some(),
+                "{name}: o nome de sala real ({room}) tem que voltar a ser um UUID de canal"
+            );
+        }
+    }
 
-        tokio::time::advance(Duration::from_secs(2)).await;
-        assert_eq!(voice.idle_rooms().await, vec![channel]);
+    #[test]
+    fn the_real_participant_identity_is_the_user_uuid() {
+        let voice = Voice::new(config());
+        for name in ["participant_joined", "participant_left", "track_published"] {
+            let body = fixture(name);
+            let event = voice
+                .verify_webhook(body, &sign(body, &config().api_secret))
+                .unwrap();
+            let identity = event
+                .participant_identity
+                .unwrap_or_else(|| panic!("{name} sem identidade"));
+            assert_eq!(identity, REAL_IDENTITY);
+            assert!(
+                identity.parse::<Uuid>().is_ok(),
+                "o handler resolve o usuário parseando a identidade"
+            );
+        }
+    }
 
-        voice.forget_room(channel).await;
-        assert!(voice.idle_rooms().await.is_empty());
+    #[test]
+    fn the_real_track_source_enum_arrives_as_a_name_and_is_read_as_one() {
+        let voice = Voice::new(config());
+        // O servidor envia `"source": "CAMERA"`, não o inteiro do protobuf.
+        let body = fixture("track_published");
+        assert!(
+            body.contains(r#""source":"CAMERA""#),
+            "a fixture perdeu o formato capturado: o enum vem como nome, não como inteiro"
+        );
+        let event = voice
+            .verify_webhook(body, &sign(body, &config().api_secret))
+            .unwrap();
+        assert_eq!(event.track_source.as_deref(), Some("camera"));
+
+        // E o handler distingue tela de câmera por esta string.
+        let body = fixture("screen_share");
+        let event = voice
+            .verify_webhook(body, &sign(body, &config().api_secret))
+            .unwrap();
+        let source = event.track_source.expect("track sem source");
+        assert_eq!(source, "screen_share");
+        assert!(
+            source.contains("screen_share") && !fixture("track_published").contains("SCREEN_SHARE"),
+            "é este contains que liga o estado `streaming`"
+        );
+    }
+
+    #[test]
+    fn a_room_event_without_a_track_reports_no_source() {
+        let voice = Voice::new(config());
+        let body = fixture("participant_joined");
+        let event = voice
+            .verify_webhook(body, &sign(body, &config().api_secret))
+            .unwrap();
+        assert!(
+            event.track_source.is_none(),
+            "sem `track` no corpo não pode aparecer uma fonte default"
+        );
+    }
+
+    #[test]
+    fn a_real_body_signed_with_another_secret_is_still_refused() {
+        let voice = Voice::new(config());
+        let body = fixture("participant_joined");
+        assert!(voice
+            .verify_webhook(body, &sign(body, "outro-segredo-completamente"))
+            .is_none());
     }
 }

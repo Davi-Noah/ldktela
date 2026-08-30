@@ -5,8 +5,27 @@ rtc:
   port_range_start: 50000
   port_range_end: 50019
   use_external_ip: false
+
 keys:
   devkey: dev-only-not-a-real-key-0123456789abcdef
+
+# RNF-10: o ciclo de vida da sala e do proprio LiveKit, nao de um varredor no
+# backend. `empty_timeout` fecha a sala criada e nunca ocupada; `departure_timeout`
+# fecha a sala depois que o ultimo participante sai. Ambos em 900 s (15 min).
+room:
+  empty_timeout: 900
+  departure_timeout: 900
+
+# O backend e a unica fonte de VOICE_STATE_UPDATE (rest-api.md §6.9), e so
+# recebe estado por aqui. `api_key` seleciona a chave que assina o corpo; a
+# assinatura e verificada antes de qualquer leitura.
+# host.docker.internal e o host do Docker Desktop; em Linux vem do extra_hosts
+# declarado no compose.
+webhook:
+  api_key: devkey
+  urls:
+    - http://host.docker.internal:8080/api/v1/internal/livekit/webhook
+
 logging:
   level: info
   json: false

@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-Último estágio concluído: E11
+Último estágio concluído: E11a
 Próximo estágio: E12
 Portões vermelhos abertos: nenhum
 Carregado para estágios seguintes: nenhum.
@@ -25,6 +25,11 @@ Pendências de humano:
 - Os testes usam o Postgres do compose quando `DATABASE_URL` está no ambiente (é o caso
   sob `just`), criando um banco por teste; sem a variável, sobem container.
 - O PATH do shell do agente precisa de `export PATH="$HOME/.cargo/bin:$PATH"`.
+- **`livekit-cli` não está instalado nesta máquina e não precisa estar.** Use a imagem:
+  `docker run --rm --network host -e LIVEKIT_URL=http://127.0.0.1:7880 -e LIVEKIT_API_KEY=devkey`
+  `-e LIVEKIT_API_SECRET=<segredo do livekit.dev.yaml> livekit/livekit-cli:latest <subcomando>`.
+  Atenção: `timeout N docker run ...` mata o cliente e **deixa o container de pé** — o
+  participante continua na sala. Use `docker run -d --name x` e `docker stop x`.
 - `just check` exige `.env` na raiz (gerado de `.env.example`) e Postgres de pé,
   porque `cargo sqlx prepare --check` compila o workspace com as macros do SQLx.
 
@@ -574,3 +579,76 @@ verificada. Registrado como pendência.
 
 Pendente de humano: subir um LiveKit real e confirmar o formato dos webhooks; implementar e
 verificar o desligamento de sala ociosa contra ele.
+
+---
+
+## E11a — Voz contra um LiveKit real · CONCLUÍDO
+
+Follow-up do E11, pedido em três itens. Não avança o roadmap: fecha as duas ressalvas que o
+E11 deixou abertas.
+
+Portão: `just check` → `OK — tudo verde`, **342 testes** (antes 337). Além do portão, uma
+verificação que nenhum teste faz: o backend real recebeu webhooks de um LiveKit real.
+
+**1. O compose não subia LiveKit em modo `--dev` nem tinha webhook configurado.** Sem o bloco
+`webhook`, o servidor nunca chamava o backend e todo o caminho de `VOICE_STATE_UPDATE` só
+existia sob teste. Adicionados: a flag `--dev`, o bloco `webhook` apontando para
+`http://host.docker.internal:8080/api/v1/internal/livekit/webhook`, e `extra_hosts` para o
+mesmo arquivo servir em Linux. Confirmado no log do servidor: `starting in development mode`,
+e a chave do `livekit.dev.yaml` continua valendo (o `livekit-cli` autentica com ela).
+
+**2. Payload real comparado com o que `crates/api/src/voice.rs` espera.**
+`livekit-cli` 2.18.4 publicou uma track de demo numa sala local e um servidor de captura
+gravou os corpos crus. Seis eventos capturados: `room_started`, `participant_joined`,
+`track_published`, `track_unpublished`, `participant_left`, `room_finished`. Estão versionados
+byte a byte em `crates/api/fixtures/livekit/` e cinco testes novos passam cada um pelo parser
+real com assinatura real.
+
+O formato de fio é protobuf-JSON, e os testes escritos à mão não provavam nada sobre ele:
+enum como **nome** (`"source":"CAMERA"`), inteiro de 64 bits como **string**
+(`"createdAt":"1788099734"`), chaves em camelCase e uma porção de campos que este código nunca
+viu. A camada de parse aguentou tudo — `livekit_api::webhooks::WebhookReceiver` aceita as três
+formas. **Duas divergências reais apareceram:**
+
+- `crates/api/tests/voice.rs` mandava `"track": {"source": 3}`, o inteiro do protobuf. O
+  servidor nunca manda isso. O teste passava por acidente e documentava um formato falso.
+- `source.contains("screen_share")` também casa com `screen_share_audio`. Tela compartilhada
+  com áudio publica **duas** tracks; despublicar só o áudio apagava o `streaming` de quem
+  seguia com a tela na frente de todo mundo. Trocado por igualdade, com teste que falha contra
+  o código antigo (verificado revertendo a linha).
+
+**Verificação ponta a ponta, com o backend real no ar:** `lk room join` com identidade UUID
+numa sala `channel-<uuid>` de um canal de voz semeado → linha em `voice_states` com o canal
+certo; `docker stop` no participante → linha some. Zero webhooks recusados, zero erros no log.
+
+**3. RNF-10 reinterpretado como sala vazia.** `Voice::idle_rooms`, `Voice::mark_audio`, o
+mapa `audio_seen`, o campo `idle_room_timeout_seconds` e a variável
+`VOICE_IDLE_ROOM_TIMEOUT_SECONDS` foram removidos. `empty_timeout` e `departure_timeout`
+entraram em `docker/livekit.dev.yaml` com 900 s. Observado, não inferido: o servidor devolve
+`"emptyTimeout":900,"departureTimeout":900` em todo payload de sala, e a sala de teste fechou
+sozinha 900 s depois da saída do último participante, com
+`closing idle room {"reason": "departure timeout"}` no log.
+
+Arquivos:
+- `docker/compose.dev.yml`, `docker/livekit.dev.yaml`
+- `crates/api/src/voice.rs`, `crates/api/src/routes/voice.rs`, `crates/api/src/config.rs`
+- `crates/api/fixtures/livekit/*.json` (7 arquivos)
+- `crates/api/tests/voice.rs`, `crates/api/tests/common/mod.rs`, `.env.example`
+
+Decisões registradas: 5 linhas.
+
+Ressalva: a fixture de `screen_share` é **derivada**, não capturada — o `lk` publica sempre
+como CAMERA e não oferece escolha de fonte. Trocou-se um valor de enum num corpo real. As
+outras seis são gravações literais.
+
+Ressalva 2: nada aqui exercitou mídia de verdade entre duas máquinas. O que foi verificado é o
+plano de sinalização e de estado; camadas de simulcast, `contentHint` e preferência VP9
+(RF-22a) são do cliente e continuam pendentes do E13.
+
+Ressalva 3: o RNF-10 escrito no SRS pede desconexão de sala **sem tráfego de áudio**; o que
+está implementado desconecta sala **vazia**. É um guard mais estreito que o texto, decidido no
+follow-up e registrado em `docs/DECISIONS.md`.
+
+Pendente de humano: nada novo. As duas pendências do E11 — confirmar o formato dos webhooks e
+fechar sala ociosa — estão resolvidas.
+

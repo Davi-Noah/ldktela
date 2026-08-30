@@ -306,3 +306,34 @@ autoridade (`docs/srs/` > `docs/protocol/` > `docs/api/` > `CLAUDE.md`).
   resultante parecia teste instável. O caminho por testcontainers continua, para CI sem
   compose. Os bancos de teste levam prefixo e id de processo no nome, e leftovers de execuções
   anteriores são varridos na inicialização.
+
+- **[E11a] RNF-10 passa a significar sala vazia, e o fechamento e do LiveKit** — o texto do
+  SRS §4.3 diz "desconexao de salas sem trafego de audio apos 15 min"; a implementacao passa a
+  ser `empty_timeout` e `departure_timeout` = 900 s em `docker/livekit.dev.yaml`. Desvio
+  **instruido** no follow-up do E11a, registrado aqui porque contraria a letra do SRS.
+  Consequencia assumida, sem disfarce: uma sala com gente conectada e calada nao fecha mais.
+  O custo de egress desse caso e proximo de zero — ninguem publicando e nada para encaminhar —
+  e quem protege o orcamento de fato e o teto de 3 cameras, que continua no backend. Em troca,
+  some um varredor que reimplementava, pior, um ciclo de vida que a SFU ja tem.
+- **[E11a] `VOICE_IDLE_ROOM_TIMEOUT_SECONDS` sai do `.env` e do `.env.example`** — o
+  `.env.example` declara que os nomes da lista sao normativos, entao remover um e desvio e
+  precisa constar aqui. A variavel deixou de ter leitor: o timeout mora na configuracao do
+  LiveKit. Variavel de ambiente que ninguem le e pior que variavel ausente, porque promete um
+  controle que nao existe. Uma linha de comentario no `.env.example` diz para onde o ajuste foi.
+- **[E11a] O LiveKit de desenvolvimento sobe com `--dev` e com webhook configurado** — sem o
+  bloco `webhook` o servidor nunca chamava o backend, e todo o caminho de `VOICE_STATE_UPDATE`
+  so existia sob teste. A URL usa `host.docker.internal`, com `extra_hosts` no compose para o
+  mesmo arquivo funcionar em Linux. `--dev` nao substitui a chave do arquivo: so injeta um par
+  proprio quando nao ha nenhum, o que foi confirmado autenticando o `livekit-cli` com a chave
+  do `livekit.dev.yaml`.
+- **[E11a] Os corpos de webhook viram fixtures gravadas byte a byte** — em
+  `crates/api/fixtures/livekit/`, capturadas de `livekit-server` 1.8.4 dirigido por
+  `livekit-cli` 2.18.4. Os testes escritos a mao usavam uma forma simplificada e nao provavam
+  nada sobre o formato real (enum como nome, inteiro de 64 bits como string, chaves em
+  camelCase, campos desconhecidos). A fixture de `screen_share` e derivada da real trocando um
+  valor de enum, porque o `lk` publica sempre como CAMERA e nao oferece escolha de fonte.
+- **[E11a] `track_source` passa a ser comparado por igualdade, nao por prefixo** — tela
+  compartilhada com audio publica DUAS tracks, `screen_share` e `screen_share_audio`. Com
+  `contains`, despublicar so o audio apagava o `streaming` de quem seguia com a tela na frente
+  de todo mundo. Achado ao olhar o enum real.
+

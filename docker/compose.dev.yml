@@ -32,9 +32,13 @@ services:
   livekit:
     image: livekit/livekit-server:v1.8
     container_name: ldkcord-livekit
-    command: --config /etc/livekit.yaml
+    command: --config /etc/livekit.yaml --dev
     volumes:
       - ./livekit.dev.yaml:/etc/livekit.yaml:ro
+    # O webhook sai do container para o backend na maquina. No Docker Desktop
+    # host.docker.internal ja existe; em Linux precisa desta linha.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "7880:7880"
       - "7881:7881"

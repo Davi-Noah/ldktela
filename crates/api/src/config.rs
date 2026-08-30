@@ -156,7 +156,6 @@ impl Config {
                 api_secret: required(source, "LIVEKIT_API_SECRET")?,
                 token_ttl_seconds: parse(source, "VOICE_TOKEN_TTL_SECONDS")?,
                 max_camera_publishers: parse(source, "VOICE_MAX_CAMERA_PUBLISHERS")?,
-                idle_room_timeout_seconds: parse(source, "VOICE_IDLE_ROOM_TIMEOUT_SECONDS")?,
             },
         })
     }
@@ -230,7 +229,6 @@ mod tests {
             ),
             ("VOICE_TOKEN_TTL_SECONDS", "3600"),
             ("VOICE_MAX_CAMERA_PUBLISHERS", "3"),
-            ("VOICE_IDLE_ROOM_TIMEOUT_SECONDS", "900"),
         ] {
             m.insert(k, v.to_string());
         }

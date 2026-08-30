@@ -410,7 +410,9 @@ async fn joining_and_leaving_move_the_voice_state_and_screen_share_flips_streami
             "event": event,
             "room": { "name": room },
             "participant": { "identity": member_id.to_string() },
-            "track": { "source": 3 },
+            // Como o servidor manda de verdade: o nome do enum, não o inteiro
+            // do protobuf. Capturado de livekit-server 1.8.4 (ver E11a).
+            "track": { "source": "SCREEN_SHARE" },
         }));
         assert_eq!(
             s.app.post_webhook(&body, Some(&sig)).await,
@@ -439,6 +441,68 @@ async fn joining_and_leaving_move_the_voice_state_and_screen_share_flips_streami
         .await
         .unwrap();
     assert_eq!(rows, 0);
+}
+
+#[tokio::test]
+async fn dropping_the_screen_share_audio_track_does_not_report_the_screen_as_gone() {
+    // Compartilhar tela com áudio publica DUAS tracks: `screen_share` e
+    // `screen_share_audio`. Quem silencia o áudio despublica só a segunda, e a
+    // tela continua na frente de todo mundo.
+    let s = scene().await;
+    let (member_id, _) = member(&s, "apresenta", "VOZAPRES1").await;
+    let room = format!("channel-{}", s.voice_channel);
+
+    let send = |event: &str, source: Option<&str>| {
+        let mut payload = json!({
+            "event": event,
+            "room": { "name": room },
+            "participant": { "identity": member_id.to_string() },
+        });
+        if let Some(source) = source {
+            payload["track"] = json!({ "source": source });
+        }
+        let body = payload.to_string();
+        let signature = sign_webhook(&body, API_SECRET);
+        (body, signature)
+    };
+
+    let streaming = |pool: sqlx::PgPool| async move {
+        sqlx::query_scalar::<_, bool>("SELECT streaming FROM voice_states WHERE user_id = $1")
+            .bind(member_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+    };
+
+    for (event, source) in [
+        ("participant_joined", None),
+        ("track_published", Some("SCREEN_SHARE")),
+        ("track_published", Some("SCREEN_SHARE_AUDIO")),
+    ] {
+        let (body, sig) = send(event, source);
+        assert_eq!(
+            s.app.post_webhook(&body, Some(&sig)).await,
+            StatusCode::NO_CONTENT
+        );
+    }
+    assert!(streaming(s.app.pool.clone()).await);
+
+    let (body, sig) = send("track_unpublished", Some("SCREEN_SHARE_AUDIO"));
+    assert_eq!(
+        s.app.post_webhook(&body, Some(&sig)).await,
+        StatusCode::NO_CONTENT
+    );
+    assert!(
+        streaming(s.app.pool.clone()).await,
+        "só o áudio saiu; a tela continua compartilhada"
+    );
+
+    let (body, sig) = send("track_unpublished", Some("SCREEN_SHARE"));
+    assert_eq!(
+        s.app.post_webhook(&body, Some(&sig)).await,
+        StatusCode::NO_CONTENT
+    );
+    assert!(!streaming(s.app.pool.clone()).await, "agora sim parou");
 }
 
 #[tokio::test]

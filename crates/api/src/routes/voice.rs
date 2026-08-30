@@ -173,11 +173,12 @@ async fn apply_webhook(
                 return Ok(());
             };
             let source = event.track_source.as_deref().unwrap_or_default();
-            if source.contains("microphone") {
-                // Feeds the RNF-10 idle-room timeout.
-                state.voice.mark_audio(channel_id).await;
-            }
-            if source.contains("screen_share") {
+            // Exact match, not a prefix: a shared screen carries its audio on a
+            // second track whose source is `screen_share_audio`, and dropping
+            // that one alone must not report the screen as no longer shared.
+            // The room lifetime is LiveKit's, not ours (RNF-10: empty_timeout
+            // and departure_timeout in docker/livekit.dev.yaml).
+            if source == "screen_share" {
                 let streaming = event.event == "track_published";
                 if let Some(row) =
                     voice_states::set_streaming(&state.pool, user_id, streaming).await?
