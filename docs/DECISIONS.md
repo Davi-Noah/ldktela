@@ -371,3 +371,42 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   de estado real no topo, torna o desvio visível na primeira linha em vez de na página
   quinze.
 
+- **[S1] `bot` depende de `api`, e nao o contrario** — o CLAUDE.md §3 dizia "api e bot
+  dependem de db" sem definir a relacao entre os dois. O bot e produtor de eventos que o
+  `api` consome (estado de voz, mudanca de cargo, codigo de pareamento), e a replica de
+  autorizacao vive no `AppState`. A seta aponta para o consumidor, o que mantem a cadeia
+  linear: protocol/domain -> db -> api -> bot -> server. Alternativa descartada: um crate
+  novo so para a replica, que seria abstracao antes de tres usos.
+- **[S1] Os bits de permissao do Discord sao escritos a mao em `domain`, com teste de
+  paridade em `bot`** — o CLAUDE.md §7 manda tirar as constantes do serenity, mas o
+  serenity do workspace vem com `client` e `gateway`, que arrastam tokio para dentro de
+  `domain` e violam §3. A regra sobrevive de outra forma: `crates/bot/tests/permissions_parity.rs`
+  falha se qualquer um dos quatro bits divergir de `serenity::model::permissions::Permissions`.
+- **[S1] `room_presence` significa "conectado a nossa sala", nao "no canal de voz"** — os
+  dois diferem para quem esta na chamada sem abrir o aplicativo, e a pergunta util e quem
+  consegue ver a tela. Consequencia: a tabela e escrita pelos webhooks do LiveKit, e o
+  estado de voz do Discord so decide para quem mandar `ROOM_JOIN`.
+- **[S1] A coluna `session_id` de `room_presence` foi removida antes de existir** — herdada
+  do `voice_states` da v1, nao tinha leitor. Migration reescrita no lugar de uma migration
+  aditiva, o que so e possivel porque nada foi implantado (ADR-0016).
+- **[S1] O indice de fan-out do gateway foi apagado, nao adaptado** — ele existia porque
+  calcular os espectadores de um canal exigia resolver permissao para cada membro do guild.
+  Agora o conjunto de destinatarios e exatamente as linhas de `room_presence` daquele canal,
+  que e uma consulta indexada. Um cache aqui so seria uma forma de estar errado.
+- **[S1] `is_replayable` sumiu do `DispatchEvent`** — sem `TYPING_START` nao ha evento
+  efemero, entao todo evento entra no buffer de retomada. A medicao de lacuna por eviccao
+  (`evicted_through`) continua, porque ela nunca foi sobre o evento efemero e sim sobre
+  estouro de buffer.
+- **[S1] `SUM(egress_bytes)` leva `::BIGINT`** — `SUM` sobre `BIGINT` devolve `NUMERIC` no
+  Postgres, e sem o cast o SQLx exige a feature `bigdecimal` no workspace inteiro por causa
+  de uma query.
+- **[S1] `ReplicaStale` responde 503, nao 409** — nao ha conflito de estado; o servico e que
+  nao pode responder com seguranca. 503 diz ao cliente para tentar de novo, que e a acao
+  correta.
+- **[S1] O teste do token do LiveKit passou a inspecionar o JSON do payload** — a primeira
+  versao afirmava `!payload.contains("roomAdmin")` e falhou: o LiveKit serializa a
+  capacidade como `"roomAdmin":false`. Verificar ausencia de substring onde o correto e
+  verificar o valor e como um teste de seguranca passa a proteger nada.
+- **[S1] O bot que nao conecta nao derruba o servidor** — verificado em execucao: com token
+  invalido, o Discord fecha com 4004, o bot para, e a API continua servindo e falhando
+  fechada em admissao nova. Derrubar o processo levaria junto as sessoes em curso.

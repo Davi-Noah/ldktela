@@ -7,39 +7,57 @@ Cada fatia entrega valor observável e tem critério de aceite executável. A nu
 **S** (de *screen*) para não colidir com as fatias F da v1, que aparecem em commits e
 documentos antigos.
 
-## Estado ao abrir este roadmap (2026-09-12)
+## Estado (2026-09-13)
 
-Levantamento do repositório, não estimativa:
-
-| Área | Estado |
+| Fatia | Estado |
 |---|---|
-| Backend (`crates/`) | ~19.800 linhas, 342 testes verdes, estágios E0–E11a |
-| Autenticação, gateway WS com resume, guards de permissão | Feitos e testados |
-| LiveKit: emissão de token, guard de admissão, webhooks assinados com fixtures reais | Feitos e testados |
-| `crates/bridge`, `crates/migrator` | Esqueletos de uma linha. Nada construído |
-| `desktop/src/` | `App.tsx` renderiza um parágrafo. `features/`, `gateway/`, `store/` vazios |
-| `desktop/src-tauri/` | 9 linhas. Sem IPC, sem cofre, sem bandeja, sem captura |
-| Compartilhamento de tela | **Nunca exercitado.** Zero números medidos no repositório |
+| S0 — Spike de viabilidade | **NÃO FEITA.** Ver [ADR-0018](adr/0018-construir-antes-de-medir.md) |
+| S1 — Poda | Feita |
+| S2 — Transporte em produção | Não feita |
+| S3 — Identidade por pareamento | Backend e bot feitos; cofre do Windows feito |
+| S4 — Réplica e autorização | Feita, com revogação ao vivo |
+| S5 — Sala atrelada ao canal de voz | Feita |
+| S6 — Compartilhar e assistir | Cliente escrito; **não exercitado contra mídia real** |
+| S7 — Cliente completo | Bandeja feita; estatísticas e qualidade feitas; atualização automática não |
+| S8 — Presença no Discord | Não feita |
+| S9 — Áudio por aplicativo | Não feita |
 
-A leitura honesta disso: **o que existe é o plano de controle; o plano de mídia inteiro
-está por fazer, e é onde mora todo o risco.**
+Números: backend ~5.000 linhas com 111 testes, cliente ~2.000 linhas com 36
+testes, `just check` verde. Verificado em execução: o servidor sobe, aplica
+migrations, responde, e sobrevive à queda do bot falhando fechado.
+
+> **A dívida que define o estado real.** Continua sem existir **um único número
+> medido** de bitrate, egress, latência glass-to-glass ou CPU. A premissa do
+> [ADR-0013](adr/0013-turn-tls-443-primario.md) — a de que nossa mídia atravessa
+> uma rede que bloqueia a do Discord — **nunca foi testada**. Enquanto isso não
+> for feito, o produto compila e roda, mas não está provado.
 
 ## Ordem e seu motivo
 
-O SRS v1.2 mandava executar o spike de screen share antes de tudo, porque era o maior
-risco técnico. Isso não foi feito, e o projeto construiu onze estágios de plano de
-controle sem nunca ter verificado se o produto é viável. Este roadmap corrige a ordem e
-não repete o erro: **nada de UI, nada de poda, nada de bot antes de S0 fechar com
-números.**
+O SRS v1.2 mandava executar o spike de screen share antes de tudo, porque era o
+maior risco técnico. Isso não foi feito, e o projeto construiu onze estágios de
+plano de controle sem nunca ter verificado se o produto é viável.
+
+Este roadmap foi escrito para corrigir a ordem — e em 2026-09-13 ela foi
+quebrada de novo, desta vez de propósito e por escrito
+([ADR-0018](adr/0018-construir-antes-de-medir.md)): o produto foi construído
+antes de ser medido, porque medir exige duas máquinas físicas e uma rede
+hostil, e nada disso um agente executa.
+
+A obrigação de medir não foi cancelada; mudou de alvo. O critério de aceite de
+S0 passou para S6, sem abrandamento, e agora vale contra o cliente real em vez
+de contra código descartável.
 
 ---
 
-## S0 — Spike de viabilidade: transporte, qualidade e custo
+## S0 — Medição de viabilidade: transporte, qualidade e custo
 
-Código descartável em `spike/`, proibido de importar (`CLAUDE.md` §9). Existe só para
-produzir números. Responde de uma vez às duas perguntas que podem matar o produto.
+**Bloqueia declarar qualquer coisa pronta.** Deixou de ser código descartável em `spike/`
+e passou a ser medição contra o cliente real, que já existe
+([ADR-0018](adr/0018-construir-antes-de-medir.md)). Responde de uma vez às duas perguntas
+que podem matar o produto.
 
-**Aceite** — todos os itens medidos e registrados em `spike/RESULTS.md`:
+**Aceite** — todos os itens medidos e registrados em `docs/RESULTS.md`:
 
 1. Sessão de screen share 1080p60 entre duas máquinas Windows contra o SFU
    auto-hospedado, estável por 30 minutos.
@@ -55,12 +73,14 @@ concluir que o produto não atende o mercado que motivou o pivô. Essa decisão 
 
 ## S1 — Poda do escopo
 
-Depende do aval de [ADR-0016](adr/0016-poda-por-reescrita-de-migrations.md), que está
-**Proposto**. Depois de S0, porque um resultado ruim em S0 muda o que se poda.
+**Feita em 2026-09-13**, sob o aval de
+[ADR-0016](adr/0016-poda-por-reescrita-de-migrations.md).
 
-Remove rotas de mensagens, DMs, busca e anexos; os repositórios correspondentes; os
-crates `bridge` e `migrator`; as dependências `argon2`, `aws-sdk-s3`, `marked`, `shiki`,
-`@tanstack/react-virtual`; e reescreve as migrations.
+Removeu rotas de mensagens, DMs, busca e anexos; os repositórios correspondentes; os
+crates `bridge` e `migrator`; as dependências `argon2`, `aws-sdk-s3`, `validator`,
+`marked`, `shiki`, `@tanstack/react-virtual` e `@tanstack/react-query`; e reescreveu as
+migrations. Schema de 20 tabelas para 5, gateway de 30 eventos para 8, REST de 53 rotas
+para 7.
 
 **Aceite:** `just check` verde; nenhuma rota morta no router; o binário não linka mais
 `argon2` nem o SDK da AWS; `docs/rest-api.md` e `docs/websocket.md` descrevem só o que

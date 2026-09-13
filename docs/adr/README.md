@@ -69,3 +69,4 @@ certas.
 | [0015](0015-postgres-com-schema-reduzido.md) | Postgres mantido apesar do schema reduzido | Aceito |
 | [0016](0016-poda-por-reescrita-de-migrations.md) | Poda do escopo por reescrita das migrations | Aceito |
 | [0017](0017-nao-usar-discord-activity.md) | O produto não é uma Discord Activity | Aceito |
+| [0018](0018-construir-antes-de-medir.md) | Construir S1 e S3–S6 antes de medir S0 | Aceito, com dívida |
