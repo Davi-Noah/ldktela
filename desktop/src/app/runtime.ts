@@ -2,6 +2,7 @@ import { ApiClient, ApiError, NetworkError } from '../api/client';
 import type { AuthResponse } from '../api/types/AuthResponse';
 import { API_BASE_URL, CLIENT_INFO, GATEWAY_URL } from '../config';
 import { GatewayClient } from '../gateway/client';
+import { log } from '../log';
 import { MediaSession } from '../media/session';
 import { clearRefreshToken, readRefreshToken, writeRefreshToken } from '../platform/vault';
 import { useRoomStore } from '../store/room';
@@ -24,6 +25,7 @@ export const gateway = new GatewayClient({
   client: CLIENT_INFO,
   getAccessToken: () => api.token,
   onEvent: (event) => {
+    log.debug(`gateway: ${event.t}`, { d: event.d });
     if (event.t === 'READY') {
       authRetryUsed = false;
       useSessionStore.getState().signedIn(event.d.user);
@@ -31,9 +33,11 @@ export const gateway = new GatewayClient({
     useRoomStore.getState().apply(event);
   },
   onStatus: (status) => {
+    log.info(`gateway: ${status}`);
     useSessionStore.getState().setGateway(status);
   },
   onFatal: (reason) => {
+    log.warn('gateway: encerrado sem retomada', { motivo: reason });
     if (reason === 'outdated_client') {
       useSessionStore.getState().setPhase('update_required');
       return;
@@ -54,8 +58,14 @@ export async function start(): Promise<void> {
   }
   started = true;
 
+  log.info('app: iniciando', { api: API_BASE_URL, gateway: GATEWAY_URL });
+
   useRoomStore.subscribe((state, previous) => {
     if (state.channelId !== previous.channelId) {
+      log.info('sala: o Discord mudou o canal', {
+        de: previous.channelId,
+        para: state.channelId,
+      });
       void media.follow(state.channelId);
     }
   });
@@ -67,9 +77,11 @@ export async function start(): Promise<void> {
     stored = null;
   }
   if (stored === null) {
+    log.info('app: sem token no cofre, pedindo pareamento');
     useSessionStore.getState().setPhase('pairing');
     return;
   }
+  log.debug('app: token encontrado no cofre, renovando sessão');
 
   api.seedRefreshToken(stored);
   try {
@@ -77,6 +89,7 @@ export async function start(): Promise<void> {
     useSessionStore.getState().signedIn(auth.user);
     gateway.start();
   } catch (error) {
+    log.error('app: não consegui renovar a sessão', error);
     if (error instanceof NetworkError) {
       // The server being unreachable is not a reason to make the user pair again.
       useSessionStore.getState().setPhase('authenticated');
@@ -92,11 +105,14 @@ export async function pair(code: string): Promise<void> {
   session.setPairingError(null);
   session.setPairing(true);
   try {
+    log.info('pareamento: enviando código');
     const auth = await api.pair(code);
+    log.info('pareamento: aceito', { usuario: auth.user.username });
     authRetryUsed = false;
     session.signedIn(auth.user);
     gateway.start();
   } catch (error) {
+    log.error('pareamento: recusado', error);
     session.setPairingError(
       error instanceof ApiError ? PAIRING_FAILED_MESSAGE : 'Servidor indisponível. Tente de novo.',
     );

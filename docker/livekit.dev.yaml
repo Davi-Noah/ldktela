@@ -5,6 +5,12 @@ rtc:
   port_range_start: 50000
   port_range_end: 50019
   use_external_ip: false
+  # Sem isto o LiveKit anuncia o IP do CONTAINER (172.x) como candidato ICE, e a
+  # maquina do host nao roteia para la: a sinalizacao conecta, a midia nao, e o
+  # sintoma e alguns segundos de espera seguidos de falha — nao um erro claro.
+  # Para o teste entre duas maquinas (DESTRAVAR.md, Fase 2), troque pelo IP da
+  # maquina na LAN.
+  node_ip: 127.0.0.1
 
 keys:
   devkey: dev-only-not-a-real-key-0123456789abcdef

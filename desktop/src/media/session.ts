@@ -1,6 +1,7 @@
 import { RemoteAudioTrack, RemoteVideoTrack, Room, RoomEvent, Track } from 'livekit-client';
 import type { RemoteParticipant, RemoteTrackPublication } from 'livekit-client';
 import { type ApiClient, ApiError } from '../api/client';
+import { describeError, log } from '../log';
 import type { Snowflake } from '../api/types/Snowflake';
 import { STATS_SAMPLE_INTERVAL_MS } from '../config';
 import { backoffDelayMs } from '../gateway/backoff';
@@ -110,13 +111,16 @@ export class MediaSession {
 
     try {
       if (!this.canPublish) {
+        log.debug('compartilhamento: reconectando com token de publicação');
         await this.connect(true);
       }
       const room = this.room;
       if (room === null) {
-        throw new Error('room is not connected');
+        throw new Error('a sala não está conectada');
       }
+      log.debug('compartilhamento: publicando trilhas no LiveKit');
       await publishScreen(room.localParticipant, capture);
+      log.info('compartilhamento: no ar');
       this.capture = capture;
       capture.video.mediaStreamTrack.addEventListener(
         'ended',
@@ -130,6 +134,7 @@ export class MediaSession {
       this.startStatsSampling();
       this.syncViewers();
     } catch (error) {
+      log.error('compartilhamento: publicação falhou', error);
       stopCapture(capture);
       store.setStarting(false);
       store.setError(publishMessage(error));
@@ -174,7 +179,16 @@ export class MediaSession {
       await previous.disconnect(false);
     }
 
-    const credentials = await this.api.roomToken(channelId, publish);
+    log.debug('sala: pedindo token', { canal: channelId, publicar: publish });
+    let credentials;
+    try {
+      credentials = await this.api.roomToken(channelId, publish);
+    } catch (error) {
+      log.error('sala: o servidor recusou o token', error, { canal: channelId });
+      store.setConnection('failed');
+      throw error;
+    }
+    log.debug('sala: token recebido', { url: credentials.url, sala: credentials.room });
     const room = new Room({
       // RF-16: both are mandatory. A viewer who is not looking receives no layer.
       adaptiveStream: true,
@@ -187,11 +201,13 @@ export class MediaSession {
     try {
       await room.connect(credentials.url, credentials.token);
     } catch (error) {
+      log.error('sala: LiveKit recusou a conexão', error, { url: credentials.url });
       this.room = null;
       this.canPublish = false;
       store.setConnection('failed');
       throw error;
     }
+    log.info('sala: conectado ao LiveKit', { sala: credentials.room, publicar: publish });
     store.setConnection('connected');
     this.adoptExistingTracks(room);
     this.syncViewers();
@@ -372,7 +388,7 @@ function captureMessage(error: unknown): string | null {
     // Cancelling the picker is not an error worth showing.
     return null;
   }
-  return 'Não foi possível capturar a tela.';
+  return `Não foi possível capturar a tela. (${describeError(error)})`;
 }
 
 function publishMessage(error: unknown): string {
@@ -385,5 +401,5 @@ function publishMessage(error: unknown): string {
     }
     return error.message;
   }
-  return 'Não foi possível iniciar o compartilhamento.';
+  return `Não foi possível iniciar o compartilhamento. (${describeError(error)})`;
 }

@@ -45,7 +45,7 @@ fn user_agent(headers: &HeaderMap) -> Option<String> {
 /// its window needs a request rate no residential connection produces. The
 /// limit that does exist is on *issuance*, in the bot, where it stops someone
 /// from farming codes for an account they control.
-#[tracing::instrument(skip(state, body))]
+#[tracing::instrument(skip(state, body, headers))]
 async fn pair(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -88,7 +88,7 @@ async fn pair(
 }
 
 /// Rotation with reuse detection (RF-02). See `auth::session::rotate_refresh`.
-#[tracing::instrument(skip(state, body))]
+#[tracing::instrument(skip(state, body, headers))]
 async fn refresh(
     State(state): State<AppState>,
     headers: HeaderMap,

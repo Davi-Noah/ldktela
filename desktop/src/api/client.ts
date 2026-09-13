@@ -7,6 +7,7 @@ import type { RoomState } from './types/RoomState';
 import type { RoomTokenRequest } from './types/RoomTokenRequest';
 import type { RoomTokenResponse } from './types/RoomTokenResponse';
 import type { Snowflake } from './types/Snowflake';
+import { log } from '../log';
 
 /** An error the server produced, already in the `{ error: { … } }` shape. */
 export class ApiError extends Error {
@@ -210,13 +211,29 @@ export class ApiClient {
     if (spec.auth && this.accessToken !== null) {
       headers.Authorization = `Bearer ${this.accessToken}`;
     }
+    const url = `${this.options.baseUrl}${spec.path}`;
+    const started = performance.now();
     try {
-      return await this.doFetch(`${this.options.baseUrl}${spec.path}`, {
+      const response = await this.doFetch(url, {
         method: spec.method,
         headers,
         body: spec.body === undefined ? undefined : JSON.stringify(spec.body),
       });
+      const ms = Math.round(performance.now() - started);
+      const line = `HTTP ${spec.method} ${spec.path} -> ${response.status}`;
+      if (response.ok) {
+        log.debug(line, { ms });
+      } else {
+        log.warn(line, { ms, requestId: response.headers.get('X-Request-Id') });
+      }
+      return response;
     } catch (error) {
+      // O fetch falhar antes de sair da maquina e o sintoma de CORS ou de CSP,
+      // e os dois sao invisiveis no log do servidor porque nada chega la.
+      log.error(`HTTP ${spec.method} ${spec.path} não saiu da máquina`, error, {
+        url,
+        dica: 'verifique CORS no servidor e connect-src no tauri.conf.json',
+      });
       throw new NetworkError(error);
     }
   }

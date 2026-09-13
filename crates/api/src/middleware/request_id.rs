@@ -49,16 +49,33 @@ pub async fn propagate(request: Request, next: Next) -> Response {
         .and_then(sanitise);
     let id = inbound.unwrap_or_else(|| Uuid::now_v7().simple().to_string());
 
+    let method = request.method().clone();
+    let path = request.uri().path().to_owned();
     let span = tracing::info_span!(
         "http",
         request_id = %id,
-        method = %request.method(),
-        path = %request.uri().path(),
+        method = %method,
+        path = %path,
     );
 
+    let started = std::time::Instant::now();
     let mut response = CURRENT
         .scope(id.clone(), next.run(request).instrument(span))
         .await;
+    let elapsed_ms = started.elapsed().as_millis();
+    let status = response.status().as_u16();
+
+    // Uma linha por requisicao, sempre. Sem isto, uma chamada que o servidor
+    // atende com sucesso nao deixa rastro nenhum, e diagnosticar do lado do
+    // cliente vira adivinhacao: "nao aparece no log" passa a significar tanto
+    // "nao chegou" quanto "chegou e deu certo".
+    if status >= 500 {
+        tracing::error!(%method, %path, status, elapsed_ms, request_id = %id, "requisição");
+    } else if status >= 400 {
+        tracing::warn!(%method, %path, status, elapsed_ms, request_id = %id, "requisição");
+    } else {
+        tracing::info!(%method, %path, status, elapsed_ms, request_id = %id, "requisição");
+    }
 
     if let Ok(value) = HeaderValue::from_str(&id) {
         response.headers_mut().insert(HEADER, value);
