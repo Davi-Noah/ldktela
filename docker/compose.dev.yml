@@ -42,6 +42,10 @@ services:
     ports:
       - "7880:7880"
       - "7881:7881"
+      # Faixa UDP de midia. Sem ela, so o fallback TCP/7881 funciona, e um teste
+      # entre duas maquinas mediria o caminho errado. E a faixa reduzida de dev
+      # (DECISIONS [E0]); a de producao, 50000-60000, nao cabe no Docker Desktop.
+      - "50000-50019:50000-50019/udp"
       # Faixa UDP reduzida em dev: mapear 10k portas no Docker Desktop e inviavel.
       # Em producao a faixa e 50000-60000, conforme SRS 7.1.
       - "50000-50019:50000-50019/udp"
