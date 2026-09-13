@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO share_sessions (id, discord_channel_id, publisher_id)\n        VALUES ($1, $2, $3)\n        ON CONFLICT (discord_channel_id, publisher_id) WHERE ended_at IS NULL\n        DO UPDATE SET discord_channel_id = share_sessions.discord_channel_id\n        RETURNING id, discord_channel_id, publisher_id, started_at, ended_at,\n                  peak_viewers, egress_bytes\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "discord_channel_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "publisher_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "ended_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "peak_viewers",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "egress_bytes",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "ff3964ab856e653b8a29e397dd9d040a6cb4764cbbdaa9c246edabaa3589c190"
+}

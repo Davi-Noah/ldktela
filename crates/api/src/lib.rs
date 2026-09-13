@@ -2,17 +2,16 @@
 
 pub mod auth;
 pub mod config;
+pub mod discord;
 pub mod error;
 pub mod extract;
 pub mod gateway;
 pub mod jobs;
+pub mod livekit;
 pub mod middleware;
-pub mod nonce;
 pub mod permissions;
 pub mod routes;
 pub mod state;
-pub mod storage;
-pub mod voice;
 
 use axum::Router;
 use tower_http::limit::RequestBodyLimitLayer;
@@ -20,12 +19,15 @@ use tower_http::limit::RequestBodyLimitLayer;
 pub use error::{AppError, UpstreamError};
 pub use state::AppState;
 
-/// Base path of every REST route (`docs/api/rest-api.md`).
+/// Base path of every REST route (`docs/rest-api.md`).
 pub const API_BASE: &str = "/api/v1";
 
-/// Largest JSON body accepted. Attachments never pass through the backend
-/// (RF-10), so no legitimate request needs more.
-const MAX_BODY_BYTES: usize = 256 * 1024;
+/// Largest JSON body accepted.
+///
+/// The biggest legitimate request in this product is a pairing code, so this is
+/// three orders of magnitude of headroom. It exists to make an absurd body an
+/// early rejection rather than an allocation.
+const MAX_BODY_BYTES: usize = 16 * 1024;
 
 /// Builds the full HTTP router. `server` owns the listener; `api` owns the shape.
 pub fn router(state: AppState) -> Router {

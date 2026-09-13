@@ -13,7 +13,7 @@
 use db::repo::refresh_tokens;
 use db::PgPool;
 use protocol::auth::AuthResponse;
-use protocol::user::PresenceStatus;
+
 use sqlx::PgExecutor;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
@@ -141,8 +141,6 @@ async fn issue_pair<'e, E: PgExecutor<'e>>(
         access_token,
         refresh_token: refresh.secret,
         expires_in: config.access_token_ttl_seconds,
-        // Presence lives in the gateway; a fresh session starts offline until it
-        // identifies over the WebSocket.
-        user: user.to_current(PresenceStatus::Offline),
+        user: user.to_current(),
     })
 }

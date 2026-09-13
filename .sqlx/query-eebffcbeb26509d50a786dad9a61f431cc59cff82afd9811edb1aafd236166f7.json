@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, discord_user_id, username, display_name, avatar_url, created_at\n          FROM users\n         WHERE discord_user_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "discord_user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "display_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "avatar_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "eebffcbeb26509d50a786dad9a61f431cc59cff82afd9811edb1aafd236166f7"
+}

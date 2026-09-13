@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT COUNT(*) AS \"count!\"\n          FROM room_presence\n         WHERE discord_channel_id = $1 AND publishing\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "66057106a9a3341782fafb1a07554f9f34e01856eaf4a72bfb6d5ad7317b7fdd"
+}

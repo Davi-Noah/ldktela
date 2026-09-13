@@ -90,7 +90,12 @@ impl Session {
         let seq = self.seq.fetch_add(1, Ordering::AcqRel) + 1;
         let frame = DispatchFrame::new(seq, event);
 
-        if frame.event.is_replayable() {
+        {
+            // Todo evento entra no buffer. v1 tinha um efemero (TYPING_START)
+            // que consumia sequencia sem ser bufferizado, e era por causa dele
+            // que a lacuna precisava ser medida por eviccao em vez de pelo
+            // frame mais antigo. A medicao por eviccao continua correta; o caso
+            // especial e que sumiu.
             let mut buffer = self.buffer.lock().expect("buffer mutex");
             if buffer.len() == self.buffer_capacity {
                 if let Some(dropped) = buffer.pop_front() {
@@ -140,24 +145,27 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use protocol::gateway::{PermissionsStale, Resumed};
+    use protocol::gateway::Resumed;
+    use protocol::room::{RoomLeave, RoomLeaveReason};
+    use protocol::scalars::Snowflake;
 
     fn session(capacity: usize) -> (Session, mpsc::UnboundedReceiver<String>) {
         let (tx, rx) = mpsc::unbounded_channel();
         (Session::new(Uuid::now_v7(), tx, capacity), rx)
     }
 
-    fn stale() -> DispatchEvent {
-        DispatchEvent::PermissionsStale(PermissionsStale {
-            guild_id: Uuid::nil(),
+    fn event() -> DispatchEvent {
+        DispatchEvent::RoomLeave(RoomLeave {
+            discord_channel_id: Snowflake::new(1),
+            reason: RoomLeaveReason::Left,
         })
     }
 
     #[test]
     fn sequence_starts_at_one_and_never_repeats() {
         let (session, mut rx) = session(10);
-        session.dispatch(stale());
-        session.dispatch(stale());
+        session.dispatch(event());
+        session.dispatch(event());
         let first: serde_json::Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
         let second: serde_json::Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
         assert_eq!(first["s"], 1);
@@ -169,7 +177,7 @@ mod tests {
     fn the_buffer_drops_the_oldest_frame_when_full() {
         let (session, _rx) = session(3);
         for _ in 0..5 {
-            session.dispatch(stale());
+            session.dispatch(event());
         }
         // Só os três últimos continuam retomáveis.
         assert!(
@@ -183,33 +191,30 @@ mod tests {
     }
 
     #[test]
-    fn typing_start_never_enters_the_resume_buffer() {
+    fn every_event_is_replayable() {
+        // v1 tinha um evento efemero (TYPING_START) que consumia sequencia sem
+        // entrar no buffer. Sem ele, sequencia e buffer andam juntos, e este
+        // teste falha se alguem reintroduzir a excecao sem pensar no resume.
         let (session, _rx) = session(10);
-        session.dispatch(DispatchEvent::TypingStart(protocol::message::TypingStart {
-            channel_id: Uuid::nil(),
-            user_id: Uuid::nil(),
-            expires_at: protocol::Timestamp::new(time::OffsetDateTime::UNIX_EPOCH),
-        }));
-        session.dispatch(stale());
+        session.dispatch(event());
+        session.dispatch(event());
 
-        // A sequência avançou duas vezes, mas só um frame é retomável.
         assert_eq!(session.last_seq(), 2);
         let replay = session.replay_after(0).expect("replay");
-        assert_eq!(replay.len(), 1);
-        assert_eq!(replay[0].event.name(), "PERMISSIONS_STALE");
+        assert_eq!(replay.len(), 2);
     }
 
     #[test]
     fn a_client_claiming_more_than_was_sent_cannot_resume() {
         let (session, _rx) = session(10);
-        session.dispatch(stale());
+        session.dispatch(event());
         assert!(session.replay_after(99).is_none());
     }
 
     #[test]
     fn nothing_missed_replays_as_an_empty_list_not_as_a_failure() {
         let (session, _rx) = session(10);
-        session.dispatch(stale());
+        session.dispatch(event());
         let replay = session.replay_after(1).expect("sem lacuna");
         assert!(replay.is_empty());
     }
@@ -217,12 +222,12 @@ mod tests {
     #[test]
     fn the_sequence_advances_while_disconnected_so_the_gap_is_detectable() {
         let (session, mut rx) = session(10);
-        session.dispatch(stale());
+        session.dispatch(event());
         rx.try_recv().unwrap();
 
         session.disconnect();
         assert!(!session.is_connected());
-        session.dispatch(stale());
+        session.dispatch(event());
         session.dispatch(DispatchEvent::Resumed(Resumed { replayed: 0 }));
         assert_eq!(session.last_seq(), 3);
 

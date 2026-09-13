@@ -1,183 +1,144 @@
-//! Portão do E1: as migrations aplicam, revertem e reaplicam sem resíduo.
+//! The migrations apply, revert and reapply leaving no residue, and the schema
+//! enforces the invariants the SRS relies on.
 
 mod common;
 
 use common::{application_enums, application_tables, TestDb, EXPECTED_TABLES};
+use uuid::Uuid;
 
 #[tokio::test]
 async fn migrations_apply_revert_and_reapply_leaving_no_residue() {
     let db = TestDb::empty().await;
 
-    // Aplica tudo.
     db::MIGRATOR.run(&db.pool).await.expect("first run");
-    let tables = application_tables(&db.pool).await;
     assert_eq!(
-        tables, EXPECTED_TABLES,
-        "conjunto de tabelas diverge do SRS §5.2"
+        application_tables(&db.pool).await,
+        EXPECTED_TABLES,
+        "conjunto de tabelas diverge do SRS v2.0 §5"
     );
-    assert_eq!(
-        application_enums(&db.pool).await,
-        vec!["channel_type", "message_origin", "overwrite_target"],
-        "conjunto de enums diverge do SRS §5.2"
+    assert!(
+        application_enums(&db.pool).await.is_empty(),
+        "o schema novo nao tem enum: os que existiam descreviam mensagens e ponte"
     );
 
-    // Reverte tudo. Falha aqui significa ordem de DROP errada em algum .down.sql.
+    // Falha aqui significa ordem de DROP errada em algum .down.sql.
     db::MIGRATOR
         .undo(&db.pool, 0)
         .await
         .expect("reverting every migration");
     assert!(
         application_tables(&db.pool).await.is_empty(),
-        "reverter deixou tabelas para trás"
-    );
-    assert!(
-        application_enums(&db.pool).await.is_empty(),
-        "reverter deixou tipos enum para trás"
+        "reverter deixou tabelas para tras"
     );
 
-    // Reaplica: prova que o down não destruiu a capacidade de subir de novo.
+    // Reaplica: prova que o down nao destruiu a capacidade de subir de novo.
     db::MIGRATOR.run(&db.pool).await.expect("second run");
     assert_eq!(application_tables(&db.pool).await, EXPECTED_TABLES);
 }
 
 #[tokio::test]
-async fn schema_enforces_the_srs_constraints_that_carry_meaning() {
-    let db = TestDb::migrated().await;
-
-    // chk_real_user_credentials: conta real exige email e hash de senha.
-    let err = sqlx::query(
-        "INSERT INTO users (id, username, is_migrated) VALUES ($1, 'sem-credencial', FALSE)",
-    )
-    .bind(uuid::Uuid::now_v7())
-    .execute(&db.pool)
-    .await
-    .expect_err("usuário real sem credencial deveria violar a CHECK");
-    assert!(
-        err.to_string().contains("chk_real_user_credentials"),
-        "violação inesperada: {err}"
-    );
-
-    // Ghost user (RF-26) não precisa de email nem senha.
-    sqlx::query("INSERT INTO users (id, username, is_migrated) VALUES ($1, 'fantasma', TRUE)")
-        .bind(uuid::Uuid::now_v7())
-        .execute(&db.pool)
-        .await
-        .expect("ghost user deveria ser aceito");
-
-    // idx_users_username: unicidade de username só vale para contas reais.
-    sqlx::query("INSERT INTO users (id, username, is_migrated) VALUES ($1, 'fantasma', TRUE)")
-        .bind(uuid::Uuid::now_v7())
-        .execute(&db.pool)
-        .await
-        .expect("dois ghosts podem repetir username");
-
-    let owner = uuid::Uuid::now_v7();
-    sqlx::query(
-        "INSERT INTO users (id, email, username, password_hash, is_migrated) \
-         VALUES ($1, 'dono@exemplo.test', 'dono', 'x', FALSE)",
-    )
-    .bind(owner)
-    .execute(&db.pool)
-    .await
-    .expect("conta real com credencial");
-
-    let guild = uuid::Uuid::now_v7();
-    sqlx::query("INSERT INTO guilds (id, name, owner_id) VALUES ($1, 'guild', $2)")
-        .bind(guild)
-        .bind(owner)
-        .execute(&db.pool)
-        .await
-        .expect("guild");
-
-    // chk_channel_scope: canal de texto exige guild_id.
-    let err = sqlx::query("INSERT INTO channels (id, name, type) VALUES ($1, 'orfao', 'text')")
-        .bind(uuid::Uuid::now_v7())
-        .execute(&db.pool)
-        .await
-        .expect_err("canal de texto sem guild deveria violar a CHECK");
-    assert!(
-        err.to_string().contains("chk_channel_scope"),
-        "violação inesperada: {err}"
-    );
-
-    // chk_channel_scope: conversa direta exige a ausência de guild_id.
-    let err = sqlx::query(
-        "INSERT INTO channels (id, guild_id, name, type) VALUES ($1, $2, 'dm-em-guild', 'dm')",
-    )
-    .bind(uuid::Uuid::now_v7())
-    .bind(guild)
-    .execute(&db.pool)
-    .await
-    .expect_err("dm com guild_id deveria violar a CHECK");
-    assert!(
-        err.to_string().contains("chk_channel_scope"),
-        "violação inesperada: {err}"
-    );
-
-    // chk_bridge_scope (RF-18a): ponte nunca se aplica a conversa direta.
-    let err = sqlx::query(
-        "INSERT INTO channels (id, name, type, bridge_enabled) VALUES ($1, 'dm', 'dm', TRUE)",
-    )
-    .bind(uuid::Uuid::now_v7())
-    .execute(&db.pool)
-    .await
-    .expect_err("ponte em dm deveria violar a CHECK");
-    assert!(
-        err.to_string().contains("chk_bridge_scope"),
-        "violação inesperada: {err}"
-    );
-
-    // idx_roles_default: um único cargo @everyone por guild.
-    sqlx::query(
-        "INSERT INTO roles (id, guild_id, name, is_default) VALUES ($1, $2, '@everyone', TRUE)",
-    )
-    .bind(uuid::Uuid::now_v7())
-    .bind(guild)
-    .execute(&db.pool)
-    .await
-    .expect("primeiro @everyone");
-
-    let err = sqlx::query(
-        "INSERT INTO roles (id, guild_id, name, is_default) VALUES ($1, $2, '@everyone2', TRUE)",
-    )
-    .bind(uuid::Uuid::now_v7())
-    .bind(guild)
-    .execute(&db.pool)
-    .await
-    .expect_err("segundo cargo padrão deveria violar o índice único");
-    assert!(
-        err.to_string().contains("idx_roles_default"),
-        "violação inesperada: {err}"
-    );
-}
-
-#[tokio::test]
-async fn voice_states_is_unlogged_as_the_srs_requires() {
+async fn room_presence_is_unlogged() {
     let db = TestDb::migrated().await;
     // relpersistence: 'u' = unlogged, 'p' = permanent.
     let persistence: String = sqlx::query_scalar(
-        "SELECT relpersistence::text FROM pg_class WHERE relname = 'voice_states'",
+        "SELECT relpersistence::text FROM pg_class WHERE relname = 'room_presence'",
     )
     .fetch_one(&db.pool)
     .await
     .expect("consultando pg_class");
-    assert_eq!(persistence, "u", "voice_states precisa ser UNLOGGED");
+    assert_eq!(
+        persistence, "u",
+        "presenca e estado efemero e nao deve gerar WAL"
+    );
 }
 
 #[tokio::test]
-async fn full_text_index_uses_the_portuguese_configuration() {
+async fn a_discord_account_cannot_be_paired_twice() {
     let db = TestDb::migrated().await;
-    let definition: String =
-        sqlx::query_scalar("SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_messages_fts'")
-            .fetch_one(&db.pool)
+    common::seed_user(&db.pool, 4242, "pessoa").await;
+
+    let err =
+        sqlx::query("INSERT INTO users (id, discord_user_id, username) VALUES ($1, 4242, 'clone')")
+            .bind(Uuid::now_v7())
+            .execute(&db.pool)
             .await
-            .expect("consultando pg_indexes");
+            .expect_err("o mesmo discord_user_id nao pode virar duas contas");
     assert!(
-        definition.contains("portuguese"),
-        "o índice GIN de busca precisa usar a configuração 'portuguese' (RF-17): {definition}"
+        err.to_string().contains("users_discord_user_id_key"),
+        "violacao inesperada: {err}"
     );
-    assert!(
-        definition.contains("gin"),
-        "o índice de busca precisa ser GIN: {definition}"
+}
+
+#[tokio::test]
+async fn a_publisher_has_at_most_one_open_session_per_channel() {
+    let db = TestDb::migrated().await;
+    let user = common::seed_user(&db.pool, 1, "pessoa").await;
+
+    // Compartilhar tela COM audio publica duas tracks, entao `open` e chamado
+    // duas vezes para a mesma sessao. Sem o indice parcial, isso viraria duas
+    // linhas e o relatorio de egress contaria a sessao em dobro.
+    let first = db::repo::sessions::open(&db.pool, Uuid::now_v7(), 900, user)
+        .await
+        .expect("primeira track");
+    let second = db::repo::sessions::open(&db.pool, Uuid::now_v7(), 900, user)
+        .await
+        .expect("segunda track da mesma sessao");
+    assert_eq!(first.id, second.id, "a segunda track abriu uma sessao nova");
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM share_sessions")
+        .fetch_one(&db.pool)
+        .await
+        .expect("contando sessoes");
+    assert_eq!(count, 1);
+}
+
+#[tokio::test]
+async fn closing_a_session_frees_the_channel_for_the_next_one() {
+    let db = TestDb::migrated().await;
+    let user = common::seed_user(&db.pool, 1, "pessoa").await;
+    let now = time::OffsetDateTime::now_utc();
+
+    let first = db::repo::sessions::open(&db.pool, Uuid::now_v7(), 900, user)
+        .await
+        .expect("abrindo");
+    db::repo::sessions::close(&db.pool, 900, user, now)
+        .await
+        .expect("fechando");
+
+    let second = db::repo::sessions::open(&db.pool, Uuid::now_v7(), 900, user)
+        .await
+        .expect("reabrindo depois de fechar");
+    assert_ne!(
+        first.id, second.id,
+        "depois de fechar, a proxima sessao precisa ser uma linha nova"
     );
+}
+
+#[tokio::test]
+async fn deleting_a_user_takes_their_rows_with_them() {
+    let db = TestDb::migrated().await;
+    let user = common::seed_user(&db.pool, 7, "pessoa").await;
+    db::repo::presence::join(&db.pool, user, 900)
+        .await
+        .expect("entrando na sala");
+    db::repo::sessions::open(&db.pool, Uuid::now_v7(), 900, user)
+        .await
+        .expect("abrindo sessao");
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(user)
+        .execute(&db.pool)
+        .await
+        .expect("removendo usuario");
+
+    let presence: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM room_presence")
+        .fetch_one(&db.pool)
+        .await
+        .expect("contando presenca");
+    let sessions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM share_sessions")
+        .fetch_one(&db.pool)
+        .await
+        .expect("contando sessoes");
+    assert_eq!(presence, 0, "presenca orfa ficaria visivel numa sala");
+    assert_eq!(sessions, 0);
 }

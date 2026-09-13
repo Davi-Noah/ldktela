@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE share_sessions SET ended_at = $1 WHERE ended_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "771d45531784fbc31cbc6eb12ec8958293d80a7f0be1f3ece83ee5949299d296"
+}

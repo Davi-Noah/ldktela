@@ -1,20 +1,20 @@
-//! WebSocket gateway wire format (`docs/protocol/websocket.md`).
+//! WebSocket gateway wire format (`docs/websocket.md`).
 //!
 //! The gateway is a **notification** channel: the client only ever sends
 //! `IDENTIFY`, `RESUME` and `HEARTBEAT`. Every mutation goes through REST.
+//!
+//! The frame machinery below is unchanged from v1 — it is the most mature part
+//! of the project. What shrank is the event set: from thirty events describing a
+//! chat application to eight describing a room.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::bridge::BridgeStatus;
-use crate::channel::{Channel, DmParticipantEvent, ReadState};
-use crate::guild::{Category, Member, Role};
-use crate::message::{Message, MessageBulkDelete, MessageDelete, ReactionEvent, TypingStart};
-use crate::user::{CurrentUser, Presence};
-use crate::voice::VoiceState;
+use crate::room::{RoomLeave, RoomParticipantAdd, RoomParticipantRemove, RoomState, ShareEvent};
+use crate::user::CurrentUser;
 
-/// Frame opcode (`docs/protocol/websocket.md` §2.1). Serialised as an integer.
+/// Frame opcode (`docs/websocket.md` §2.1). Serialised as an integer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(transparent)]
 #[ts(export, type = "0 | 1 | 2 | 3 | 4 | 5 | 6 | 7")]
@@ -40,7 +40,7 @@ impl Opcode {
     pub const RECONNECT: Self = Self(7);
 }
 
-/// Close codes (`docs/protocol/websocket.md` §3.5 and §8).
+/// Close codes (`docs/websocket.md` §3.5 and §8).
 pub mod close_code {
     /// Unknown error. Client should resume.
     pub const UNKNOWN: u16 = 4000;
@@ -60,7 +60,7 @@ pub mod close_code {
     pub const ZOMBIED: u16 = 4900;
 }
 
-/// Limits from `docs/protocol/websocket.md` §7.
+/// Limits from `docs/websocket.md` §7.
 pub mod limits {
     /// Time allowed between `HELLO` and `IDENTIFY`.
     pub const IDENTIFY_TIMEOUT_MS: u64 = 10_000;
@@ -196,10 +196,14 @@ impl DispatchFrame {
     }
 }
 
-/// Every dispatch event (`docs/protocol/websocket.md` §5).
+/// Every dispatch event (`docs/websocket.md` §5).
 ///
 /// Adjacently tagged so it serialises exactly as `{"t": "NAME", "d": {…}}`, which
 /// is what the envelope requires once flattened into `DispatchFrame`.
+///
+/// Every event here is replayable. v1 had one ephemeral event (`TYPING_START`)
+/// that consumed a sequence without entering the resume buffer; with it gone,
+/// the buffer holds everything the session ever sent.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(tag = "t", content = "d")]
@@ -209,150 +213,55 @@ pub enum DispatchEvent {
     #[serde(rename = "RESUMED")]
     Resumed(Resumed),
 
-    #[serde(rename = "MESSAGE_CREATE")]
-    MessageCreate(Box<Message>),
-    #[serde(rename = "MESSAGE_UPDATE")]
-    MessageUpdate(Box<Message>),
-    #[serde(rename = "MESSAGE_DELETE")]
-    MessageDelete(MessageDelete),
-    #[serde(rename = "MESSAGE_BULK_DELETE")]
-    MessageBulkDelete(MessageBulkDelete),
+    /// The user entered a Discord voice channel and may now open the room.
+    #[serde(rename = "ROOM_JOIN")]
+    RoomJoin(Box<RoomState>),
+    /// The user left, or was removed because access disappeared (RF-08).
+    #[serde(rename = "ROOM_LEAVE")]
+    RoomLeave(RoomLeave),
 
-    #[serde(rename = "REACTION_ADD")]
-    ReactionAdd(ReactionEvent),
-    #[serde(rename = "REACTION_REMOVE")]
-    ReactionRemove(ReactionEvent),
-    #[serde(rename = "TYPING_START")]
-    TypingStart(TypingStart),
+    #[serde(rename = "ROOM_PARTICIPANT_ADD")]
+    RoomParticipantAdd(Box<RoomParticipantAdd>),
+    #[serde(rename = "ROOM_PARTICIPANT_REMOVE")]
+    RoomParticipantRemove(RoomParticipantRemove),
 
-    #[serde(rename = "CHANNEL_CREATE")]
-    ChannelCreate(Box<Channel>),
-    #[serde(rename = "CHANNEL_UPDATE")]
-    ChannelUpdate(Box<Channel>),
-    #[serde(rename = "CHANNEL_DELETE")]
-    ChannelDelete(Box<Channel>),
-
-    #[serde(rename = "CATEGORY_CREATE")]
-    CategoryCreate(Category),
-    #[serde(rename = "CATEGORY_UPDATE")]
-    CategoryUpdate(Category),
-    #[serde(rename = "CATEGORY_DELETE")]
-    CategoryDelete(Category),
-
-    #[serde(rename = "ROLE_CREATE")]
-    RoleCreate(Role),
-    #[serde(rename = "ROLE_UPDATE")]
-    RoleUpdate(Role),
-    #[serde(rename = "ROLE_DELETE")]
-    RoleDelete(Role),
-
-    #[serde(rename = "GUILD_MEMBER_ADD")]
-    GuildMemberAdd(Box<Member>),
-    #[serde(rename = "GUILD_MEMBER_UPDATE")]
-    GuildMemberUpdate(Box<Member>),
-    #[serde(rename = "GUILD_MEMBER_REMOVE")]
-    GuildMemberRemove(Box<Member>),
-
-    /// Emitted after any role or overwrite change. Without it a demoted user
-    /// keeps seeing controls the server will refuse.
-    #[serde(rename = "PERMISSIONS_STALE")]
-    PermissionsStale(PermissionsStale),
-
-    #[serde(rename = "PRESENCE_UPDATE")]
-    PresenceUpdate(Presence),
-    #[serde(rename = "VOICE_STATE_UPDATE")]
-    VoiceStateUpdate(VoiceState),
-
-    #[serde(rename = "DM_CHANNEL_CREATE")]
-    DmChannelCreate(Box<Channel>),
-    #[serde(rename = "DM_PARTICIPANT_ADD")]
-    DmParticipantAdd(DmParticipantEvent),
-    #[serde(rename = "DM_PARTICIPANT_REMOVE")]
-    DmParticipantRemove(DmParticipantEvent),
-
-    /// Sent only to the user's own sessions.
-    #[serde(rename = "READ_STATE_UPDATE")]
-    ReadStateUpdate(ReadState),
-
-    /// Sent only to administrators.
-    #[serde(rename = "BRIDGE_STATUS")]
-    BridgeStatus(BridgeStatus),
+    #[serde(rename = "SHARE_START")]
+    ShareStart(ShareEvent),
+    #[serde(rename = "SHARE_STOP")]
+    ShareStop(ShareEvent),
 }
 
 impl DispatchEvent {
-    /// The `t` value, for logging and for the resume buffer filter.
+    /// The `t` value, for logging and for tests that assert the envelope.
     pub const fn name(&self) -> &'static str {
         match self {
             Self::Ready(_) => "READY",
             Self::Resumed(_) => "RESUMED",
-            Self::MessageCreate(_) => "MESSAGE_CREATE",
-            Self::MessageUpdate(_) => "MESSAGE_UPDATE",
-            Self::MessageDelete(_) => "MESSAGE_DELETE",
-            Self::MessageBulkDelete(_) => "MESSAGE_BULK_DELETE",
-            Self::ReactionAdd(_) => "REACTION_ADD",
-            Self::ReactionRemove(_) => "REACTION_REMOVE",
-            Self::TypingStart(_) => "TYPING_START",
-            Self::ChannelCreate(_) => "CHANNEL_CREATE",
-            Self::ChannelUpdate(_) => "CHANNEL_UPDATE",
-            Self::ChannelDelete(_) => "CHANNEL_DELETE",
-            Self::CategoryCreate(_) => "CATEGORY_CREATE",
-            Self::CategoryUpdate(_) => "CATEGORY_UPDATE",
-            Self::CategoryDelete(_) => "CATEGORY_DELETE",
-            Self::RoleCreate(_) => "ROLE_CREATE",
-            Self::RoleUpdate(_) => "ROLE_UPDATE",
-            Self::RoleDelete(_) => "ROLE_DELETE",
-            Self::GuildMemberAdd(_) => "GUILD_MEMBER_ADD",
-            Self::GuildMemberUpdate(_) => "GUILD_MEMBER_UPDATE",
-            Self::GuildMemberRemove(_) => "GUILD_MEMBER_REMOVE",
-            Self::PermissionsStale(_) => "PERMISSIONS_STALE",
-            Self::PresenceUpdate(_) => "PRESENCE_UPDATE",
-            Self::VoiceStateUpdate(_) => "VOICE_STATE_UPDATE",
-            Self::DmChannelCreate(_) => "DM_CHANNEL_CREATE",
-            Self::DmParticipantAdd(_) => "DM_PARTICIPANT_ADD",
-            Self::DmParticipantRemove(_) => "DM_PARTICIPANT_REMOVE",
-            Self::ReadStateUpdate(_) => "READ_STATE_UPDATE",
-            Self::BridgeStatus(_) => "BRIDGE_STATUS",
+            Self::RoomJoin(_) => "ROOM_JOIN",
+            Self::RoomLeave(_) => "ROOM_LEAVE",
+            Self::RoomParticipantAdd(_) => "ROOM_PARTICIPANT_ADD",
+            Self::RoomParticipantRemove(_) => "ROOM_PARTICIPANT_REMOVE",
+            Self::ShareStart(_) => "SHARE_START",
+            Self::ShareStop(_) => "SHARE_STOP",
         }
-    }
-
-    /// `TYPING_START` is ephemeral and never enters the resume buffer: replaying
-    /// a 40-second-old typing indicator is noise (§5).
-    pub const fn is_replayable(&self) -> bool {
-        !matches!(self, Self::TypingStart(_))
     }
 }
 
-/// `READY` payload (§3.1). Carries **structure**, never history: a `READY` that
-/// loaded messages would make startup O(n) in server size.
+/// `READY` payload (§3.1).
+///
+/// `room` is `None` whenever the user is not in a Discord voice channel, which
+/// is most of the time: the app sits in the tray and only has something to show
+/// when Discord says so (ADR-0011).
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct Ready {
     pub session_id: Uuid,
     pub user: CurrentUser,
-    /// Only guilds and channels the user can `VIEW_CHANNEL` at identification.
-    pub guilds: Vec<ReadyGuild>,
-    pub dm_channels: Vec<Channel>,
-    pub read_states: Vec<ReadState>,
-    pub presences: Vec<Presence>,
-    pub voice_states: Vec<VoiceState>,
+    #[ts(optional)]
+    pub room: Option<RoomState>,
     /// Heartbeat interval echoed for clients that reconnect without a new HELLO.
     #[ts(type = "number")]
     pub heartbeat_interval_ms: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct ReadyGuild {
-    pub id: Uuid,
-    pub name: String,
-    pub icon_url: Option<String>,
-    pub owner_id: Uuid,
-    pub categories: Vec<Category>,
-    pub channels: Vec<Channel>,
-    pub roles: Vec<Role>,
-    pub members: Vec<Member>,
-    #[ts(type = "number")]
-    pub member_count: i64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS)]
@@ -361,32 +270,43 @@ pub struct Resumed {
     pub replayed: u32,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct PermissionsStale {
-    pub guild_id: Uuid,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::room::RoomLeaveReason;
+    use crate::scalars::Snowflake;
 
     #[test]
     fn dispatch_frame_matches_the_documented_envelope() {
         let frame = DispatchFrame::new(
             4211,
-            DispatchEvent::PermissionsStale(PermissionsStale {
-                guild_id: Uuid::nil(),
+            DispatchEvent::ShareStart(ShareEvent {
+                discord_channel_id: Snowflake::new(42),
+                user_id: Uuid::nil(),
             }),
         );
         let json = serde_json::to_value(&frame).unwrap();
         assert_eq!(json["op"], 0);
-        assert_eq!(json["t"], "PERMISSIONS_STALE");
+        assert_eq!(json["t"], "SHARE_START");
         assert_eq!(json["s"], 4211);
-        assert_eq!(json["d"]["guild_id"], Uuid::nil().to_string());
+        assert_eq!(json["d"]["user_id"], Uuid::nil().to_string());
         let mut keys: Vec<_> = json.as_object().unwrap().keys().cloned().collect();
         keys.sort();
         assert_eq!(keys, vec!["d", "op", "s", "t"]);
+    }
+
+    #[test]
+    fn snowflakes_in_events_stay_strings_on_the_wire() {
+        // 2^53 + 1 perde precisao em Number; um id de canal real passa disso.
+        let frame = DispatchFrame::new(
+            1,
+            DispatchEvent::ShareStop(ShareEvent {
+                discord_channel_id: Snowflake::new(9_007_199_254_740_993),
+                user_id: Uuid::nil(),
+            }),
+        );
+        let json = serde_json::to_value(&frame).unwrap();
+        assert_eq!(json["d"]["discord_channel_id"], "9007199254740993");
     }
 
     #[test]
@@ -420,22 +340,29 @@ mod tests {
     }
 
     #[test]
-    fn typing_start_is_the_only_event_excluded_from_the_resume_buffer() {
-        let typing = DispatchEvent::TypingStart(TypingStart {
-            channel_id: Uuid::nil(),
-            user_id: Uuid::nil(),
-            expires_at: crate::Timestamp::new(time::OffsetDateTime::UNIX_EPOCH),
-        });
-        assert!(!typing.is_replayable());
-        assert!(DispatchEvent::Resumed(Resumed { replayed: 1 }).is_replayable());
+    fn room_leave_reason_serialises_in_snake_case() {
+        let frame = DispatchFrame::new(
+            7,
+            DispatchEvent::RoomLeave(RoomLeave {
+                discord_channel_id: Snowflake::new(1),
+                reason: RoomLeaveReason::AccessRevoked,
+            }),
+        );
+        let json = serde_json::to_value(&frame).unwrap();
+        assert_eq!(json["d"]["reason"], "access_revoked");
     }
 
     #[test]
     fn every_event_name_is_screaming_snake_case() {
         for event in [
             DispatchEvent::Resumed(Resumed { replayed: 0 }),
-            DispatchEvent::PermissionsStale(PermissionsStale {
-                guild_id: Uuid::nil(),
+            DispatchEvent::ShareStart(ShareEvent {
+                discord_channel_id: Snowflake::new(1),
+                user_id: Uuid::nil(),
+            }),
+            DispatchEvent::RoomLeave(RoomLeave {
+                discord_channel_id: Snowflake::new(1),
+                reason: RoomLeaveReason::Left,
             }),
         ] {
             let name = event.name();

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE pairing_codes\n           SET consumed_at = $2\n         WHERE code_hash   = $1\n           AND consumed_at IS NULL\n           AND expires_at  > $2\n        RETURNING discord_user_id, discord_guild_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "discord_user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "discord_guild_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "9e574f36f03dc769cb9ed5e2e818a9e4b2a2210f9e3105d7803dc478e6c6650c"
+}

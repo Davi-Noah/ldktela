@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE share_sessions\n           SET ended_at = $3\n         WHERE discord_channel_id = $1\n           AND publisher_id       = $2\n           AND ended_at IS NULL\n        RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "42bcdab184cbbe8d750af08cf68a939e88379fdeda83559f6c65680527a17375"
+}

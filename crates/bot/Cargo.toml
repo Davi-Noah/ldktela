@@ -1,0 +1,24 @@
+[package]
+name = "bot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+api.workspace = true
+db.workspace = true
+domain.workspace = true
+protocol.workspace = true
+anyhow.workspace = true
+rand.workspace = true
+serenity.workspace = true
+sha2.workspace = true
+time.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

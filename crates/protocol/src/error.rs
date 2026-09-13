@@ -1,4 +1,4 @@
-//! The single error body shape (`docs/api/rest-api.md` §3). There is no other.
+//! The single error body shape (`docs/rest-api.md` §3). There is no other.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -35,7 +35,7 @@ pub struct FieldError {
     pub code: String,
 }
 
-/// Every `code` the API can return (`docs/api/rest-api.md` §3, plus the two
+/// Every `code` the API can return (`docs/rest-api.md` §3, plus the
 /// domain-specific codes named elsewhere in the contract).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -48,14 +48,18 @@ pub enum ErrorCode {
     Forbidden,
     NotFound,
     Conflict,
+    /// The body exceeded the request limit. No legitimate client can produce
+    /// one — the largest body in this product is a pairing code — but the
+    /// extractor can still reject, and every rejection needs a code.
     PayloadTooLarge,
     RateLimited,
     Internal,
-    /// §6.9: the room already has the maximum number of camera publishers.
-    VoiceCapacity,
-    /// §6.10 and the `chk_bridge_scope` constraint.
-    BridgeNotAllowed,
-    /// Gateway or upstream dependency failed (R2, LiveKit, Discord).
+    /// The room already holds the maximum number of publishers (RNF-05).
+    RoomCapacity,
+    /// The Discord replica is too far behind to vouch for access, so the
+    /// request fails closed (RF-09).
+    ReplicaStale,
+    /// An upstream dependency failed (LiveKit, Discord).
     UpstreamFailure,
 }
 
@@ -72,8 +76,8 @@ impl ErrorCode {
             Self::PayloadTooLarge => "PAYLOAD_TOO_LARGE",
             Self::RateLimited => "RATE_LIMITED",
             Self::Internal => "INTERNAL",
-            Self::VoiceCapacity => "VOICE_CAPACITY",
-            Self::BridgeNotAllowed => "BRIDGE_NOT_ALLOWED",
+            Self::RoomCapacity => "ROOM_CAPACITY",
+            Self::ReplicaStale => "REPLICA_STALE",
             Self::UpstreamFailure => "UPSTREAM_FAILURE",
         }
     }
@@ -113,6 +117,13 @@ mod tests {
             serde_json::to_string(&ErrorCode::PayloadTooLarge).unwrap(),
             "\"PAYLOAD_TOO_LARGE\""
         );
-        assert_eq!(ErrorCode::VoiceCapacity.as_str(), "VOICE_CAPACITY");
+        assert_eq!(ErrorCode::RoomCapacity.as_str(), "ROOM_CAPACITY");
+        assert_eq!(ErrorCode::ReplicaStale.as_str(), "REPLICA_STALE");
+        // O `as_str` e o rename do serde precisam concordar: o cliente usa o
+        // primeiro em log e o segundo em logica.
+        assert_eq!(
+            serde_json::to_string(&ErrorCode::ReplicaStale).unwrap(),
+            format!("\"{}\"", ErrorCode::ReplicaStale.as_str())
+        );
     }
 }

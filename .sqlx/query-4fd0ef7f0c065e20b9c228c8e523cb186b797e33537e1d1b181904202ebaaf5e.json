@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        -- SUM sobre BIGINT devolve NUMERIC no Postgres; o cast evita arrastar a\n        -- feature bigdecimal do SQLx para dentro do build por causa de uma query.\n        SELECT COALESCE(SUM(egress_bytes), 0)::BIGINT AS \"total!\"\n          FROM share_sessions\n         WHERE started_at >= $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4fd0ef7f0c065e20b9c228c8e523cb186b797e33537e1d1b181904202ebaaf5e"
+}

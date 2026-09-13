@@ -2,12 +2,11 @@
 //!
 //! No IO lives here. This crate must never depend on `sqlx`, `axum` or `tokio`.
 
-pub mod mentions;
-pub mod permissions;
-pub mod resolve;
+pub mod discord;
+pub mod pairing;
 pub mod validation;
 
-pub use mentions::Mentions;
-pub use permissions::Permissions;
-pub use resolve::{resolve, GuildContext, Overwrite, PermissionContext};
+pub use discord::{
+    resolve, ChannelRef, DiscordPermissions, GuildRef, MemberRef, Overwrite, OverwriteKind, RoleRef,
+};
 pub use validation::{FieldError, Validation, ValidationCode};

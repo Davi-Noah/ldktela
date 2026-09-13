@@ -1,12 +1,13 @@
 //! Scalar wire types shared by every DTO.
 //!
-//! Two of them exist because the obvious representation is wrong on the wire:
+//! Both exist because the obvious representation is wrong on the wire:
 //!
-//! * `Timestamp` — RFC 3339 with offset (`docs/api/rest-api.md` §1), which is not
+//! * `Timestamp` — RFC 3339 with offset (`docs/rest-api.md` §1), which is not
 //!   what `time::OffsetDateTime` serialises to by default.
-//! * `PermissionMask` — a **decimal string**. A 63-bit `BIGINT` does not survive
-//!   `Number` in JavaScript, which loses precision above 2^53
-//!   (`docs/api/rest-api.md` §6.4).
+//! * `Snowflake` — a **decimal string**. A Discord id is a 64-bit integer and
+//!   does not survive `Number` in JavaScript, which loses precision above 2^53.
+//!   Every channel, guild and user id in this product is one of these, so the
+//!   mistake would be everywhere at once.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use time::format_description::well_known::Rfc3339;
@@ -59,39 +60,8 @@ impl<'de> Deserialize<'de> for Timestamp {
     }
 }
 
-/// A permission bitmask on the wire: decimal digits in a string.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, TS)]
-#[ts(export, type = "string")]
-pub struct PermissionMask(i64);
-
-impl PermissionMask {
-    pub const fn new(bits: i64) -> Self {
-        Self(bits)
-    }
-
-    pub const fn bits(self) -> i64 {
-        self.0
-    }
-}
-
-impl Serialize for PermissionMask {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.0.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for PermissionMask {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let text = String::deserialize(deserializer)?;
-        text.parse::<i64>()
-            .map(Self)
-            .map_err(|_| serde::de::Error::custom("máscara de permissão inválida"))
-    }
-}
-
-/// A Discord snowflake. `BIGINT` in the schema, decimal string on the wire for
-/// the same precision reason as `PermissionMask`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, TS)]
+/// A Discord snowflake. `BIGINT` in the schema, decimal string on the wire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, TS)]
 #[ts(export, type = "string")]
 pub struct Snowflake(i64);
 
@@ -135,20 +105,20 @@ mod tests {
     }
 
     #[test]
-    fn permission_mask_never_serialises_as_a_number() {
-        // 2^53 + 1 perde precisao em Number; precisa sair como string.
-        let mask = PermissionMask::new(9_007_199_254_740_993);
-        assert_eq!(
-            serde_json::to_string(&mask).unwrap(),
-            "\"9007199254740993\""
-        );
-        let back: PermissionMask = serde_json::from_str("\"9007199254740993\"").unwrap();
-        assert_eq!(back, mask);
+    fn snowflake_rejects_a_json_number() {
+        // Aceitar numero aqui deixaria o cliente mandar um id ja truncado, e o
+        // truncamento e silencioso: o servidor gravaria o canal errado.
+        assert!(serde_json::from_str::<Snowflake>("384").is_err());
     }
 
     #[test]
-    fn permission_mask_rejects_a_json_number() {
-        assert!(serde_json::from_str::<PermissionMask>("384").is_err());
+    fn snowflake_survives_beyond_2_pow_53() {
+        let id = Snowflake::new(9_007_199_254_740_993);
+        assert_eq!(serde_json::to_string(&id).unwrap(), "\"9007199254740993\"");
+        assert_eq!(
+            serde_json::from_str::<Snowflake>("\"9007199254740993\"").unwrap(),
+            id
+        );
     }
 
     #[test]

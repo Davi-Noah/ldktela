@@ -14,14 +14,10 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.62.0",
-    "@tanstack/react-virtual": "^3.11.0",
     "@tauri-apps/api": "^2.1.0",
     "livekit-client": "^2.7.0",
-    "marked": "^15.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "shiki": "^1.24.0",
     "zustand": "^5.0.0"
   },
   "devDependencies": {

@@ -1,26 +1,20 @@
-//! Authentication (`docs/api/rest-api.md` §6.1, RF-01, RF-01a).
+//! Authentication (RF-01, RF-02).
+//!
+//! There is no registration and no login: the Discord account is the identity,
+//! reached through a single-use pairing code issued by the bot (ADR-0009). Only
+//! the token half of the v1 flow survived, and it survived unchanged.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::user::CurrentUser;
 
-/// `POST /auth/register`. Consumes the invite in the same transaction.
+/// `POST /auth/pair`. The code was handed to the user by the bot, ephemerally,
+/// inside Discord.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(export)]
-pub struct RegisterRequest {
-    pub invite_code: String,
-    pub email: String,
-    pub username: String,
-    pub password: String,
-}
-
-/// `POST /auth/login`.
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(export)]
-pub struct LoginRequest {
-    pub email: String,
-    pub password: String,
+pub struct PairRequest {
+    pub code: String,
 }
 
 /// `POST /auth/refresh` and `POST /auth/logout`.
@@ -31,7 +25,7 @@ pub struct RefreshRequest {
 }
 
 /// The token pair. The refresh token is opaque and is stored by the Rust core in
-/// the Windows credential vault — never in `localStorage` (RF-01b).
+/// the Windows credential vault — never in `localStorage` (RF-03).
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AuthResponse {
@@ -43,7 +37,7 @@ pub struct AuthResponse {
     pub user: CurrentUser,
 }
 
-/// Claims carried by the access token (`docs/api/rest-api.md` §2).
+/// Claims carried by the access token.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AccessTokenClaims {

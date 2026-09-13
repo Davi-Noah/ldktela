@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM room_presence WHERE discord_channel_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "afc16c6349b1013c3ed6964241f5af59876511ea14afa80ed27d2c6804e779aa"
+}

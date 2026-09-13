@@ -67,5 +67,5 @@ certas.
 | [0013](0013-turn-tls-443-primario.md) | TURN/TLS em 443 é caminho primário, não fallback | Aceito |
 | [0014](0014-audio-por-aplicativo.md) | Áudio por aplicativo via WASAPI, transportado por IPC | Aceito |
 | [0015](0015-postgres-com-schema-reduzido.md) | Postgres mantido apesar do schema reduzido | Aceito |
-| [0016](0016-poda-por-reescrita-de-migrations.md) | Poda do escopo por reescrita das migrations | **Proposto** |
+| [0016](0016-poda-por-reescrita-de-migrations.md) | Poda do escopo por reescrita das migrations | Aceito |
 | [0017](0017-nao-usar-discord-activity.md) | O produto não é uma Discord Activity | Aceito |

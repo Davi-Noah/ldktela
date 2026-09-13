@@ -3,7 +3,7 @@ import type { CurrentUser } from "./CurrentUser";
 
 /**
  * The token pair. The refresh token is opaque and is stored by the Rust core in
- * the Windows credential vault — never in `localStorage` (RF-01b).
+ * the Windows credential vault — never in `localStorage` (RF-03).
  */
 export type AuthResponse = { access_token: string, refresh_token: string, 
 /**

@@ -15,8 +15,6 @@ use crate::middleware::request_id::RequestId;
 /// Upstream dependencies that can fail without it being our bug.
 #[derive(Debug, thiserror::Error)]
 pub enum UpstreamError {
-    #[error("object storage: {0}")]
-    Storage(String),
     #[error("livekit: {0}")]
     LiveKit(String),
     #[error("discord: {0}")]
@@ -28,7 +26,7 @@ pub enum AppError {
     #[error("unauthorized")]
     Unauthorized,
     /// The access token is well formed but expired. The client refreshes once
-    /// and retries (`docs/api/rest-api.md` §2).
+    /// and retries (`docs/rest-api.md` §2).
     #[error("token expired")]
     TokenExpired,
     /// A consumed refresh token was presented. The family is already revoked by
@@ -47,12 +45,14 @@ pub enum AppError {
     RateLimited { retry_after_ms: u64 },
     #[error("payload too large")]
     PayloadTooLarge,
-    /// The room already holds the maximum number of camera publishers (RNF-10).
-    #[error("voice capacity")]
-    VoiceCapacity,
-    /// Bridging a direct conversation is structurally forbidden (RF-18a).
-    #[error("bridge not allowed")]
-    BridgeNotAllowed,
+    /// The room already holds the maximum number of publishers (RNF-05).
+    #[error("room capacity")]
+    RoomCapacity,
+    /// The Discord replica is too far behind to vouch for access (RF-09).
+    /// Failing closed here is the whole point: an admission granted from stale
+    /// state can outlive the permission it was based on by hours.
+    #[error("replica stale")]
+    ReplicaStale,
     #[error("upstream failure")]
     Upstream(#[from] UpstreamError),
     #[error("internal")]
@@ -62,7 +62,7 @@ pub enum AppError {
 impl AppError {
     /// Anything invisible answers `404`, never `403`: a `403` confirms the
     /// resource exists, which is enough to map a private server
-    /// (`docs/api/rest-api.md` §3).
+    /// (`docs/rest-api.md` §3).
     pub const fn invisible(resource: &'static str) -> Self {
         Self::NotFound { resource }
     }
@@ -73,11 +73,12 @@ impl AppError {
             Self::Forbidden => StatusCode::FORBIDDEN,
             Self::NotFound { .. } => StatusCode::NOT_FOUND,
             Self::Validation(_) => StatusCode::BAD_REQUEST,
-            Self::Conflict { .. } | Self::VoiceCapacity | Self::BridgeNotAllowed => {
-                StatusCode::CONFLICT
-            }
+            Self::Conflict { .. } | Self::RoomCapacity => StatusCode::CONFLICT,
             Self::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
             Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+            // 503 e nao 409: nao ha conflito de estado, o servico e que nao
+            // pode responder com seguranca agora. O cliente deve tentar de novo.
+            Self::ReplicaStale => StatusCode::SERVICE_UNAVAILABLE,
             Self::Upstream(_) => StatusCode::BAD_GATEWAY,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -94,8 +95,8 @@ impl AppError {
             Self::Conflict { .. } => ErrorCode::Conflict,
             Self::RateLimited { .. } => ErrorCode::RateLimited,
             Self::PayloadTooLarge => ErrorCode::PayloadTooLarge,
-            Self::VoiceCapacity => ErrorCode::VoiceCapacity,
-            Self::BridgeNotAllowed => ErrorCode::BridgeNotAllowed,
+            Self::RoomCapacity => ErrorCode::RoomCapacity,
+            Self::ReplicaStale => ErrorCode::ReplicaStale,
             Self::Upstream(_) => ErrorCode::UpstreamFailure,
             Self::Internal(_) => ErrorCode::Internal,
         }
@@ -110,20 +111,14 @@ impl AppError {
             Self::Forbidden => "Você não tem permissão para esta ação.".into(),
             Self::NotFound { .. } => "Não encontrado.".into(),
             Self::Validation(_) => "Alguns campos estão inválidos.".into(),
-            Self::Conflict { reason } => match *reason {
-                "username_taken" => "Este nome de usuário já está em uso.".into(),
-                "email_taken" => "Este e-mail já está cadastrado.".into(),
-                "invite_consumed" => "Este convite não é mais válido.".into(),
-                "dm_participant_limit" => {
-                    "Uma conversa em grupo aceita no máximo 10 participantes.".into()
-                }
-                _ => "A operação conflita com o estado atual.".into(),
-            },
+            Self::Conflict { .. } => "A operação conflita com o estado atual.".into(),
             Self::RateLimited { .. } => "Muitas requisições. Tente novamente em instantes.".into(),
-            Self::PayloadTooLarge => "Arquivo acima do limite permitido.".into(),
-            Self::VoiceCapacity => "A sala já tem o número máximo de câmeras transmitindo.".into(),
-            Self::BridgeNotAllowed => {
-                "A ponte com o Discord não se aplica a conversas diretas.".into()
+            Self::PayloadTooLarge => "Requisição grande demais.".into(),
+            Self::RoomCapacity => {
+                "A sala já tem o número máximo de telas sendo compartilhadas.".into()
+            }
+            Self::ReplicaStale => {
+                "Sem contato com o Discord no momento. Tente novamente em instantes.".into()
             }
             Self::Upstream(_) => "Um serviço externo falhou. Tente novamente.".into(),
             Self::Internal(_) => "Erro interno.".into(),
@@ -229,10 +224,10 @@ mod tests {
 
     #[test]
     fn upstream_errors_do_not_name_the_upstream() {
-        let err = AppError::Upstream(UpstreamError::Storage(
-            "403 from https://conta.r2.cloudflarestorage.com".into(),
+        let err = AppError::Upstream(UpstreamError::LiveKit(
+            "401 from https://sfu.exemplo.internal/twirp".into(),
         ));
-        assert!(!err.message().contains("r2.cloudflarestorage"));
+        assert!(!err.message().contains("sfu.exemplo.internal"));
         assert_eq!(err.status(), StatusCode::BAD_GATEWAY);
     }
 
@@ -247,13 +242,14 @@ mod tests {
             (Forbidden, 403, ErrorCode::Forbidden),
             (NotFound { resource: "x" }, 404, ErrorCode::NotFound),
             (Conflict { reason: "x" }, 409, ErrorCode::Conflict),
-            (PayloadTooLarge, 413, ErrorCode::PayloadTooLarge),
             (
                 RateLimited { retry_after_ms: 1 },
                 429,
                 ErrorCode::RateLimited,
             ),
-            (VoiceCapacity, 409, ErrorCode::VoiceCapacity),
+            (PayloadTooLarge, 413, ErrorCode::PayloadTooLarge),
+            (RoomCapacity, 409, ErrorCode::RoomCapacity),
+            (ReplicaStale, 503, ErrorCode::ReplicaStale),
         ];
         for (error, status, code) in cases {
             assert_eq!(error.status().as_u16(), status, "{error:?}");

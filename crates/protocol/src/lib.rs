@@ -15,22 +15,14 @@
 //!   client never receives.
 
 pub mod auth;
-pub mod bridge;
-pub mod channel;
 pub mod error;
 pub mod gateway;
-pub mod guild;
-pub mod message;
-pub mod page;
-pub mod patch;
+pub mod room;
 pub mod scalars;
-pub mod search;
 pub mod user;
-pub mod voice;
 
 pub use error::{ErrorBody, ErrorCode, ErrorResponse, FieldError};
-pub use page::{Cursor, Page, PageQuery};
-pub use scalars::{PermissionMask, Snowflake, Timestamp};
+pub use scalars::{Snowflake, Timestamp};
 
 /// Gateway protocol version carried in the `?v=` query string.
 pub const GATEWAY_VERSION: u8 = 1;

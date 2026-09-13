@@ -8,18 +8,16 @@ rust-version.workspace = true
 
 [dependencies]
 db.workspace = true
-argon2.workspace = true
 base64.workspace = true
 jsonwebtoken.workspace = true
 livekit-api.workspace = true
 livekit-protocol = "0.7"
 rand.workspace = true
 sha2.workspace = true
+subtle.workspace = true
 domain.workspace = true
 protocol.workspace = true
 anyhow.workspace = true
-aws-credential-types.workspace = true
-aws-sdk-s3.workspace = true
 axum.workspace = true
 futures-util = "0.3"
 serde.workspace = true

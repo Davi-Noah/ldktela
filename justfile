@@ -79,10 +79,6 @@ db-reset:
     sqlx database create
     just migrate
 
-# Popula o banco com 100k mensagens para o teste do RNF-04
-seed-perf:
-    cargo run -p migrator --bin seed_perf
-
 # ---------------------------------------------------------------------------
 # Desenvolvimento
 # ---------------------------------------------------------------------------
@@ -107,7 +103,3 @@ build-server:
 
 build-app:
     cd desktop && npm run tauri build
-
-# Ingestao do export do Discord: just ingest ./export.json
-ingest path:
-    cargo run --release -p migrator -- ingest --input {{path}}

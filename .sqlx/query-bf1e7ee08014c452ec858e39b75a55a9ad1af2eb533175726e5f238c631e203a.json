@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO pairing_codes\n            (id, code_hash, discord_user_id, discord_guild_id, expires_at)\n        VALUES ($1, $2, $3, $4, $5)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bpchar",
+        "Int8",
+        "Int8",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bf1e7ee08014c452ec858e39b75a55a9ad1af2eb533175726e5f238c631e203a"
+}

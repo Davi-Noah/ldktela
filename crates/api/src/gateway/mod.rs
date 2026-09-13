@@ -1,4 +1,4 @@
-//! WebSocket gateway (`docs/protocol/websocket.md`).
+//! WebSocket gateway (`docs/websocket.md`).
 //!
 //! The client sends exactly three things — `IDENTIFY`, `RESUME` and
 //! `HEARTBEAT`. Everything else is REST. That asymmetry is deliberate: writing
@@ -7,7 +7,6 @@
 //! between them (§1).
 
 pub mod hub;
-pub mod index;
 pub mod ready;
 pub mod session;
 
@@ -23,7 +22,6 @@ use protocol::gateway::{
     close_code, limits, ClientInfo, ControlFrame, DispatchEvent, Hello, Identify, InvalidSession,
     Opcode, RawClientFrame, Resume, Resumed,
 };
-use protocol::user::{Presence, PresenceStatus};
 use protocol::GATEWAY_VERSION;
 use serde::Deserialize;
 use tokio::sync::mpsc;
@@ -180,13 +178,9 @@ async fn serve(socket: WebSocket, state: AppState, requested_version: u8) {
     };
 
     if let Some(session) = &conn.session {
+        // A sessao fica retomavel ate o TTL. Ninguem e avisado: sair da sala e
+        // o que o LiveKit reporta, e perder o socket nao e sair da sala.
         session.disconnect();
-        let user_id = session.user_id;
-        let state = conn.state.clone();
-        // Presence follows the socket: going offline is a guild-wide event.
-        tokio::spawn(async move {
-            announce_presence(&state, user_id).await;
-        });
     }
 
     drop(outbox_tx);
@@ -267,7 +261,6 @@ impl Connection {
         session.dispatch(DispatchEvent::Ready(Box::new(ready)));
         let session = self.state.hub.attach(session).await;
         self.session = Some(session);
-        announce_presence(&self.state, user_id).await;
     }
 
     async fn resume(
@@ -301,26 +294,6 @@ impl Connection {
             replayed: missed.len() as u32,
         }));
         self.session = Some(session);
-        announce_presence(&self.state, user_id).await;
-    }
-}
-
-/// Tells every guild the user belongs to what their presence is now.
-async fn announce_presence(state: &AppState, user_id: Uuid) {
-    let guilds = db::repo::guilds::list_for_user(&state.pool, user_id)
-        .await
-        .unwrap_or_default();
-    for guild in guilds {
-        // Third parties never see `invisible` (RF-04).
-        let status = state.hub.presence_of(user_id, Uuid::nil()).await;
-        state
-            .hub
-            .publish_to_guild(
-                &state.pool,
-                guild.id,
-                DispatchEvent::PresenceUpdate(Presence { user_id, status }),
-            )
-            .await;
     }
 }
 
@@ -378,19 +351,14 @@ pub async fn run_session_sweeper(state: AppState) {
     let mut ticker = tokio::time::interval(period);
     loop {
         ticker.tick().await;
-        for user_id in state.hub.sweep_expired().await {
-            announce_presence(&state, user_id).await;
+        // Nada a anunciar: presenca de sala e o que o LiveKit reporta, e uma
+        // sessao WebSocket morta nao tira ninguem da sala.
+        let expired = state.hub.sweep_expired().await;
+        if !expired.is_empty() {
+            tracing::debug!(count = expired.len(), "expired gateway sessions swept");
         }
     }
 }
-
-/// Presence entries for the `READY` payload.
-pub async fn presences_for(state: &AppState, viewer: Uuid) -> Vec<Presence> {
-    state.hub.presences_for(&state.pool, viewer).await
-}
-
-/// The status a freshly identified session reports for itself.
-pub const INITIAL_STATUS: PresenceStatus = PresenceStatus::Online;
 
 #[cfg(test)]
 mod tests {

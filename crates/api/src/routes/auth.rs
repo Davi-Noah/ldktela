@@ -1,23 +1,27 @@
-//! `/auth/*` (`docs/api/rest-api.md` §6.1).
+//! `/auth/*` (`docs/rest-api.md` §6.1, RF-01, RF-02).
+//!
+//! There is no register and no login. Identity arrives as a pairing code the
+//! bot handed out inside Discord (ADR-0009); from the token pair onwards
+//! everything is the v1 machinery, unchanged.
 
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::post;
 use axum::Router;
-use db::repo::{guilds, invites, users};
+use db::repo::{pairing, users};
+use domain::pairing::hash_code;
 use domain::validation::{self, Validation};
-use protocol::auth::{AuthResponse, LoginRequest, RefreshRequest, RegisterRequest};
-use uuid::Uuid;
+use protocol::auth::{AuthResponse, PairRequest, RefreshRequest};
+use time::OffsetDateTime;
 
-use crate::auth::{password, session};
+use crate::auth::session;
 use crate::error::AppError;
 use crate::extract::Json;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/auth/register", post(register))
-        .route("/auth/login", post(login))
+        .route("/auth/pair", post(pair))
         .route("/auth/refresh", post(refresh))
         .route("/auth/logout", post(logout))
 }
@@ -29,118 +33,48 @@ fn user_agent(headers: &HeaderMap) -> Option<String> {
         .map(|v| v.chars().take(200).collect())
 }
 
-/// Registration consumes the invite and creates the account in one transaction:
-/// a failure anywhere gives the invite back (RF-02).
-#[tracing::instrument(skip(state, body), fields(username = %body.username))]
-async fn register(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<RegisterRequest>,
-) -> Result<(StatusCode, Json<AuthResponse>), AppError> {
-    let mut v = Validation::new();
-    v.check("invite_code", validation::bounded(&body.invite_code, 1, 16));
-    v.check("email", validation::email(&body.email));
-    v.check("username", validation::username(&body.username));
-    v.check("password", validation::password(&body.password));
-    v.finish()?;
-
-    let hash = password::hash(&state.config.argon2, &body.password)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("hashing password: {e}")))?;
-
-    let mut tx = state.pool.begin().await.map_err(db::DbError::from)?;
-
-    // O convite é consumido antes da criação da conta, com o guard de uso na
-    // própria cláusula WHERE. Se a criação falhar, o rollback devolve o uso.
-    invites::consume(&mut *tx, body.invite_code.trim())
-        .await
-        .map_err(|_| AppError::Conflict {
-            reason: "invite_consumed",
-        })?;
-
-    let invite = invites::find_by_code(&mut *tx, body.invite_code.trim())
-        .await?
-        .ok_or(AppError::Conflict {
-            reason: "invite_consumed",
-        })?;
-
-    let user = users::insert_real(
-        &mut *tx,
-        Uuid::now_v7(),
-        body.email.trim(),
-        body.username.trim(),
-        &hash,
-    )
-    .await
-    .map_err(|e| {
-        if e.is_unique_violation("idx_users_username") {
-            AppError::Conflict {
-                reason: "username_taken",
-            }
-        } else if e.is_unique_violation("idx_users_email") {
-            AppError::Conflict {
-                reason: "email_taken",
-            }
-        } else {
-            AppError::from(e)
-        }
-    })?;
-
-    // The invite carries the guild the account joins (RF-02); without this the
-    // new account exists and can see nothing.
-    if let Some(guild_id) = invite.guild_id {
-        guilds::add_member(&mut *tx, guild_id, user.id).await?;
-    }
-
-    let response = session::issue_session(
-        &mut *tx,
-        &state.config,
-        &user,
-        user_agent(&headers).as_deref(),
-    )
-    .await?;
-
-    tx.commit().await.map_err(db::DbError::from)?;
-
-    // Trigger 5 of websocket.md 4.2: the membership set moved.
-    if let Some(guild_id) = invite.guild_id {
-        state.hub.invalidate_guild(&state.pool, guild_id).await;
-        if let Some(member) = guilds::find_member(&state.pool, guild_id, user.id).await? {
-            state
-                .hub
-                .publish_to_guild(
-                    &state.pool,
-                    guild_id,
-                    protocol::gateway::DispatchEvent::GuildMemberAdd(Box::new(member.to_wire())),
-                )
-                .await;
-        }
-    }
-    tracing::info!(user_id = %user.id, "account created");
-    Ok((StatusCode::CREATED, Json(response)))
-}
-
+/// Exchange a pairing code for a session.
+///
+/// Every failure — malformed, unknown, expired, already used — answers
+/// `401` with the same body. The client cannot tell them apart, and neither can
+/// the server past the repository call, which is what makes that guarantee real
+/// rather than a promise (`db::repo::pairing::consume`).
+///
+/// There is no attempt limiter here. The code is eight characters over a
+/// 31-symbol alphabet, single use, and lives five minutes: guessing one inside
+/// its window needs a request rate no residential connection produces. The
+/// limit that does exist is on *issuance*, in the bot, where it stops someone
+/// from farming codes for an account they control.
 #[tracing::instrument(skip(state, body))]
-async fn login(
+async fn pair(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(body): Json<LoginRequest>,
+    Json(body): Json<PairRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
-    let Some(user) = users::find_by_email(&state.pool, body.email.trim()).await? else {
-        // Gasta o mesmo Argon2 de um login real: sem isto, o tempo de resposta
-        // diz quais e-mails existem.
-        password::verify_dummy(&state.config.argon2, &body.password);
-        return Err(AppError::Unauthorized);
-    };
+    let code = body.code.trim().to_ascii_uppercase();
 
-    let Some(stored) = user.password_hash.as_deref() else {
-        // Ghost user: sem senha, nunca autentica.
-        password::verify_dummy(&state.config.argon2, &body.password);
-        return Err(AppError::Unauthorized);
-    };
-
-    if !password::verify(&state.config.argon2, &body.password, stored) {
+    let mut v = Validation::new();
+    v.check("code", validation::pairing_code(&code));
+    // Formato errado sai como 401 junto com todo o resto: dizer "formato
+    // invalido" contaria ao atacante que o alfabeto e o tamanho importam.
+    if v.finish().is_err() {
         return Err(AppError::Unauthorized);
     }
+
+    let Some(consumed) =
+        pairing::consume(&state.pool, &hash_code(&code), OffsetDateTime::now_utc()).await?
+    else {
+        return Err(AppError::Unauthorized);
+    };
+
+    // O bot cria a linha de `users` no momento em que emite o codigo, entao ela
+    // existe aqui. Nao existir e inconsistencia nossa, nao entrada do usuario.
+    let Some(user) = users::find_by_discord_id(&state.pool, consumed.discord_user_id).await? else {
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "codigo consumido sem usuario correspondente: discord_user_id={}",
+            consumed.discord_user_id
+        )));
+    };
 
     let response = session::issue_session(
         &state.pool,
@@ -149,11 +83,11 @@ async fn login(
         user_agent(&headers).as_deref(),
     )
     .await?;
-    tracing::info!(user_id = %user.id, "login");
+    tracing::info!(user_id = %user.id, guild = consumed.discord_guild_id, "paired");
     Ok(Json(response))
 }
 
-/// Rotation with reuse detection (RF-01a). See `auth::session::rotate_refresh`.
+/// Rotation with reuse detection (RF-02). See `auth::session::rotate_refresh`.
 #[tracing::instrument(skip(state, body))]
 async fn refresh(
     State(state): State<AppState>,

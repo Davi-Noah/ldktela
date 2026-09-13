@@ -4,6 +4,7 @@
 //! Fields are added as stages start using them, never speculatively.
 
 use std::net::SocketAddr;
+use std::time::Duration;
 
 /// Missing or unparseable configuration. Only ever surfaced at startup, where
 /// failing fast is the correct behaviour.
@@ -21,12 +22,28 @@ pub enum AppEnv {
     Production,
 }
 
-/// Argon2id cost (RNF-06). Not tunable downwards without discussion.
+/// WebSocket gateway limits (`docs/websocket.md` §3.2, §3.3, §7).
 #[derive(Debug, Clone, Copy)]
-pub struct Argon2Config {
-    pub memory_kib: u32,
-    pub iterations: u32,
-    pub parallelism: u32,
+pub struct GatewayConfig {
+    pub heartbeat_interval_ms: u64,
+    /// How long a disconnected session stays resumable.
+    pub session_ttl_ms: u64,
+    /// Dispatches kept per session for replay.
+    pub resume_buffer_size: usize,
+    pub max_connections_per_user: usize,
+}
+
+/// Everything about talking to Discord (ADR-0009, ADR-0010).
+#[derive(Debug, Clone)]
+pub struct DiscordConfig {
+    /// Bot token. Never logged, never sent anywhere but Discord.
+    pub bot_token: String,
+    /// How long the gateway may be down before admissions fail closed (P-02).
+    pub replica_grace: Duration,
+    /// Life of a pairing code (P-03).
+    pub pairing_code_ttl: Duration,
+    /// Codes one Discord account may request per hour, before the bot refuses.
+    pub pairing_max_per_hour: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -41,28 +58,10 @@ pub struct Config {
     pub jwt_signing_key: String,
     pub access_token_ttl_seconds: i64,
     pub refresh_token_ttl_days: i64,
-    pub argon2: Argon2Config,
+
     pub gateway: GatewayConfig,
-
-    /// Public base of stored media, used to render `attachment.url`.
-    pub media_base_url: String,
-    /// RF-11a.
-    pub max_attachment_bytes: i64,
-    pub max_attachments: usize,
-    pub allowed_content_types: Vec<String>,
-    pub storage: crate::storage::StorageConfig,
-    pub voice: crate::voice::VoiceConfig,
-}
-
-/// WebSocket gateway limits (`docs/protocol/websocket.md` §3.2, §3.3, §7).
-#[derive(Debug, Clone, Copy)]
-pub struct GatewayConfig {
-    pub heartbeat_interval_ms: u64,
-    /// How long a disconnected session stays resumable.
-    pub session_ttl_ms: u64,
-    /// Dispatches kept per session for replay.
-    pub resume_buffer_size: usize,
-    pub max_connections_per_user: usize,
+    pub discord: DiscordConfig,
+    pub rooms: crate::livekit::RoomConfig,
 }
 
 /// Anything that can answer "what is the value of this variable".
@@ -98,15 +97,11 @@ impl Config {
             });
         }
 
-        let argon2 = Argon2Config {
-            memory_kib: parse(source, "ARGON2_MEMORY_KIB")?,
-            iterations: parse(source, "ARGON2_ITERATIONS")?,
-            parallelism: parse(source, "ARGON2_PARALLELISM")?,
-        };
-        if argon2.memory_kib < 65_536 || argon2.iterations < 3 || argon2.parallelism < 4 {
+        let max_publishers: usize = parse(source, "ROOM_MAX_PUBLISHERS")?;
+        if max_publishers == 0 {
             return Err(ConfigError::Invalid {
-                name: "ARGON2_MEMORY_KIB",
-                reason: "abaixo do mínimo do RNF-06 (64 MiB, 3 iterações, paralelismo 4)".into(),
+                name: "ROOM_MAX_PUBLISHERS",
+                reason: "zero publicadores torna o produto inútil; use ao menos 1".into(),
             });
         }
 
@@ -128,34 +123,24 @@ impl Config {
             jwt_signing_key,
             access_token_ttl_seconds: parse(source, "ACCESS_TOKEN_TTL_SECONDS")?,
             refresh_token_ttl_days: parse(source, "REFRESH_TOKEN_TTL_DAYS")?,
-            argon2,
             gateway: GatewayConfig {
                 heartbeat_interval_ms: parse(source, "WS_HEARTBEAT_INTERVAL_MS")?,
                 session_ttl_ms: parse(source, "WS_SESSION_TTL_MS")?,
                 resume_buffer_size: parse(source, "WS_RESUME_BUFFER_SIZE")?,
                 max_connections_per_user: parse(source, "WS_MAX_CONNECTIONS_PER_USER")?,
             },
-            media_base_url: required(source, "R2_PUBLIC_BASE_URL")?,
-            max_attachment_bytes: parse(source, "MAX_ATTACHMENT_BYTES")?,
-            max_attachments: parse(source, "MAX_ATTACHMENTS_PER_MESSAGE")?,
-            allowed_content_types: required(source, "ALLOWED_CONTENT_TYPES")?
-                .split(',')
-                .map(|t| t.trim().to_ascii_lowercase())
-                .filter(|t| !t.is_empty())
-                .collect(),
-            storage: crate::storage::StorageConfig {
-                endpoint: required(source, "R2_ENDPOINT")?,
-                bucket: required(source, "R2_BUCKET")?,
-                access_key_id: required(source, "R2_ACCESS_KEY_ID")?,
-                secret_access_key: required(source, "R2_SECRET_ACCESS_KEY")?,
-                presign_ttl_seconds: parse(source, "R2_PRESIGN_TTL_SECONDS")?,
+            discord: DiscordConfig {
+                bot_token: required(source, "DISCORD_BOT_TOKEN")?,
+                replica_grace: Duration::from_secs(parse(source, "DISCORD_REPLICA_GRACE_SECONDS")?),
+                pairing_code_ttl: Duration::from_secs(parse(source, "PAIRING_CODE_TTL_SECONDS")?),
+                pairing_max_per_hour: parse(source, "PAIRING_MAX_CODES_PER_HOUR")?,
             },
-            voice: crate::voice::VoiceConfig {
+            rooms: crate::livekit::RoomConfig {
                 url: required(source, "LIVEKIT_URL")?,
                 api_key: required(source, "LIVEKIT_API_KEY")?,
                 api_secret: required(source, "LIVEKIT_API_SECRET")?,
-                token_ttl_seconds: parse(source, "VOICE_TOKEN_TTL_SECONDS")?,
-                max_camera_publishers: parse(source, "VOICE_MAX_CAMERA_PUBLISHERS")?,
+                token_ttl_seconds: parse(source, "ROOM_TOKEN_TTL_SECONDS")?,
+                max_publishers,
             },
         })
     }
@@ -202,33 +187,22 @@ mod tests {
             ("JWT_SIGNING_KEY", "dev-only-not-a-real-key-0123456789abcd"),
             ("ACCESS_TOKEN_TTL_SECONDS", "900"),
             ("REFRESH_TOKEN_TTL_DAYS", "30"),
-            ("ARGON2_MEMORY_KIB", "65536"),
-            ("ARGON2_ITERATIONS", "3"),
-            ("ARGON2_PARALLELISM", "4"),
             ("WS_HEARTBEAT_INTERVAL_MS", "30000"),
             ("WS_SESSION_TTL_MS", "90000"),
             ("WS_RESUME_BUFFER_SIZE", "500"),
             ("WS_MAX_CONNECTIONS_PER_USER", "4"),
-            ("R2_PUBLIC_BASE_URL", "https://media.exemplo.com"),
-            ("MAX_ATTACHMENT_BYTES", "26214400"),
-            ("MAX_ATTACHMENTS_PER_MESSAGE", "10"),
-            (
-                "ALLOWED_CONTENT_TYPES",
-                "image/webp,image/png,image/jpeg,image/gif,video/mp4",
-            ),
-            ("R2_ENDPOINT", "http://localhost:9000"),
-            ("R2_BUCKET", "comms-media"),
-            ("R2_ACCESS_KEY_ID", "dev-only-not-a-real-key"),
-            ("R2_SECRET_ACCESS_KEY", "dev-only-not-a-real-key"),
-            ("R2_PRESIGN_TTL_SECONDS", "300"),
+            ("DISCORD_BOT_TOKEN", "dev-only-not-a-real-token"),
+            ("DISCORD_REPLICA_GRACE_SECONDS", "60"),
+            ("PAIRING_CODE_TTL_SECONDS", "300"),
+            ("PAIRING_MAX_CODES_PER_HOUR", "10"),
             ("LIVEKIT_URL", "ws://localhost:7880"),
             ("LIVEKIT_API_KEY", "devkey"),
             (
                 "LIVEKIT_API_SECRET",
                 "dev-only-not-a-real-key-0123456789abcdef",
             ),
-            ("VOICE_TOKEN_TTL_SECONDS", "3600"),
-            ("VOICE_MAX_CAMERA_PUBLISHERS", "3"),
+            ("ROOM_TOKEN_TTL_SECONDS", "3600"),
+            ("ROOM_MAX_PUBLISHERS", "2"),
         ] {
             m.insert(k, v.to_string());
         }
@@ -240,14 +214,11 @@ mod tests {
         let config = Config::from_source(&valid()).expect("o .env.example precisa ser válido");
         assert_eq!(config.app_env, AppEnv::Development);
         assert_eq!(config.access_token_ttl_seconds, 900);
-        assert_eq!(config.argon2.memory_kib, 65_536);
         assert_eq!(config.gateway.resume_buffer_size, 500);
         assert_eq!(config.gateway.session_ttl_ms, 90_000);
-        assert_eq!(config.max_attachment_bytes, 26_214_400);
-        assert_eq!(config.max_attachments, 10);
-        assert!(config
-            .allowed_content_types
-            .contains(&"image/webp".to_string()));
+        assert_eq!(config.rooms.max_publishers, 2);
+        assert_eq!(config.discord.replica_grace, Duration::from_secs(60));
+        assert_eq!(config.discord.pairing_code_ttl, Duration::from_secs(300));
     }
 
     #[test]
@@ -257,6 +228,18 @@ mod tests {
         assert_eq!(
             Config::from_source(&source).unwrap_err(),
             ConfigError::Missing("DATABASE_URL")
+        );
+    }
+
+    #[test]
+    fn the_bot_token_is_required() {
+        // Sem ele nao ha identidade nem autorizacao: o produto sobe e nao serve
+        // ninguem. Melhor falhar no boot do que servir 503 para todo mundo.
+        let mut source = valid();
+        source.0.remove("DISCORD_BOT_TOKEN");
+        assert_eq!(
+            Config::from_source(&source).unwrap_err(),
+            ConfigError::Missing("DISCORD_BOT_TOKEN")
         );
     }
 
@@ -275,21 +258,10 @@ mod tests {
     }
 
     #[test]
-    fn argon2_below_rnf06_is_refused() {
-        // Reduzir o custo em produção por engano é indetectável em runtime:
-        // logins continuam funcionando, só que baratos de quebrar.
-        for (key, value) in [
-            ("ARGON2_MEMORY_KIB", "4096"),
-            ("ARGON2_ITERATIONS", "1"),
-            ("ARGON2_PARALLELISM", "1"),
-        ] {
-            let mut source = valid();
-            source.0.insert(key, value.into());
-            assert!(
-                Config::from_source(&source).is_err(),
-                "{key}={value} deveria ser recusado"
-            );
-        }
+    fn zero_publishers_is_refused() {
+        let mut source = valid();
+        source.0.insert("ROOM_MAX_PUBLISHERS", "0".into());
+        assert!(Config::from_source(&source).is_err());
     }
 
     #[test]

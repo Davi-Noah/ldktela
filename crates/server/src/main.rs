@@ -1,9 +1,9 @@
-//! Single binary composing the REST API, the WebSocket gateway and the bridge.
+//! Single binary composing the REST API, the WebSocket gateway and the Discord
+//! bot.
 //!
-//! `server` serves. `server bootstrap --guild <nome> --owner <username>` creates
-//! the first guild, because the REST contract has no guild-creation endpoint and
-//! a private platform needs exactly one guild to exist before anyone can be
-//! invited into it.
+//! There is no bootstrap subcommand any more. v1 needed one because a guild had
+//! to exist before anyone could be invited; now the guilds are Discord's, and
+//! the only setup step is inviting the bot to one (ADR-0010).
 
 use std::process::ExitCode;
 
@@ -31,13 +31,22 @@ fn run() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         None => runtime.block_on(serve(config)),
-        Some("bootstrap") => runtime.block_on(bootstrap(config, &args[1..])),
-        Some(other) => bail!("subcomando desconhecido: {other}. Use `bootstrap` ou nenhum."),
+        Some(other) => bail!("subcomando desconhecido: {other}. O binário não recebe argumentos."),
     }
 }
 
 async fn serve(config: api::config::Config) -> anyhow::Result<()> {
     let pool = open_database(&config).await?;
+
+    // A crash leaves share sessions open with no SFU room behind them. Closing
+    // them here keeps the egress report honest; leaving them would make every
+    // future total include a session that never ended.
+    match db::repo::sessions::close_all_open(&pool, time::OffsetDateTime::now_utc()).await {
+        Ok(0) => {}
+        Ok(closed) => tracing::warn!(closed, "closed share sessions left open by a crash"),
+        Err(error) => tracing::error!(%error, "closing stale share sessions"),
+    }
+
     let bind_addr = config.bind_addr;
     let listener = tokio::net::TcpListener::bind(bind_addr)
         .await
@@ -46,77 +55,33 @@ async fn serve(config: api::config::Config) -> anyhow::Result<()> {
 
     let state = api::AppState::new(pool, config);
 
-    // Expires gateway sessions past their TTL and reports whoever went
-    // offline as a result.
     tokio::spawn(api::gateway::run_session_sweeper(state.clone()));
-    // Daily maintenance: orphaned objects (SRS §6.2) and dead refresh tokens.
-    tokio::spawn(api::jobs::run_orphan_collector(state.clone()));
     tokio::spawn(api::jobs::run_token_cleanup(state.clone()));
+    tokio::spawn(api::jobs::run_pairing_cleanup(state.clone()));
+
+    // The bot is not optional: without it there is no identity and no
+    // authorization. If it dies the API stays up and fails closed on new
+    // admissions (RF-09), which is the honest degraded state — refusing to
+    // start would take running sessions down with it.
+    let bot_state = state.clone();
+    tokio::spawn(async move {
+        if let Err(error) = bot::run(bot_state).await {
+            tracing::error!(%error, "discord bot stopped");
+        }
+    });
 
     let shutdown_state = state.clone();
     axum::serve(listener, api::router(state))
         .with_graceful_shutdown(async move {
             shutdown_signal().await;
-            // The system runs as a single instance (RNF-17), so a deploy
-            // drops every socket. RECONNECT first: the 90 s session TTL gives
-            // the process time to come back and every client resumes.
+            // The system runs as a single instance (RNF-14), so a deploy drops
+            // every socket. RECONNECT first: the session TTL gives the process
+            // time to come back and every client resumes.
             shutdown_state.hub.broadcast_reconnect().await;
             tokio::time::sleep(std::time::Duration::from_millis(250)).await;
         })
         .await
         .context("serving http")
-}
-
-/// Creates the first guild with its `@everyone` role, a `geral` text channel and
-/// the owner as a member. Idempotent by guild name: running it twice does not
-/// create a second guild.
-async fn bootstrap(config: api::config::Config, args: &[String]) -> anyhow::Result<()> {
-    let guild_name = flag(args, "--guild").context("faltou --guild <nome>")?;
-    let owner_username = flag(args, "--owner").context("faltou --owner <username>")?;
-
-    let pool = open_database(&config).await?;
-    let owner = db::repo::users::find_real_by_username(&pool, &owner_username)
-        .await?
-        .with_context(|| format!("usuário {owner_username} não existe"))?;
-
-    let existing = db::repo::guilds::list_for_user(&pool, owner.id).await?;
-    if let Some(guild) = existing.iter().find(|g| g.name == guild_name) {
-        println!("guild já existe: {} ({})", guild.name, guild.id);
-        return Ok(());
-    }
-
-    let mut tx = pool.begin().await?;
-    let guild = db::repo::guilds::insert(&mut *tx, uuid::Uuid::now_v7(), &guild_name, owner.id)
-        .await
-        .context("creating guild")?;
-    db::repo::roles::insert_default(
-        &mut *tx,
-        uuid::Uuid::now_v7(),
-        guild.id,
-        api::routes::guilds::DEFAULT_EVERYONE.bits(),
-    )
-    .await
-    .context("creating @everyone")?;
-    db::repo::guilds::add_member(&mut *tx, guild.id, owner.id).await?;
-    db::repo::channels::insert_guild_channel(
-        &mut *tx,
-        db::repo::channels::NewGuildChannel {
-            id: uuid::Uuid::now_v7(),
-            guild_id: guild.id,
-            category_id: None,
-            name: "geral",
-            topic: None,
-            kind: db::types::ChannelType::Text,
-            position: 0,
-        },
-    )
-    .await
-    .context("creating the default channel")?;
-    tx.commit().await?;
-
-    println!("guild criado: {} ({})", guild.name, guild.id);
-    println!("dono: {} ({})", owner.username, owner.id);
-    Ok(())
 }
 
 async fn open_database(config: &api::config::Config) -> anyhow::Result<db::PgPool> {
@@ -130,13 +95,6 @@ async fn open_database(config: &api::config::Config) -> anyhow::Result<db::PgPoo
     Ok(pool)
 }
 
-fn flag(args: &[String], name: &str) -> Option<String> {
-    args.iter()
-        .position(|a| a == name)
-        .and_then(|i| args.get(i + 1))
-        .cloned()
-}
-
 async fn shutdown_signal() {
     if let Err(err) = tokio::signal::ctrl_c().await {
         tracing::error!(error = %err, "failed to listen for shutdown signal");
@@ -144,7 +102,7 @@ async fn shutdown_signal() {
     tracing::info!("shutdown signal received");
 }
 
-/// JSON structured logs (RNF-14). Panicking here is correct: without logging the
+/// JSON structured logs (RNF-13). Panicking here is correct: without logging the
 /// process is not operable.
 fn init_tracing() {
     tracing_subscriber::registry()

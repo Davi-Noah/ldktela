@@ -162,29 +162,17 @@ impl TestDb {
     }
 }
 
-/// Names of every application table. Kept in sync with SRS §5.2 by hand: drift
-/// here is exactly what the migration test looks for.
+/// Names of every application table. Kept in sync with SRS v2.0 §5 by hand:
+/// drift here is exactly what the migration test looks for.
+///
+/// Five tables. If this list starts growing, the question to ask is whether the
+/// thing being persisted is really ours or Discord's (ADR-0010).
 pub const EXPECTED_TABLES: &[&str] = &[
-    "attachments",
-    "bridge_outbox",
-    "categories",
-    "channel_overwrites",
-    "channel_participants",
-    "channel_webhooks",
-    "channels",
-    "guild_members",
-    "guilds",
-    "invites",
-    "member_roles",
-    "mentions",
-    "message_mappings",
-    "messages",
-    "reactions",
-    "read_states",
+    "pairing_codes",
     "refresh_tokens",
-    "roles",
+    "room_presence",
+    "share_sessions",
     "users",
-    "voice_states",
 ];
 
 pub async fn application_tables(pool: &PgPool) -> Vec<String> {
@@ -214,111 +202,19 @@ pub async fn application_enums(pool: &PgPool) -> Vec<String> {
 // Semeadura
 // ---------------------------------------------------------------------------
 
-/// A real account with a usable credential.
-pub async fn seed_user(pool: &PgPool, username: &str) -> Uuid {
+/// A paired account. `discord_user_id` is what everything else keys on, so
+/// tests pass it explicitly rather than letting a helper invent one.
+pub async fn seed_user(pool: &PgPool, discord_user_id: i64, username: &str) -> Uuid {
     let id = Uuid::now_v7();
     sqlx::query(
-        "INSERT INTO users (id, email, username, password_hash, is_migrated) \
-         VALUES ($1, $2, $3, 'argon2-placeholder', FALSE)",
+        "INSERT INTO users (id, discord_user_id, username, display_name) \
+         VALUES ($1, $2, $3, $3)",
     )
     .bind(id)
-    .bind(format!("{username}@exemplo.test"))
+    .bind(discord_user_id)
     .bind(username)
     .execute(pool)
     .await
     .expect("seeding user");
     id
-}
-
-/// A guild with its `@everyone` role and the owner already a member.
-/// Returns `(guild_id, everyone_role_id)`.
-pub async fn seed_guild(pool: &PgPool, owner: Uuid, everyone_permissions: i64) -> (Uuid, Uuid) {
-    let guild = Uuid::now_v7();
-    sqlx::query("INSERT INTO guilds (id, name, owner_id) VALUES ($1, 'guild', $2)")
-        .bind(guild)
-        .bind(owner)
-        .execute(pool)
-        .await
-        .expect("seeding guild");
-    let everyone = Uuid::now_v7();
-    sqlx::query(
-        "INSERT INTO roles (id, guild_id, name, permissions, is_default) \
-         VALUES ($1, $2, '@everyone', $3, TRUE)",
-    )
-    .bind(everyone)
-    .bind(guild)
-    .bind(everyone_permissions)
-    .execute(pool)
-    .await
-    .expect("seeding @everyone");
-    join_guild(pool, guild, owner).await;
-    (guild, everyone)
-}
-
-pub async fn join_guild(pool: &PgPool, guild: Uuid, user: Uuid) {
-    sqlx::query("INSERT INTO guild_members (guild_id, user_id) VALUES ($1, $2)")
-        .bind(guild)
-        .bind(user)
-        .execute(pool)
-        .await
-        .expect("joining guild");
-}
-
-pub async fn seed_role(pool: &PgPool, guild: Uuid, name: &str, permissions: i64) -> Uuid {
-    let id = Uuid::now_v7();
-    sqlx::query("INSERT INTO roles (id, guild_id, name, permissions) VALUES ($1, $2, $3, $4)")
-        .bind(id)
-        .bind(guild)
-        .bind(name)
-        .bind(permissions)
-        .execute(pool)
-        .await
-        .expect("seeding role");
-    id
-}
-
-pub async fn assign_role(pool: &PgPool, guild: Uuid, user: Uuid, role: Uuid) {
-    sqlx::query("INSERT INTO member_roles (guild_id, user_id, role_id) VALUES ($1, $2, $3)")
-        .bind(guild)
-        .bind(user)
-        .bind(role)
-        .execute(pool)
-        .await
-        .expect("assigning role");
-}
-
-pub async fn seed_text_channel(pool: &PgPool, guild: Uuid, name: &str) -> Uuid {
-    let id = Uuid::now_v7();
-    sqlx::query("INSERT INTO channels (id, guild_id, name, type) VALUES ($1, $2, $3, 'text')")
-        .bind(id)
-        .bind(guild)
-        .bind(name)
-        .execute(pool)
-        .await
-        .expect("seeding channel");
-    id
-}
-
-pub async fn set_overwrite(
-    pool: &PgPool,
-    channel: Uuid,
-    target_type: &str,
-    target: Uuid,
-    allow: i64,
-    deny: i64,
-) {
-    sqlx::query(
-        "INSERT INTO channel_overwrites (channel_id, target_type, target_id, allow, deny) \
-         VALUES ($1, $2::overwrite_target, $3, $4, $5) \
-         ON CONFLICT (channel_id, target_type, target_id) \
-         DO UPDATE SET allow = EXCLUDED.allow, deny = EXCLUDED.deny",
-    )
-    .bind(channel)
-    .bind(target_type)
-    .bind(target)
-    .bind(allow)
-    .bind(deny)
-    .execute(pool)
-    .await
-    .expect("setting overwrite");
 }

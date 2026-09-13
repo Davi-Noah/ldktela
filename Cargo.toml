@@ -5,8 +5,7 @@ members = [
     "crates/domain",
     "crates/db",
     "crates/api",
-    "crates/bridge",
-    "crates/migrator",
+    "crates/bot",
     "crates/server",
 ]
 exclude = ["desktop/src-tauri", "spike"]
@@ -24,7 +23,7 @@ protocol = { path = "crates/protocol" }
 domain = { path = "crates/domain" }
 db = { path = "crates/db" }
 api = { path = "crates/api" }
-bridge = { path = "crates/bridge" }
+bot = { path = "crates/bot" }
 
 # --- runtime / web ---
 axum = { version = "0.8", features = ["ws", "macros"] }
@@ -52,20 +51,14 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # --- auth ---
-argon2 = "0.5"
 jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
 rand = "0.9"
 sha2 = "0.10"
 base64 = "0.22"
 hmac = "0.12"
-
-# --- validacao ---
-validator = { version = "0.21", features = ["derive"] }
+subtle = "2"
 
 # --- integracoes externas ---
-aws-sdk-s3 = { version = "1", features = ["behavior-version-latest"] }
-aws-config = { version = "1", features = ["behavior-version-latest"] }
-aws-credential-types = { version = "1", features = ["hardcoded-credentials"] }
 livekit-api = { version = "0.6", default-features = false, features = ["access-token", "webhooks", "services-tokio", "rustls-tls-native-roots"] }
 serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "cache", "rustls_backend"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-tls", "stream"] }

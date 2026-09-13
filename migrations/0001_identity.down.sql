@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS refresh_tokens;
+DROP TABLE IF EXISTS pairing_codes;
+DROP TABLE IF EXISTS users;

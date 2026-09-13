@@ -1,7 +1,7 @@
 # ADR-0016 — Poda do escopo por reescrita das migrations
 
-- **Status:** **Proposto** — exige aval humano explícito (`CLAUDE.md` §10)
-- **Data:** 2026-09-12
+- **Status:** **Aceito** — aval humano explícito dado em 2026-09-13
+- **Data:** 2026-09-12 (aprovado em 2026-09-13)
 
 ## Contexto
 
@@ -44,8 +44,9 @@ todo `just migrate` do zero passaria a pagar esse histórico.
   e o errado aqui: preserva um histórico que só descreve trabalho descartado, e deixa o
   schema real espalhado por doze arquivos em vez de três.
 
-## Por que está como Proposto
+## Aprovação
 
-`CLAUDE.md` §10 exige confirmação humana para qualquer migration destrutiva. Este ADR
-descreve a recomendação; ele só passa a `Aceito` com o aval explícito do dono do projeto,
-e a poda não é executada antes disso.
+`CLAUDE.md` §10 exige confirmação humana para qualquer migration destrutiva. O aval
+explícito do dono do projeto foi dado em 2026-09-13, junto da autorização para executar a
+fatia S1. A condição registrada acima permanece: se algum dia existir instância com dados
+reais, esta decisão deixa de valer e a poda tem de virar migration aditiva.

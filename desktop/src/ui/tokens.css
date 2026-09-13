@@ -7,12 +7,17 @@
   --color-surface-3: #2b3038;
   --color-border: #343a44;
 
+  /* Fundo atras do video. Neutro e escuro para nao deslocar a percepcao de cor
+     da imagem, e mais escuro que as superficies para o letterbox sumir. */
+  --color-stage: #0d0f12;
+  --color-scrim: #0d0f12d9;
+
   /* Texto */
   --color-text: #dfe3ea;
   --color-text-muted: #9aa3b0;
   --color-text-faint: #6b7482;
 
-  /* Uma unica cor de destaque: foco, mencao, estado ativo. */
+  /* Uma unica cor de destaque: foco, estado ativo. Nunca perto do video. */
   --color-accent: #5b8cff;
   --color-accent-soft: #5b8cff26;
 
@@ -27,7 +32,9 @@
   --text-base: 0.875rem;
   --text-base--line-height: 1.45;
 
-  /* Densidade alta: a lista de mensagens e o produto. */
-  --spacing-row: 0.125rem;
+  /* Densidade: linhas de lista apertadas, blocos separados. */
+  --spacing-row: 0.375rem;
   --spacing-group: 0.75rem;
+
+  --radius-panel: 0.5rem;
 }

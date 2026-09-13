@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT p.user_id,\n               u.discord_user_id,\n               u.username,\n               u.display_name,\n               u.avatar_url,\n               p.publishing,\n               p.joined_at\n          FROM room_presence p\n          JOIN users u ON u.id = p.user_id\n         WHERE p.discord_channel_id = $1\n         ORDER BY p.joined_at\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "discord_user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "display_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "avatar_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "publishing",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "joined_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "acff8e43aa84e2ee2d6d1e8d4fba66ab7f065f96d2c725b707352522dd1edd2c"
+}
