@@ -114,21 +114,9 @@ impl Handler {
 
 #[async_trait]
 impl EventHandler for Handler {
-    async fn ready(&self, ctx: Context, ready: Ready) {
+    async fn ready(&self, _ctx: Context, ready: Ready) {
         tracing::info!(bot = %ready.user.name, guilds = ready.guilds.len(), "discord connected");
-
-        // Comando global: registrado uma vez, propaga para todo servidor onde o
-        // bot esta. Registrar por guild seria mais rapido de propagar e exigiria
-        // saber a lista de guilds antes de qualquer GUILD_CREATE.
-        if let Err(error) = serenity::model::application::Command::create_global_command(
-            &ctx.http,
-            pairing::command(),
-        )
-        .await
-        {
-            tracing::error!(%error, "registering the /tela command");
-        }
-
+        // O comando e registrado por guild, no `guild_create`. Ver o comentario la.
         self.state.replica.set_connected(true).await;
     }
 
@@ -143,12 +131,52 @@ impl EventHandler for Handler {
         self.state.replica.set_connected(connected).await;
     }
 
-    async fn guild_create(&self, _ctx: Context, guild: Guild, _is_new: Option<bool>) {
-        self.state
-            .replica
-            .replace_guild(replica_sync::guild_data(&guild))
-            .await;
-        tracing::debug!(guild = guild.id.get(), "guild mirrored");
+    async fn guild_create(&self, ctx: Context, guild: Guild, _is_new: Option<bool>) {
+        let data = replica_sync::guild_data(&guild);
+        let (members, channels, roles) =
+            (data.members.len(), data.channels.len(), data.roles.len());
+        self.state.replica.replace_guild(data).await;
+
+        // Contagens no log de propósito. Espelhar menos membros do que o guild
+        // tem é o sintoma de duas falhas diferentes, e as duas só aparecem muito
+        // depois, como um 404 inexplicável ao entrar numa sala:
+        //   - SERVER MEMBERS INTENT desligado: o Discord manda só o próprio bot;
+        //   - guild acima do large_threshold: manda uma parte.
+        // Comparar com `member_count`, que vem sempre, cobre as duas sem chutar
+        // um limiar.
+        let expected = guild.member_count;
+        tracing::info!(
+            guild = guild.id.get(),
+            name = %guild.name,
+            members,
+            expected,
+            voice_channels = channels,
+            roles,
+            "guild espelhado"
+        );
+        if (members as u64) < expected {
+            tracing::warn!(
+                guild = guild.id.get(),
+                members,
+                expected,
+                "replica incompleta: quem faltar recebe 404 ao entrar na sala. \
+                 Verifique o SERVER MEMBERS INTENT no portal do Discord"
+            );
+        }
+
+        // Registro por guild, e nao global, porque comando global leva ate uma
+        // hora para propagar: o usuario digitaria `/tela` e nao veria nada, sem
+        // nenhum sinal de que a causa e propagacao. Por guild aparece na hora.
+        // `set_commands` e idempotente — substitui o conjunto, nao acumula.
+        match guild
+            .id
+            .set_commands(&ctx.http, vec![pairing::command()])
+            .await
+        {
+            Ok(_) => tracing::info!(guild = guild.id.get(), "/tela registrado"),
+            Err(error) => tracing::error!(%error, guild = guild.id.get(), "registering /tela"),
+        }
+
         revoke::sweep_guild(&self.state, guild.id.get()).await;
     }
 

@@ -83,8 +83,25 @@ db-reset:
 # Desenvolvimento
 # ---------------------------------------------------------------------------
 
+# Sobe a infra e roda o servidor. Recarga automatica so se o cargo-watch existir:
+# exigir uma ferramenta nao instalada para o comando principal faz o projeto
+# parecer quebrado quando o que falta e uma conveniencia.
 dev: infra-up migrate
-    cargo watch -x 'run -p server'
+    @if command -v cargo-watch >/dev/null 2>&1; then \
+        cargo watch -x 'run -p server'; \
+    else \
+        echo ">> cargo-watch nao encontrado: rodando sem recarga automatica."; \
+        echo ">> Para ter recarga ao salvar: just install-tools"; \
+        cargo run -p server; \
+    fi
+
+# Roda o servidor sem infra e sem watch. Util quando o Postgres ja esta de pe.
+serve:
+    cargo run -p server
+
+# Ferramentas opcionais de desenvolvimento.
+install-tools:
+    cargo install cargo-watch
 
 app:
     cd desktop && npm run tauri dev

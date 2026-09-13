@@ -71,13 +71,65 @@ ROOM_MAX_PUBLISHERS=2
 Prova que identidade, autorização e sala funcionam ponta a ponta. Ainda não
 prova nada sobre mídia.
 
+### 1.0 Onde o bot encosta no aplicativo
+
+Vale entender antes de rodar, porque explica quase toda falha desta fase.
+
+**O bot e a API são o mesmo processo.** `just dev` roda `cargo run -p server`, e
+esse binário sobe as duas coisas ao mesmo tempo, compartilhando o mesmo estado em
+memória (a réplica do Discord e o registro de sessões WebSocket):
+
+```
+Discord  --gateway-->  [ bot | API + WebSocket ]  <--WS/HTTP--  aplicativo
+                        um processo só, porta 8080
+```
+
+**O bot nunca fala direto com o aplicativo.** Ele escreve no estado compartilhado
+e no Postgres; o aplicativo lê pela API e pelo WebSocket. Os três momentos em que
+isso acontece:
+
+| Momento | O que corre |
+|---|---|
+| Você digita `/tela` | Discord entrega a interação ao bot → o bot grava o **hash** do código no Postgres e responde efêmero. **O aplicativo não participa.** Só depois, quando você digita o código nele, o app chama `POST /auth/pair` e troca o código por uma sessão |
+| Você entra num canal de voz | Discord manda o estado de voz ao bot → o bot resolve a permissão contra a réplica → publica `ROOM_JOIN` no hub → o aplicativo recebe pelo WebSocket e entra na sala |
+| Você perde acesso no Discord | Evento do gateway → o bot varre a sala → expulsa do LiveKit e publica `ROOM_LEAVE` |
+
+A consequência prática: **se o servidor não está rodando, o `/tela` não existe.**
+O comando é registrado pelo bot ao conectar; sem processo, não há comando, e o
+Discord não mostra nada nem dá erro.
+
+### 1.1 Subir
+
 ```bash
 just infra-up      # Postgres + LiveKit
 just dev           # aplica migrations e sobe o servidor
 ```
 
-No log você deve ver, nesta ordem: `listening` → `discord connected`. Se aparecer
-`Sent invalid authentication`, o token está errado — volte ao 0.4.
+`just dev` usa `cargo-watch` se ele existir e, se não existir, roda sem recarga
+automática e avisa. Para ter recarga ao salvar: `just install-tools`.
+
+No log você deve ver, nesta ordem:
+
+```
+listening
+discord connected        bot=<nome>  guilds=1
+guild espelhado          members=N  voice_channels=N  roles=N
+/tela registrado         guild=<id>
+```
+
+**Leia a linha `guild espelhado`.** É o diagnóstico mais útil do arranque:
+
+- `members` menor ou igual a 1 → **o SERVER MEMBERS INTENT está desligado** (0.2).
+  O servidor loga um `WARN` dizendo isso. Se você ignorar, tudo parece funcionar
+  até a hora de entrar numa sala, e aí vem um 404 sem explicação.
+- `voice_channels: 0` → o bot não enxerga canal de voz nenhum. Falta `View
+  Channels`, ou os canais têm overwrite negando para o cargo do bot.
+
+Se aparecer `Sent invalid authentication`, o token está errado — volte ao 0.4.
+
+O comando é registrado **por servidor**, não globalmente, e por isso aparece na
+hora. Se fosse global, o Discord levaria até uma hora para propagar e você
+digitaria `/tela` sem ver nada.
 
 Em outro terminal:
 
@@ -111,9 +163,11 @@ just app           # abre o aplicativo Tauri
 
 | Sintoma | Causa provável |
 |---|---|
+| `just dev` morre com `no such command: watch` | `cargo-watch` não instalado. Já não é fatal — atualize o repositório, ou rode `just serve` |
+| **`/tela` não aparece, e nada acontece ao digitar** | **O servidor não está rodando.** É o caso mais comum: o bot registra o comando ao conectar, então sem processo não há comando. Confira se `just dev` está de pé e mostrou `/tela registrado` |
+| `/tela` some depois de ter aparecido | O bot foi removido do servidor, ou perdeu o scope `applications.commands`. Refaça o 0.3 |
 | App em branco, nenhum erro de rede | CSP do Tauri não cobre a origem. Veja `desktop/src-tauri/tauri.conf.json` → `connect-src` |
-| `/tela` não aparece no Discord | Faltou o scope `applications.commands` no convite. Refaça o 0.3 |
-| Pareia, mas entrar em sala dá 404 | Réplica sem membros → **SERVER MEMBERS INTENT** desligado (0.2) |
+| Pareia, mas entrar em sala dá 404 | Réplica sem membros → **SERVER MEMBERS INTENT** desligado (0.2). O log de arranque diz `members: 1` e emite um `WARN` |
 | Compartilha, mas ninguém vê | Webhook do LiveKit não chega ao backend. Em Linux confira `extra_hosts` no `docker/compose.dev.yml` |
 | Servidor recusa subir | Falta variável no `.env`. A mensagem nomeia qual |
 
