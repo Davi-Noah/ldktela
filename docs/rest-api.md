@@ -1,7 +1,28 @@
+> ### ⚠️ Parcialmente obsoleto — reescrita pendente na fatia S1
+>
+> Este contrato foi escrito para o produto da v1 (chat, DMs, busca, anexos), substituído em
+> 2026-09-12 pelo complemento de screen share — ver
+> [ADR-0008](adr/0008-complemento-ao-discord.md).
+>
+> **Continua válido:** convenções gerais (§1), formato de erro (§3), paginação por keyset,
+> e o contrato de `/auth/refresh`, `/auth/logout` e das rotas de voz/LiveKit.
+>
+> **Morto, sai em S1:** mensagens, reações, fixados, estado de leitura, DMs, busca, anexos,
+> convites, guilds, cargos, categorias, overwrites, `/auth/register`, `/auth/login`, e toda
+> a seção de administração da ponte.
+>
+> **Ainda não escrito:** pareamento por código
+> ([ADR-0009](adr/0009-identidade-por-pareamento.md)) e as rotas de sala atreladas ao
+> snowflake do Discord ([ADR-0011](adr/0011-sala-e-o-canal-de-voz.md)).
+>
+> Norma de escopo: [`SRS-v2.0-complemento-screen-share.md`](SRS-v2.0-complemento-screen-share.md).
+
+---
+
 # Contrato da API REST
 
 **Base:** `https://<host>/api/v1`
-**Status:** normativo.
+**Status:** normativo para as partes que sobrevivem — ver aviso acima.
 
 O REST é o canal de **mutação e recuperação**; o WebSocket é o canal de **notificação**. Toda mutação bem-sucedida aqui produz o dispatch correspondente descrito em `docs/protocol/websocket.md` §5. Se um endpoint muda estado e não tem evento correspondente, é bug de especificação — pergunte antes de implementar.
 

@@ -1,8 +1,29 @@
+> # ⛔ DOCUMENTO SUBSTITUÍDO — NÃO USE COMO NORMA
+>
+> Este SRS descreve um produto que **deixou de existir em 2026-09-12**: uma plataforma
+> privada de comunicação que substituiria o Discord.
+>
+> O produto atual é um **complemento ao Discord que faz só compartilhamento de tela**.
+> Ver [ADR-0008](adr/0008-complemento-ao-discord.md).
+>
+> **Norma vigente:** [`SRS-v2.0-complemento-screen-share.md`](SRS-v2.0-complemento-screen-share.md)
+> · fatias em [`ROADMAP.md`](ROADMAP.md) · decisões em [`adr/`](adr/README.md)
+>
+> Os identificadores RF/RNF **deste** documento estão mortos e não devem ser citados em
+> código, teste ou commit novo. O roadmap F0–F8 do §9 foi substituído pelas fatias S0–S9.
+>
+> **Por que continua no repositório:** ele guarda material que a v2.0 não repete e que
+> custou trabalho real — o changelog das premissas corrigidas (§0), as armadilhas
+> operacionais do provedor (§7.1) e a matriz de riscos de infraestrutura (§8). Leia como
+> histórico, nunca como requisito.
+
+---
+
 # Especificação Técnica de Requisitos de Software (SRS)
 
 **Projeto:** Plataforma Privada de Comunicação em Tempo Real (Desktop)
 **Versão:** 1.2.0
-**Status:** Aprovado para desenvolvimento. Escopo fechado — as 4 decisões pendentes na v1.1.0 foram resolvidas (§10)
+**Status:** ⛔ Substituído pela v2.0.0 em 2026-09-12. Histórico apenas
 **Data:** 29 de agosto de 2026
 **Substitui:** v1.1.0 (29/08/2026), v1.0.0-PROD (28/08/2026)
 

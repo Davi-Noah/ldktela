@@ -1,8 +1,30 @@
+> ### ⚠️ Parcialmente obsoleto — reescrita pendente na fatia S1
+>
+> Escrito para o produto da v1, substituído em 2026-09-12 pelo complemento de screen share
+> — ver [ADR-0008](adr/0008-complemento-ao-discord.md).
+>
+> **Continua válido, e é o que há de melhor no projeto:** o mecanismo do gateway inteiro —
+> `HELLO`/`IDENTIFY`/`RESUME`, sequência, buffer de retomada, batimento, códigos de
+> fechamento, limites, e o princípio de que o WS é quase unidirecional. Nada disso muda.
+>
+> **Morto, sai em S1:** cerca de 22 das 30 variantes de dispatch (mensagens, reações,
+> digitação, DMs, cargos, categorias, canais, estado de leitura, ponte).
+>
+> **Sobrevive:** `READY`, `RESUMED`, `PRESENCE_UPDATE` e `VOICE_STATE_UPDATE` — este
+> último já carrega `streaming`, que é exatamente o sinal de "alguém está compartilhando".
+>
+> **Ainda não escrito:** os eventos de sala e de revogação ao vivo
+> ([ADR-0010](adr/0010-autorizacao-derivada-do-discord.md)).
+>
+> Campos aditivos não incrementam a versão do protocolo; a poda de eventos, sim.
+
+---
+
 # Protocolo do Gateway WebSocket
 
 **Versão do protocolo:** 1
 **Endpoint:** `wss://<host>/gateway?v=1`
-**Status:** normativo. Divergir daqui é bug, não escolha de implementação.
+**Status:** normativo para as partes que sobrevivem — ver aviso acima.
 
 Este documento é o contrato entre `crates/api` (gateway) e `desktop/src/gateway` (cliente). Os tipos de payload vivem em `crates/protocol` e são gerados para TypeScript via `just types` — **não escreva payload à mão em nenhum dos dois lados**.
 

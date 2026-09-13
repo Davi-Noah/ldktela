@@ -5,15 +5,25 @@ Formato: `[Estágio] Nome curto — o que foi escolhido, e a alternativa descart
 Este arquivo registra apenas o que a documentação normativa não decide, e as
 divergências encontradas entre documentos normativos. Ele **não** altera a
 especificação: conflito é registrado aqui e resolvido pela fonte de maior
-autoridade (`docs/srs/` > `docs/protocol/` > `docs/api/` > `CLAUDE.md`).
+autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
+`docs/rest-api.md` > `CLAUDE.md`).
+
+> **Escopo estreitado em 2026-09-12** ([ADR-0007](adr/0007-governanca-de-decisoes.md)).
+> Este arquivo passa a guardar **notas de implementação**: por que *esta linha* é como é.
+> Decisão que restringe trabalho futuro — stack, formato de wire, modelo de autorização,
+> ordem de roadmap, o que fica fora de escopo — vai para `docs/adr/`, um arquivo por
+> decisão, com status explícito. Critério de separação no [`adr/README.md`](adr/README.md).
+>
+> As entradas de E0 a E11a abaixo são anteriores a essa divisão e ficam como estão. Várias
+> delas descrevem código que a fatia S1 remove; nenhuma foi reescrita, porque o valor
+> delas agora é histórico — inclusive o das que documentam becos sem saída.
 
 ## Divergências entre documentos e disco
 
-- **[E0] Layout de `docs/` diverge do CLAUDE.md §1** — o CLAUDE.md aponta `docs/srs/`,
-  `docs/protocol/websocket.md` e `docs/api/rest-api.md`; o disco tem
-  `docs/SRS-v1.1-plataforma-comunicacao.md`, `docs/websocket.md` e `docs/rest-api.md`.
-  Os arquivos não foram movidos nem editados (C6). Leia os caminhos reais; a tabela
-  do CLAUDE.md §1 permanece válida por conteúdo, não por caminho.
+- **[E0] ~~Layout de `docs/` diverge do CLAUDE.md §1~~ — RESOLVIDO em 2026-09-12.** O
+  CLAUDE.md apontava `docs/srs/`, `docs/protocol/websocket.md` e `docs/api/rest-api.md`,
+  caminhos que nunca existiram no disco. A tabela do §1 foi corrigida para os caminhos
+  reais na reescrita do pivô. Divergência encerrada.
 - **[E0] Nome do arquivo de exemplo de ambiente** — o disco trazia `env.example`;
   CLAUDE.md §3 e o SRS chamam de `.env.example`. Renomeado para `.env.example`,
   conteúdo inalterado exceto pelo item seguinte.
@@ -336,4 +346,28 @@ autoridade (`docs/srs/` > `docs/protocol/` > `docs/api/` > `CLAUDE.md`).
   compartilhada com audio publica DUAS tracks, `screen_share` e `screen_share_audio`. Com
   `contains`, despublicar so o audio apagava o `streaming` de quem seguia com a tela na frente
   de todo mundo. Achado ao olhar o enum real.
+
+- **[E12] Pivô de escopo: só documentação, nenhuma linha de código tocada** — o
+  reposicionamento para complemento de screen share ([ADR-0008](adr/0008-complemento-ao-discord.md))
+  foi registrado inteiramente em `docs/`. O código no disco continua sendo o da v1, e a
+  remoção acontece na fatia S1, sob o aval pendente do
+  [ADR-0016](adr/0016-poda-por-reescrita-de-migrations.md). Separar as duas coisas é
+  deliberado: documento reescrito é reversível por `git revert`; poda de vinte tabelas e
+  quarenta rotas, não tanto.
+- **[E12] O SRS v1.2 fica no repositório, com aviso no topo, em vez de ser apagado** — ele
+  guarda três coisas que a v2.0 não repete e que custaram trabalho real: o changelog das
+  premissas factualmente erradas da v1.0 (§0), as armadilhas operacionais do provedor
+  (§7.1) e a matriz de riscos de infraestrutura (§8). Apagá-lo jogaria fora pesquisa
+  válida junto com escopo morto. Alternativa descartada: mover para `docs/archive/`, que
+  quebraria os links relativos em `DECISIONS.md`.
+- **[E12] `docs/rest-api.md` e `docs/websocket.md` recebem aviso de escopo em vez de
+  reescrita** — reescrevê-los agora seria especificar rotas e eventos que ainda não foram
+  desenhados (pareamento, sala por snowflake, revogação ao vivo), e que só ganham forma em
+  S3–S5. O aviso diz o que sobrevive, o que morre em S1 e o que falta escrever, para que
+  ninguém implemente contra a parte morta enquanto isso.
+- **[E12] O roadmap sai do SRS e vira `docs/ROADMAP.md`** — na v1 ele era a §9 do SRS e
+  ficou congelado: a fatia F1 nunca executada continuou listada como pendente por onze
+  estágios, sem que nada no documento registrasse isso. Um arquivo próprio, com uma tabela
+  de estado real no topo, torna o desvio visível na primeira linha em vez de na página
+  quinze.
 
