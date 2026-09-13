@@ -119,9 +119,10 @@ guild espelhado          members=N  voice_channels=N  roles=N
 
 **Leia a linha `guild espelhado`.** É o diagnóstico mais útil do arranque:
 
-- `members` menor ou igual a 1 → **o SERVER MEMBERS INTENT está desligado** (0.2).
-  O servidor loga um `WARN` dizendo isso. Se você ignorar, tudo parece funcionar
-  até a hora de entrar numa sala, e aí vem um 404 sem explicação.
+- `members` menor que `expected` → o `GUILD_CREATE` veio incompleto, e o servidor
+  busca o resto pela API REST, logando `membros carregados`. Se em vez disso
+  aparecer um erro citando 403, aí sim **o SERVER MEMBERS INTENT está desligado**
+  (0.2) — a API REST de membros exige o mesmo intent.
 - `voice_channels: 0` → o bot não enxerga canal de voz nenhum. Falta `View
   Channels`, ou os canais têm overwrite negando para o cargo do bot.
 
@@ -166,6 +167,8 @@ just app           # abre o aplicativo Tauri
 | `just dev` morre com `no such command: watch` | `cargo-watch` não instalado. Já não é fatal — atualize o repositório, ou rode `just serve` |
 | **`/tela` não aparece, e nada acontece ao digitar** | **O servidor não está rodando.** É o caso mais comum: o bot registra o comando ao conectar, então sem processo não há comando. Confira se `just dev` está de pé e mostrou `/tela registrado` |
 | `/tela` some depois de ter aparecido | O bot foi removido do servidor, ou perdeu o scope `applications.commands`. Refaça o 0.3 |
+| **Dois `/tela` idênticos na lista** | Sobra de uma versão que registrava o comando globalmente. O servidor agora apaga os globais ao conectar — reinicie e recarregue o Discord (Ctrl+R) |
+| **"Servidor indisponível. Tente de novo." ao colar o código** | O fetch nem saiu da máquina. Era falta de CORS no servidor (corrigido). Se voltar: o WebView é sempre uma origem diferente da API, então a origem precisa estar em `ALLOWED_ORIGINS` (`crates/api/src/lib.rs`) **e** no `connect-src` do `tauri.conf.json` |
 | App em branco, nenhum erro de rede | CSP do Tauri não cobre a origem. Veja `desktop/src-tauri/tauri.conf.json` → `connect-src` |
 | Pareia, mas entrar em sala dá 404 | Réplica sem membros → **SERVER MEMBERS INTENT** desligado (0.2). O log de arranque diz `members: 1` e emite um `WARN` |
 | Compartilha, mas ninguém vê | Webhook do LiveKit não chega ao backend. Em Linux confira `extra_hosts` no `docker/compose.dev.yml` |
@@ -319,7 +322,9 @@ Coisas que estão faltando de propósito ou que eu não consegui fechar:
    `sessions::add_egress` existem, mas nada os chama: o webhook do LiveKit não
    carrega bytes. O RNF-05 exige medição real, e hoje só há extrapolação. Fechar
    isso significa ler as métricas do LiveKit periodicamente.
-2. **Réplica incompleta acima de ~50 membros** (ver Fase 1).
+2. ~~Réplica incompleta acima de ~50 membros~~ — **resolvido**: quando o
+   `GUILD_CREATE` vem truncado, o bot busca a lista completa pela API REST,
+   paginando. O `large_threshold` deixou de importar.
 3. **Sem testes de integração HTTP no `api`.** A suíte antiga testava rotas que
    não existem mais e foi removida; os repositórios têm 19 testes contra Postgres
    real, mas as rotas novas (`/auth/pair`, `/rooms/*`, webhook) só têm cobertura

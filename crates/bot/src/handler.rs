@@ -44,6 +44,58 @@ impl Handler {
         .await;
     }
 
+    /// Fetch the member list over REST and merge it into the replica.
+    ///
+    /// `GUILD_CREATE` is not a reliable source of members: Discord truncates it
+    /// for guilds above `large_threshold`, and delivers only the bot itself when
+    /// the members intent is off. Both end the same way — someone gets a 404
+    /// joining a room and nothing says why. Asking explicitly removes the
+    /// guesswork, and for the guild sizes this product targets it is one call.
+    async fn backfill_members(&self, ctx: &Context, guild_id: GuildId) {
+        const PAGE: u64 = 1000;
+        let mut after: Option<serenity::model::id::UserId> = None;
+        let mut total = 0usize;
+
+        loop {
+            let page = match guild_id.members(&ctx.http, Some(PAGE), after).await {
+                Ok(page) => page,
+                Err(error) => {
+                    tracing::error!(
+                        %error,
+                        guild = guild_id.get(),
+                        "não consegui listar os membros pela API. Se for 403, o \
+                         SERVER MEMBERS INTENT está desligado no portal do Discord"
+                    );
+                    return;
+                }
+            };
+            if page.is_empty() {
+                break;
+            }
+            after = page.last().map(|m| m.user.id);
+            total += page.len();
+            for member in &page {
+                self.state
+                    .replica
+                    .upsert_member(
+                        guild_id.get(),
+                        member.user.id.get(),
+                        member.roles.iter().map(|r| r.get()).collect(),
+                    )
+                    .await;
+            }
+            if (page.len() as u64) < PAGE {
+                break;
+            }
+        }
+
+        tracing::info!(
+            guild = guild_id.get(),
+            members = total,
+            "membros carregados"
+        );
+    }
+
     /// Tell one user's client that it may now open a room.
     async fn announce_room(&self, discord_user_id: u64, discord_channel_id: i64) {
         let Ok(discord_id) = i64::try_from(discord_user_id) else {
@@ -114,9 +166,22 @@ impl Handler {
 
 #[async_trait]
 impl EventHandler for Handler {
-    async fn ready(&self, _ctx: Context, ready: Ready) {
+    async fn ready(&self, ctx: Context, ready: Ready) {
         tracing::info!(bot = %ready.user.name, guilds = ready.guilds.len(), "discord connected");
-        // O comando e registrado por guild, no `guild_create`. Ver o comentario la.
+
+        // O comando e registrado por guild, no `guild_create`. Aqui so limpamos
+        // os globais: uma versao anterior registrava `/tela` globalmente, e um
+        // comando global convive com o de guild — o usuario ve DOIS `/tela`
+        // identicos. Limpar na conexao conserta sozinho quem rodou aquela versao,
+        // e nao custa nada para quem nunca rodou.
+        match serenity::model::application::Command::set_global_commands(&ctx.http, vec![]).await {
+            Ok(removed) if !removed.is_empty() => {
+                tracing::info!("comandos globais antigos removidos");
+            }
+            Ok(_) => {}
+            Err(error) => tracing::warn!(%error, "limpando comandos globais"),
+        }
+
         self.state.replica.set_connected(true).await;
     }
 
@@ -155,13 +220,13 @@ impl EventHandler for Handler {
             "guild espelhado"
         );
         if (members as u64) < expected {
-            tracing::warn!(
+            tracing::info!(
                 guild = guild.id.get(),
                 members,
                 expected,
-                "replica incompleta: quem faltar recebe 404 ao entrar na sala. \
-                 Verifique o SERVER MEMBERS INTENT no portal do Discord"
+                "GUILD_CREATE veio incompleto; buscando os membros pela API"
             );
+            self.backfill_members(&ctx, guild.id).await;
         }
 
         // Registro por guild, e nao global, porque comando global leva ate uma
