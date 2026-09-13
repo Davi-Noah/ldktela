@@ -32,6 +32,11 @@ migrations, responde, e sobrevive à queda do bot falhando fechado.
 > uma rede que bloqueia a do Discord — **nunca foi testada**. Enquanto isso não
 > for feito, o produto compila e roda, mas não está provado.
 
+## Como destravar
+
+O passo a passo operacional — token do bot, roteiro de aceite, e como executar a
+medição de S0 — está em [`DESTRAVAR.md`](DESTRAVAR.md).
+
 ## Ordem e seu motivo
 
 O SRS v1.2 mandava executar o spike de screen share antes de tudo, porque era o
