@@ -19,7 +19,17 @@ tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+
+# O backend do cofre e por plataforma: com `windows-native` sozinho, em Linux o
+# keyring cai no store mock, em memoria, e o token some a cada execucao.
+[target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service"] }
+# Usado so para religar WebRTC no WebKitGTK. A versao acompanha a que o Tauri ja
+# resolve (2.0.2); divergir daria dois tipos `WebView` incompativeis.
+webkit2gtk = { version = "2.0", features = ["v2_38"] }
 
 [profile.release]
 codegen-units = 1

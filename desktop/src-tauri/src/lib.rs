@@ -17,6 +17,8 @@ pub fn run() -> tauri::Result<()> {
         ])
         .setup(|app| {
             build_tray(app.handle())?;
+            #[cfg(target_os = "linux")]
+            enable_linux_webrtc(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -29,6 +31,32 @@ pub fn run() -> tauri::Result<()> {
             }
         })
         .run(tauri::generate_context!())
+}
+
+/// O WebKitGTK entrega `enable-webrtc` e `enable-media-stream` desligados, e o
+/// Tauri nao os religa: sem isto o livekit-client recusa com "LiveKit doesn't
+/// seem to be supported on this browser" antes mesmo de abrir a sinalizacao, e
+/// nada aparece no log do servidor. No WebView2 do Windows nao ha equivalente.
+///
+/// Falhar aqui nao impede o aplicativo de subir — so o compartilhamento nao vai
+/// funcionar — entao o erro e reportado em vez de derrubar o processo.
+#[cfg(target_os = "linux")]
+fn enable_linux_webrtc(app: &tauri::AppHandle) {
+    use webkit2gtk::{SettingsExt, WebViewExt};
+
+    let Some(window) = app.get_webview_window("main") else {
+        eprintln!("webrtc: janela principal ausente, WebRTC segue desligado");
+        return;
+    };
+    let applied = window.with_webview(|webview| {
+        if let Some(settings) = WebViewExt::settings(&webview.inner()) {
+            settings.set_enable_webrtc(true);
+            settings.set_enable_media_stream(true);
+        }
+    });
+    if let Err(error) = applied {
+        eprintln!("webrtc: nao consegui ajustar o WebKitGTK: {error}");
+    }
 }
 
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {

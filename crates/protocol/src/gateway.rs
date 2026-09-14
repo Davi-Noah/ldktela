@@ -257,6 +257,10 @@ impl DispatchEvent {
 pub struct Ready {
     pub session_id: Uuid,
     pub user: CurrentUser,
+    // `skip_serializing_if` e obrigatorio junto de `ts(optional)`: sem ele o
+    // serde emite `"room": null`, o tipo gerado promete um campo ausente, e o
+    // cliente que testa `=== undefined` recebe `null` e quebra.
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub room: Option<RoomState>,
     /// Heartbeat interval echoed for clients that reconnect without a new HELLO.
