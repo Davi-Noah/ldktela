@@ -156,34 +156,63 @@ simulcast, `adaptiveStream` e `dynacast`, teto de publicadores
 minutos; egress medido dentro do previsto em S0; espectador vê o primeiro frame em menos
 de 3 s.
 
-## S7 — Cliente completo
+## S7 — Cliente completo: várias telas ao mesmo tempo
 
-Seletor de qualidade, tela cheia, estatísticas para quem compartilha (bitrate, fps,
-espectadores), lista de espectadores, bandeja do sistema, notificação nativa de "fulano
-começou a compartilhar", atualização automática por `.msi`.
+A maior fatia restante. Escopo detalhado em RF-31 a RF-37 do SRS.
 
-**Aceite:** o aplicativo roda o dia todo na bandeja consumindo menos de 1% de CPU e 150 MB
-em repouso; a notificação não dispara para quem já está assistindo.
+- **Várias telas simultâneas** (RF-31): N publicadores para N espectadores. O
+  cliente deixa de assumir uma tela só.
+- **Grade e foco** (RF-32): a grade assina a camada baixa, o foco pede a alta.
+  É o que separa ~190 h de ~380 h no orçamento de egress
+  ([ADR-0023](adr/0023-quem-publica-escolhe-resolucao-e-fps.md)).
+- **Destacar em outro monitor** (RF-33) via Document Picture-in-Picture, sem
+  conexão extra ([ADR-0022](adr/0022-destacar-tela-usa-document-pip.md)).
+- **Dono e tempo no ar** (RF-34), com o início vindo do servidor.
+- **Volume por tela** (RF-35).
+- **Resolução e fps no publicador** (RF-36); no espectador, camada
+  ([ADR-0023](adr/0023-quem-publica-escolhe-resolucao-e-fps.md)).
+- **Interface própria de compartilhar** (RF-37). O **seletor de fonte continua
+  sendo o do Chromium**: o WebView2 não permite fornecer a fonte, e isso não é
+  questão de esforço ([ADR-0021](adr/0021-seletor-de-tela-e-o-do-chromium.md)).
+- Bandeja, notificação nativa, atualização automática por `.msi`.
+
+**Aceite:** duas telas publicadas e vistas ao mesmo tempo por dois espectadores;
+uma delas destacada em outro monitor; volume independente por tela; o tempo no ar
+bate com o do servidor para quem entra depois; a grade não consome camada alta.
 
 ## S8 — Presença dentro do Discord
 
-O bot anuncia a sessão no canal de texto associado, **editando uma única mensagem** em vez
-de publicar várias, com contagem de espectadores e link profundo que abre o aplicativo
-direto na sala.
+O bot anuncia a sessão no canal de texto associado, **editando uma única
+mensagem** em vez de publicar várias, com contagem de espectadores e link
+profundo que abre o aplicativo direto na sala.
 
-**Aceite:** uma sessão inteira, do início ao fim, produz exatamente uma mensagem no
-Discord; o limite de taxa de edição é respeitado sob uma sessão com entradas e saídas
-frequentes; o link profundo abre o aplicativo instalado e, se não houver, a página de
-download.
+Mais a **tag `[LIVE]`** no apelido de quem transmite (RF-38 a RF-40), com as
+guardas do [ADR-0024](adr/0024-tag-live-no-apelido.md): hierarquia verificada
+antes de tentar, apelido anterior restaurado exatamente, limpeza no arranque.
+Exige `MANAGE_NICKNAMES` e o cargo do bot acima dos cargos de membro — e **o dono
+do servidor nunca recebe a tag**, que é limitação do Discord sem contorno.
 
-## S9 — Áudio por aplicativo
+**Aceite:** uma sessão inteira produz exatamente uma mensagem no Discord; o limite
+de taxa de edição é respeitado sob entradas e saídas frequentes; o link profundo
+abre o aplicativo instalado e, se não houver, a página de download; a tag aparece
+e some junto com a transmissão; matar o processo com alguém marcado e subir de
+novo deixa o apelido limpo.
 
-Captura WASAPI por processo no core Rust, PCM por IPC, injeção como track no WebView
-([ADR-0014](adr/0014-audio-por-aplicativo.md)). Zona de revisão humana obrigatória.
+## S9 — Áudio sem o Discord
 
-**Aceite:** compartilhar um jogo com o Discord aberto e em uso não retransmite a voz dos
-outros participantes; deriva de relógio não acumula desvio audível em 30 min; o fallback
-para áudio do sistema funciona e avisa.
+Captura WASAPI no core Rust em modo
+`PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE`, apontando para a árvore de
+processos do Discord: sai todo o áudio do sistema **menos** o Discord. PCM por
+IPC, injeção como track no WebView
+([ADR-0025](adr/0025-audio-exclui-o-discord.md)). Zona de revisão humana.
+
+O compartilhamento com áudio já funciona hoje; o que falta é a exclusão. Excluir
+só a voz dos participantes, mantendo os outros sons do Discord, **não é
+possível** — o Discord mistura tudo num processo só.
+
+**Aceite:** compartilhar um jogo com o Discord aberto e em uso não retransmite a
+voz dos outros participantes; deriva de relógio não acumula desvio audível em
+30 min; sem Discord rodando, a captura é do sistema inteiro e nada quebra.
 
 ---
 

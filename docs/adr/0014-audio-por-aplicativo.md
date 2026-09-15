@@ -3,6 +3,8 @@
 - **Status:** Aceito
 - **Data:** 2026-09-12
 - **Refina:** [ADR-0001](0001-midia-no-webview.md)
+- **Refinado por:** [ADR-0025](0025-audio-exclui-o-discord.md) — o modo correto é
+  *excluir* a árvore do Discord, não *incluir* o aplicativo compartilhado
 
 ## Contexto
 

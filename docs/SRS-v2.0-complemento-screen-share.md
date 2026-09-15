@@ -58,21 +58,22 @@ Premissa de projeto, não estimativa. Todo dimensionamento em §7 deriva daqui.
 |---|---|
 | Comunidade por instância | 10 a 30 pessoas |
 | Uso central | Uma pessoa compartilha gameplay ou estudo em 1080p60; 4 a 10 assistem; sessões longas |
-| Publicadores simultâneos por sala | 1, com teto configurável de 2 |
+| Publicadores simultâneos por sala | N, com teto configurável (`ROOM_MAX_PUBLISHERS`, padrão 2). Cada um multiplica o egress — ver RF-32 |
 | Espectadores simultâneos por sala | Até 10 |
 | Plataforma dos clientes | Windows 10/11 x86_64 (100%) |
-| Rede alvo | Hostil a mídia em tempo real: UDP possivelmente bloqueado, DPI presente |
+| Rede alvo | Comum. Não há bloqueio regional a mídia em tempo real ([ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)); o caso difícil é CGNAT, como em qualquer produto de WebRTC |
 | Hospedagem | Uma instância por comunidade, auto-hospedada |
 
-A linha "rede alvo" é o que distingue este produto de qualquer outro de videoconferência,
-e é a origem do RNF-01.
+> A linha "rede alvo" dizia "hostil a mídia em tempo real" e era a origem do RNF-01.
+> Corrigida em 2026-09-14: quem desligou o compartilhamento de tela foi o próprio
+> Discord, não a rede ([ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)).
 
 ### 1.4 Escopo do produto
 
 - **Cliente desktop:** shell Tauri v2 (WebView2), UI em React 19 + TypeScript + Tailwind.
 - **Backend:** Rust (Axum + Tokio) — emissão de token, admissão, estado de sala.
 - **Bot do Discord:** identidade, réplica de autorização, presença e anúncio.
-- **Mídia:** LiveKit SFU auto-hospedado, com TURN/TLS em 443 como caminho de primeira classe.
+- **Mídia:** LiveKit SFU auto-hospedado, com TURN para atravessar CGNAT.
 - **Banco:** PostgreSQL, com cerca de cinco tabelas.
 
 ### 1.5 Fora de escopo, definitivamente
@@ -102,14 +103,14 @@ substitua o anterior.
 +------------+--------------------------------+-------------------------+
              |                                |
       [HTTPS / WSS :443]            [SRTP - UDP direto]
-             |                      [TURN/TLS :443 - IP dedicado]
+             |                      [TURN/TLS - fallback CGNAT]
              |                                |
 +------------v--------------------------------v-------------------------+
 |                  VM (backend + SFU + TURN + DB)                       |
 |  +---------------------+   +--------------------------------------+   |
 |  |  Backend Axum       |   |  LiveKit SFU                         |   |
 |  |  - REST (poucas)    |   |  - UDP 50000-60000                   |   |
-|  |  - WS Gateway       |<--+  - TURN/TLS 443 (IP proprio)         |   |
+|  |  - WS Gateway       |<--+  - TURN/TLS (fallback CGNAT)         |   |
 |  |  - Token LiveKit    |   |  - Webhooks -> Axum                  |   |
 |  |  - Admissao/egress  |   +--------------------------------------+   |
 |  +----------+----------+                                              |
@@ -166,7 +167,7 @@ descrevem por que ele não é de outro jeito.
 
 | ID | Requisito | Descrição | Prioridade |
 |---|---|---|---|
-| RF-13 | Tela inteira com áudio | Captura de tela inteira a 1080p, 30 ou 60 fps, com áudio. `contentHint: 'motion'`, `degradationPreference: 'maintain-framerate'`. Camadas explícitas de simulcast; VP9 preferencial, H.264 como alternativa. | Must |
+| RF-13 **[M]** | Tela inteira com áudio | Captura de tela inteira com áudio. Resolução e taxa de quadros são escolhidas por **quem publica** (RF-36), porque é ele quem paga o encode. `contentHint: 'motion'`, `degradationPreference: 'maintain-framerate'`; duas camadas de simulcast derivadas da escolha; VP9 preferencial, H.264 como alternativa. | Must |
 | RF-14 | Janela específica | Captura de janela individual, **vídeo apenas** enquanto RF-29 não existir. A interface declara a limitação no momento da escolha, sem eufemismo. | Must |
 | RF-15 | Teto de publicadores | Máximo configurável de publicadores simultâneos por sala, padrão 2, por controle de admissão no momento de emitir o token. | Must |
 | RF-16 | Adaptação de qualidade | `adaptiveStream` e `dynacast` obrigatoriamente habilitados. Espectador que não está vendo não recebe camada alguma. | Must |
@@ -177,7 +178,7 @@ descrevem por que ele não é de outro jeito.
 | ID | Requisito | Descrição | Prioridade |
 |---|---|---|---|
 | RF-18 | Assistir | Assinar a track de quem publica, com primeiro frame dentro da meta do RNF-02. | Must |
-| RF-19 | Seletor de qualidade | Escolha explícita entre automático, 1080p e 720p, sobre as camadas de simulcast. Sem paywall: 1080p60 é o padrão, não um recurso pago. | Should |
+| RF-19 **[M]** | Seletor de qualidade do espectador | Automático, alta ou baixa, **entre as camadas que o publicador está enviando** — nunca uma lista que inclua combinação inexistente ([ADR-0023](adr/0023-quem-publica-escolhe-resolucao-e-fps.md)). `adaptiveStream` pode descer abaixo da escolha quando a janela é pequena ou está oculta; economizar banda de quem não olha vence a preferência declarada. Sem paywall: 1080p60 é o padrão, não recurso pago. | Must |
 | RF-20 | Tela cheia | Modo tela cheia com controles que somem sozinhos. | Should |
 | RF-21 | Estatísticas do publicador | Bitrate, fps, resolução efetiva, número de espectadores e CPU de encode, visíveis para quem compartilha. | Should |
 | RF-22 | Lista de espectadores | Quem está assistindo, visível para quem compartilha. | Should |
@@ -202,8 +203,32 @@ descrevem por que ele não é de outro jeito.
 
 | ID | Requisito | Descrição | Prioridade |
 |---|---|---|---|
-| RF-29 | Captura por processo | No Windows, captura do áudio de um aplicativo escolhido via WASAPI process loopback no core Rust, transportada por IPC e injetada como track no WebView. Exclui a voz do Discord por construção. Ver [ADR-0014](adr/0014-audio-por-aplicativo.md). | Should |
+| RF-29 **[M]** | Áudio do sistema sem o Discord | No Windows, captura do áudio do sistema **excluindo a árvore de processos do Discord**, via WASAPI process loopback em modo `EXCLUDE_TARGET_PROCESS_TREE`, no core Rust, transportada por IPC e injetada como track no WebView. O usuário não escolhe processo: sai tudo menos o Discord. Ver [ADR-0025](adr/0025-audio-exclui-o-discord.md). | Must |
 | RF-30 | Fallback declarado | Onde o process loopback não estiver disponível, cai para áudio do sistema **com aviso explícito** de que a voz dos outros participantes será retransmitida. Compartilhar sem áudio é sempre uma opção de um clique. | Must |
+
+
+### 3.9 Módulo 9 — Várias telas ao mesmo tempo
+
+Tudo aqui nasce da fatia S7. O produto deixa de ser "uma tela por sala" e passa a
+ser N publicadores para N espectadores.
+
+| ID | Requisito | Descrição | Prioridade |
+|---|---|---|---|
+| RF-31 **[N]** | Várias telas simultâneas | Uma sala comporta até `ROOM_MAX_PUBLISHERS` telas ao mesmo tempo, e o espectador vê todas. O cliente mantém uma assinatura por publicador, não uma só. | Must |
+| RF-32 **[N]** | Grade e foco | Layout em grade com todas as telas, e foco em uma. **A grade assina a camada baixa; só o foco pede a alta.** Não é refinamento: com N telas visíveis o egress multiplica por N, e é o layout que decide o custo ([ADR-0023](adr/0023-quem-publica-escolhe-resolucao-e-fps.md)). | Must |
+| RF-33 **[N]** | Destacar em outra janela | Uma tela pode ser destacada para uma janela do sistema, arrastável para outro monitor, via Document Picture-in-Picture. O elemento de vídeo é **movido**, nunca remontado — remontar derruba o decodificador. Limite de uma janela destacada por vez ([ADR-0022](adr/0022-destacar-tela-usa-document-pip.md)). | Must |
+| RF-34 **[N]** | Dono e tempo de transmissão | Cada tela exibe de quem é e há quanto tempo está no ar. O início vem do servidor (`share_sessions.started_at`), não do momento em que o espectador entrou: quem chega depois precisa ver o tempo real da transmissão. | Must |
+| RF-35 **[N]** | Volume por tela | Cada tela tem controle de volume independente, do silêncio ao máximo, e o estado sobrevive à troca de foco. | Must |
+| RF-36 **[N]** | Resolução e fps no publicador | Quem compartilha escolhe entre 1080p60, 1080p30, 720p60 e 720p30. A escolha define a camada alta; a baixa é derivada. Trocar durante a transmissão republica a track, e a interface diz isso em vez de parecer travada. | Must |
+| RF-37 **[N]** | Interface própria de compartilhamento | Os controles de iniciar, parar e configurar são nossos. **O seletor de fonte continua sendo o do Chromium**, porque o WebView2 não permite fornecer a fonte — ver [ADR-0021](adr/0021-seletor-de-tela-e-o-do-chromium.md), que também registra quando isso será reavaliado. | Should |
+
+### 3.10 Módulo 10 — Marcação de quem transmite
+
+| ID | Requisito | Descrição | Prioridade |
+|---|---|---|---|
+| RF-38 **[N]** | Tag `[LIVE]` no apelido | Quem está transmitindo recebe o prefixo `[LIVE] ` no apelido do servidor, e o perde ao parar. Exige `MANAGE_NICKNAMES`. | Should |
+| RF-39 **[N]** | Guardas da marcação | Dono do servidor e membros com cargo acima do bot são pulados em silêncio — é limitação do Discord, sem contorno para o dono. O apelido anterior é salvo e restaurado **exatamente**, inclusive o caso de não haver apelido. Marcar e desmarcar são idempotentes. Ver [ADR-0024](adr/0024-tag-live-no-apelido.md). | Must |
+| RF-40 **[N]** | Limpeza no arranque | O servidor desmarca, ao subir, quem ficou marcado por uma queda, antes de aceitar sessão nova. Sem isto, um apelido alheio fica sujo até alguém notar. | Must |
 
 ---
 
@@ -211,10 +236,14 @@ descrevem por que ele não é de outro jeito.
 
 ### 4.1 Transporte — o requisito que define o produto
 
-**RNF-01 (Resiliência de transporte).** Uma sessão de compartilhamento 1080p estabelece e
-se sustenta por 20 minutos **com todo o UDP de saída bloqueado no cliente**, via TURN/TLS
-em 443. Verificável com uma regra de firewall local; não depende da região alvo para ser
-testado. É critério de aceite de S0 e de S2, e regressão aqui é bloqueio de release.
+**RNF-01 (Resiliência de transporte) [M].** Uma sessão de compartilhamento 1080p
+estabelece e se sustenta por 20 minutos **com todo o UDP de saída bloqueado no cliente**,
+via TURN. Verificável com uma regra de firewall local.
+
+> Era o requisito que definia o produto, sob a premissa de um adversário de rede que não
+> existe. Rebaixado em 2026-09-14 ([ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)):
+> continua sendo critério de aceite de S2, porque quem está atrás de CGNAT só conecta pelo
+> relay, mas não é mais bloqueio de release.
 
 ### 4.2 Latência e custo
 
