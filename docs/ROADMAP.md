@@ -7,30 +7,47 @@ Cada fatia entrega valor observável e tem critério de aceite executável. A nu
 **S** (de *screen*) para não colidir com as fatias F da v1, que aparecem em commits e
 documentos antigos.
 
-## Estado (2026-09-13)
+## Estado (2026-09-14)
 
 | Fatia | Estado |
 |---|---|
-| S0 — Spike de viabilidade | **NÃO FEITA.** Ver [ADR-0018](adr/0018-construir-antes-de-medir.md) |
+| S0 — Medição de viabilidade | **Fase 2 feita e aprovada** (`RESULTS.md`). Fase 3 rebaixada — ver abaixo |
 | S1 — Poda | Feita |
-| S2 — Transporte em produção | Não feita |
-| S3 — Identidade por pareamento | Backend e bot feitos; cofre do Windows feito |
+| S2 — Transporte em produção | Não feita. Escopo reduzido pelo [ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md) |
+| S3 — Identidade por pareamento | Feita |
 | S4 — Réplica e autorização | Feita, com revogação ao vivo |
 | S5 — Sala atrelada ao canal de voz | Feita |
-| S6 — Compartilhar e assistir | Cliente escrito; **não exercitado contra mídia real** |
-| S7 — Cliente completo | Bandeja feita; estatísticas e qualidade feitas; atualização automática não |
+| S6 — Compartilhar e assistir | **Funciona ponta a ponta**, medido em 2026-09-14 |
+| S7 — Cliente completo | Bandeja, estatísticas e qualidade feitas; atualização automática não |
 | S8 — Presença no Discord | Não feita |
 | S9 — Áudio por aplicativo | Não feita |
 
-Números: backend ~5.000 linhas com 111 testes, cliente ~2.000 linhas com 36
-testes, `just check` verde. Verificado em execução: o servidor sobe, aplica
-migrations, responde, e sobrevive à queda do bot falhando fechado.
+### O que mudou em 2026-09-14
 
-> **A dívida que define o estado real.** Continua sem existir **um único número
-> medido** de bitrate, egress, latência glass-to-glass ou CPU. A premissa do
-> [ADR-0013](adr/0013-turn-tls-443-primario.md) — a de que nossa mídia atravessa
-> uma rede que bloqueia a do Discord — **nunca foi testada**. Enquanto isso não
-> for feito, o produto compila e roda, mas não está provado.
+A premissa que travava o projeto caiu, e não por medição: **não há bloqueio de
+rede a mídia em tempo real na região alvo.** Quem desligou o compartilhamento de
+tela foi o próprio Discord. O [ADR-0013](adr/0013-turn-tls-443-primario.md) foi
+rebaixado pelo [ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md): o
+TURN continua no roadmap por CGNAT, que é engenharia comum, e não como condição
+de existência do produto.
+
+A Fase 2 mediu o que faltava e passou: latência p95 de 212 ms, 585 MB no
+publicador, ~1 núcleo de encode, 3,93 GB/h de egress com 2 espectadores. Detalhe
+e método em [`RESULTS.md`](RESULTS.md).
+
+> **Os dois riscos que sobraram**, em ordem:
+>
+> 1. **Congelamentos.** 139 s em 26 min, que o `RESULTS.md` registra como
+>    **inconclusivo** — as três pontas dividiam a mesma máquina e a assinatura é
+>    de contenção de CPU, não de rede. Precisa de uma medição limpa com o
+>    espectador em outra máquina antes de virar aprovação ou defeito.
+> 2. **Áudio.** O caso de uso central é assistir gameplay, e hoje compartilhar
+>    com áudio devolve a voz do Discord de todos para eles
+>    ([ADR-0014](adr/0014-audio-por-aplicativo.md), fatia S9).
+>
+> Nota sobre a folga de latência: os 212 ms foram medidos com RTT de 2–3 ms, com
+> tudo na mesma máquina. Contra uma VM real, o RTT some ~40 ms e o p95 vai para a
+> casa dos 250 ms. Continua passando o RNF-02, com ~15% de folga em vez de 29%.
 
 ## Como destravar
 
@@ -41,40 +58,34 @@ medição de S0 — está em [`DESTRAVAR.md`](DESTRAVAR.md).
 
 O SRS v1.2 mandava executar o spike de screen share antes de tudo, porque era o
 maior risco técnico. Isso não foi feito, e o projeto construiu onze estágios de
-plano de controle sem nunca ter verificado se o produto é viável.
+plano de controle sem nunca ter verificado se o produto era viável.
 
-Este roadmap foi escrito para corrigir a ordem — e em 2026-09-13 ela foi
-quebrada de novo, desta vez de propósito e por escrito
-([ADR-0018](adr/0018-construir-antes-de-medir.md)): o produto foi construído
-antes de ser medido, porque medir exige duas máquinas físicas e uma rede
-hostil, e nada disso um agente executa.
+Este roadmap foi escrito para corrigir a ordem, e em 2026-09-13 ela foi quebrada
+de novo, de propósito e por escrito
+([ADR-0018](adr/0018-construir-antes-de-medir.md)). Em 2026-09-14 a dívida foi
+paga: a medição saiu, contra o cliente real, e aprovou.
 
-A obrigação de medir não foi cancelada; mudou de alvo. O critério de aceite de
-S0 passou para S6, sem abrandamento, e agora vale contra o cliente real em vez
-de contra código descartável.
+O que resta medir não é mais um portão do projeto — é a verificação do caminho
+relayado, que acontece junto de S2.
 
 ---
 
 ## S0 — Medição de viabilidade: transporte, qualidade e custo
 
-**Bloqueia declarar qualquer coisa pronta.** Deixou de ser código descartável em `spike/`
-e passou a ser medição contra o cliente real, que já existe
-([ADR-0018](adr/0018-construir-antes-de-medir.md)). Responde de uma vez às duas perguntas
-que podem matar o produto.
+**Fase 2 concluída em 2026-09-14 e aprovada.** Números e método em
+[`RESULTS.md`](RESULTS.md): RNF-02, RNF-03, RNF-04 e RNF-05 passam.
 
-**Aceite** — todos os itens medidos e registrados em `docs/RESULTS.md`:
+Pendente, e agora sem status de portão:
 
-1. Sessão de screen share 1080p60 entre duas máquinas Windows contra o SFU
-   auto-hospedado, estável por 30 minutos.
-2. **A mesma sessão, com todo o UDP de saída bloqueado por firewall no cliente**,
-   estabelecendo e sustentando por 20 minutos via TURN/TLS em 443
-   ([ADR-0013](adr/0013-turn-tls-443-primario.md)).
-3. Registrados, para os dois caminhos: bitrate real, latência glass-to-glass, CPU do
-   compartilhador, CPU da VM e egress extrapolado por hora e por espectador.
-
-**Ponto de decisão explícito.** Se o caminho relayado não sustentar 1080p, a resposta não
-é remendar: é decidir, com o número na mão, entre baixar o alvo (1080p30, 720p60) ou
-concluir que o produto não atende o mercado que motivou o pivô. Essa decisão vira ADR.
+1. **Repetir a medição de qualidade com o espectador em outra máquina**, com
+   decode acelerado. Os 139 s de congelamento da Fase 2 são inconclusivos porque
+   as três pontas dividiam a mesma CPU. Este é o item de maior valor do roadmap
+   hoje, e é barato.
+2. **Caminho relayado**, junto de S2: uma sessão 1080p com o UDP de saída
+   bloqueado no cliente, para confirmar que quem está atrás de CGNAT conecta.
+   Deixou de decidir se o produto existe
+   ([ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)); decide se uma
+   parte dos usuários consegue usar.
 
 ## S1 — Poda do escopo
 
@@ -93,12 +104,17 @@ existe.
 
 ## S2 — Transporte em produção
 
-Torna permanente o que S0 provou: IP público dedicado para o TURN, TLS próprio, Caddy,
-cloud-init versionado, faixa UDP de produção.
+Escopo **reduzido** pelo [ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md):
+sem IP público dedicado, sem segundo certificado, sem disputar a 443 com o Caddy.
+Uma VM comum com Caddy, LiveKit e TURN na porta padrão resolve o caso do CGNAT,
+que é o que restou de motivo. A 443 continua sendo a porta que mais atravessa
+firewall corporativo — se sair barata, vale; se não, 5349 serve.
 
-**Aceite:** implantação do zero reproduzível a partir do repositório; o teste de UDP
-bloqueado de S0 passa contra a instância de produção; `RNF-13` (migrar para VPS
-equivalente em ≤ 2 h) exercitado ao menos uma vez.
+Inclui cloud-init versionado, TLS, domínio, e a faixa UDP de produção.
+
+**Aceite:** implantação do zero reproduzível a partir do repositório; uma sessão
+1080p com o UDP de saída bloqueado no cliente conecta pelo relay; `RNF-12`
+(migrar para VPS equivalente em ≤ 2 h) exercitado ao menos uma vez.
 
 ## S3 — Identidade por pareamento
 

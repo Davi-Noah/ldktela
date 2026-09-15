@@ -1,7 +1,17 @@
 # ADR-0013 — TURN/TLS em 443 é caminho primário, não fallback
 
-- **Status:** Aceito
+- **Status:** **Rebaixado** pelo [ADR-0020](0020-o-bloqueio-e-do-discord-nao-da-rede.md)
+  em 2026-09-14 — a premissa abaixo estava errada
 - **Data:** 2026-09-12
+
+> **A premissa deste ADR é falsa.** Não há bloqueio de rede a mídia em tempo real na
+> região alvo: quem desligou o compartilhamento de tela foi o próprio Discord, por
+> motivos dele. O TURN continua no roadmap, mas por CGNAT — engenharia comum de WebRTC —
+> e não por um adversário de rede. Ver
+> [ADR-0020](0020-o-bloqueio-e-do-discord-nao-da-rede.md).
+>
+> O texto original fica abaixo, inferência errada incluída: saber por que acreditamos em
+> algo vale tanto quanto saber no que acreditamos.
 
 ## Contexto
 

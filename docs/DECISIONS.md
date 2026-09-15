@@ -410,3 +410,19 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
 - **[S1] O bot que nao conecta nao derruba o servidor** — verificado em execucao: com token
   invalido, o Discord fecha com 4004, o bot para, e a API continua servindo e falhando
   fechada em admissao nova. Derrubar o processo levaria junto as sessoes em curso.
+- **[S1] `#[ts(optional)]` sem `skip_serializing_if` e um contrato mentiroso** — `Ready.room`
+  tinha so o primeiro: o tipo gerado prometia um campo ausente e o serde emitia
+  `"room": null`. O cliente testava `=== undefined`, recebia `null` e quebrava com
+  `TypeError` em todo `READY` sem sala — o caso comum, porque o aplicativo passa o dia na
+  bandeja. Corrigido no `protocol`, nao no cliente: o tipo gerado ja estava certo, e
+  `just types` regenerou sem alterar um arquivo sequer. Os dois atributos andam juntos.
+- **[S2] O WebView do Linux nao faz WebRTC sem ser religado** — o WebKitGTK entrega
+  `enable-webrtc` e `enable-media-stream` desligados e o Tauri nao os altera, entao o
+  livekit-client recusava com "LiveKit doesn't seem to be supported on this browser" antes
+  de abrir a sinalizacao: nada chegava ao SFU e nada aparecia no log do servidor. Religado
+  em `enable_linux_webrtc`. Isto existe para destravar a medicao da Fase 2 com a segunda
+  maquina disponivel; **nao** torna Linux plataforma suportada, o que mexeria no RNF-10 e
+  exige ADR proprio.
+- **[S2] O backend do `keyring` e por plataforma** — com `features = ["windows-native"]`
+  sozinho, em Linux o keyring cai no store mock, em memoria, e o refresh token some a cada
+  execucao. O sintoma era o aplicativo pedir pareamento em todo arranque no notebook.

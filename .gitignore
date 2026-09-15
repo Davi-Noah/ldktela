@@ -1,6 +1,8 @@
 /target
 **/target
 .env
+# Aponta o cliente para um servidor especifico; e config de maquina, nao do projeto.
+.env.local
 node_modules/
 desktop/dist/
 desktop/src-tauri/target/

@@ -64,9 +64,11 @@ certas.
 | [0010](0010-autorizacao-derivada-do-discord.md) | Autorização derivada do Discord; RBAC próprio aposentado | Aceito |
 | [0011](0011-sala-e-o-canal-de-voz.md) | A sala é o canal de voz do Discord | Aceito |
 | [0012](0012-midia-unidirecional.md) | Mídia unidirecional: sem microfone, câmera ou texto | Aceito |
-| [0013](0013-turn-tls-443-primario.md) | TURN/TLS em 443 é caminho primário, não fallback | Aceito |
+| [0013](0013-turn-tls-443-primario.md) | TURN/TLS em 443 é caminho primário, não fallback | **Rebaixado pelo 0020** |
 | [0014](0014-audio-por-aplicativo.md) | Áudio por aplicativo via WASAPI, transportado por IPC | Aceito |
 | [0015](0015-postgres-com-schema-reduzido.md) | Postgres mantido apesar do schema reduzido | Aceito |
 | [0016](0016-poda-por-reescrita-de-migrations.md) | Poda do escopo por reescrita das migrations | Aceito |
 | [0017](0017-nao-usar-discord-activity.md) | O produto não é uma Discord Activity | Aceito |
-| [0018](0018-construir-antes-de-medir.md) | Construir S1 e S3–S6 antes de medir S0 | Aceito, com dívida |
+| [0018](0018-construir-antes-de-medir.md) | Construir S1 e S3–S6 antes de medir S0 | Aceito, dívida quitada em parte |
+| [0019](0019-versoes-do-livekit-sao-um-par.md) | Cliente e servidor do LiveKit são um par fixado | Aceito |
+| [0020](0020-o-bloqueio-e-do-discord-nao-da-rede.md) | O bloqueio é do Discord, não da rede | Aceito |

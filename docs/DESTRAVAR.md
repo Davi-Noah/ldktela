@@ -1,9 +1,15 @@
 # Como destravar o projeto
 
-Guia operacional. Quatro fases, em ordem de dependência. A Fase 0 e a 1 são de
-hoje; a 2 dá os primeiros números; a 3 é a que decide se o produto existe.
+Guia operacional, em ordem de dependência.
 
-Leia a Fase 3 antes de começar: ela muda o que você vai querer preparar na 2.
+> **Estado em 2026-09-14.** As Fases 0, 1 e 2 estão concluídas: o produto pareia,
+> entra na sala sozinho, compartilha, e os números da Fase 2 passam em RNF-02,
+> RNF-03, RNF-04 e RNF-05 ([`RESULTS.md`](RESULTS.md)). A Fase 3 **foi rebaixada**
+> e não decide mais nada sobre a existência do produto
+> ([ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)).
+>
+> O que fazer a seguir está em ["O teste que passou a ser o mais valioso"](#o-teste-que-passou-a-ser-o-mais-valioso).
+> As fases abaixo ficam como referência de instalação e de diagnóstico.
 
 ---
 
@@ -171,8 +177,28 @@ just app           # abre o aplicativo Tauri
 | **"Servidor indisponível. Tente de novo." ao colar o código** | O fetch nem saiu da máquina. Era falta de CORS no servidor (corrigido). Se voltar: o WebView é sempre uma origem diferente da API, então a origem precisa estar em `ALLOWED_ORIGINS` (`crates/api/src/lib.rs`) **e** no `connect-src` do `tauri.conf.json` |
 | App em branco, nenhum erro de rede | CSP do Tauri não cobre a origem. Veja `desktop/src-tauri/tauri.conf.json` → `connect-src` |
 | Pareia, mas entrar em sala dá 404 | Réplica sem membros → **SERVER MEMBERS INTENT** desligado (0.2). O log de arranque diz `members: 1` e emite um `WARN` |
+| **Compartilha, o bitrate oscila, e ninguém vê. Tudo responde 200** | Versões do LiveKit fora do par ([ADR-0019](adr/0019-versoes-do-livekit-sao-um-par.md)). Confirme com `docker logs ldkcord-livekit \| grep "unsupported datachannel"`: se aparecer, o cliente fala um protocolo que o servidor não entende, a negociação de **publicação** expira em 15 s e o cliente reconecta em laço. Conectar e assinar continuam funcionando, e é por isso que o log fica todo verde |
 | Compartilha, mas ninguém vê | Webhook do LiveKit não chega ao backend. Em Linux confira `extra_hosts` no `docker/compose.dev.yml` |
 | Servidor recusa subir | Falta variável no `.env`. A mensagem nomeia qual |
+
+### Verificar a publicação ao trocar a versão do LiveKit
+
+Obrigatório sempre que `livekit-client` ou `livekit/livekit-server` mudar
+([ADR-0019](adr/0019-versoes-do-livekit-sao-um-par.md)). O teste automatizado
+garante que os dois estão fixados, **não** que são compatíveis — isso exige um
+SFU de verdade e uma publicação de verdade.
+
+Com `just dev` de pé, compartilhe a tela e observe, nesta ordem:
+
+1. No painel do app, o bitrate **sobe e permanece**. Se ele oscila entre 0 e um
+   valor alto num ciclo regular, a negociação está expirando.
+2. `docker logs ldkcord-livekit | grep -c "unsupported datachannel"` responde
+   **0**. Qualquer número acima disso é desencontro de protocolo.
+3. `docker logs ldkcord-livekit | grep "participant closing"` **não** mostra um
+   `CLIENT_REQUEST_LEAVE` a cada 15 s.
+
+O terceiro é o mais confiável: 15 segundos cravados e repetidos é a assinatura do
+`peerConnectionTimeout` do `livekit-client`, não de um problema de rede.
 
 > **Limite conhecido:** o Discord manda a lista de membros no `GUILD_CREATE` só
 > até o `large_threshold` (50 por padrão). Em servidores maiores a réplica nasce
@@ -188,13 +214,23 @@ piso do que o produto consegue, não a condição em que ele precisa funcionar.
 
 ### 2.1 Preparar a rede
 
-O LiveKit de desenvolvimento anuncia o IP do container, que a outra máquina não
-alcança. Em `docker/livekit.dev.yaml`, dentro de `rtc:`, troque
-`use_external_ip: false` por:
+O LiveKit de desenvolvimento anuncia `127.0.0.1`, que a outra máquina não
+alcança. Em `docker/livekit.dev.yaml`, dentro de `rtc:`, troque **só o valor de
+`node_ip`** pelo IP da máquina na LAN:
 
 ```yaml
+  use_external_ip: false   # NÃO mexa nesta linha
   node_ip: 192.168.x.y     # o IP da MÁQUINA na LAN, não do container
 ```
+
+> **`use_external_ip` tem que continuar `false`.** Com `true`, o LiveKit
+> descobre o IP **público** por STUN e ignora o `node_ip`: os candidatos ICE
+> saem com o IP do provedor, que nem a própria máquina alcança, porque roteador
+> doméstico não faz hairpin NAT. O sintoma é `ConnectionError: could not
+> establish pc connection` com a sinalização funcionando normalmente — token
+> emitido, webhook `room_started` chegando, e a mídia falhando em silêncio.
+> Para confirmar, `docker logs ldkcord-livekit | head` e leia o `nodeIP` da
+> linha `starting LiveKit server`: tem que ser o IP da LAN.
 
 Suba de novo (`just infra-down && just infra-up`). A faixa UDP 50000–50019 já
 está publicada no compose — sem ela a mídia cairia no fallback TCP e você mediria
@@ -202,6 +238,20 @@ o caminho errado.
 
 Libere no firewall do Windows, na máquina servidora: TCP 8080, TCP 7880, TCP 7881
 e UDP 50000–50019.
+
+No `.env` da raiz, troque também o `LIVEKIT_URL`:
+
+```
+LIVEKIT_URL=ws://192.168.x.y:7880
+```
+
+> **Este é o segundo endereço que precisa sair do `localhost`, e é fácil
+> esquecer** porque ele não aparece em nenhuma config do cliente. O servidor
+> **entrega esse valor ao aplicativo** na resposta de `POST /rooms/:id/token`, e
+> o cliente conecta no que recebeu. Com `127.0.0.1`, a segunda máquina tenta
+> conectar no próprio localhost: ela entra na sala pelo WebSocket, aparece na
+> interface, e nunca chega ao SFU — não vê ninguém e ninguém a vê. Reinicie o
+> servidor depois de mudar.
 
 ### 2.2 Preparar o segundo cliente
 
@@ -249,33 +299,24 @@ importa de verdade é o da Fase 3.
 
 ---
 
-## Fase 3 — O teste que decide o produto
+## Fase 3 — Caminho relayado (rebaixada)
 
-**Esta é a fase que destrava o projeto de verdade.** Todo o resto é preparação.
+**Deixou de ser o teste que decide o produto.** Em 2026-09-14 a premissa que
+sustentava esse status caiu: não há bloqueio de rede a mídia em tempo real na
+região alvo — quem desligou o compartilhamento de tela foi o próprio Discord, por
+motivos dele ([ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)).
 
-O produto existe porque o compartilhamento de tela do Discord não funciona na
-região alvo, e a causa mais provável é a rede descartando mídia em tempo real.
-Nossa mídia enfrenta o mesmo adversário. Se ela também não passar, não há
-produto — só um clone que falha pelo mesmo motivo
-([ADR-0013](adr/0013-turn-tls-443-primario.md)).
+O que resta desta fase é a verificação normal de CGNAT: **quem estiver atrás de
+NAT restritivo só conecta pelo relay.** Isso não é sobre a existência do produto,
+é sobre uma parte dos usuários conseguir usá-lo. Roda junto de S2, quando houver
+TURN.
 
-### 3.1 Pré-requisito: TURN/TLS em 443 (fatia S2, não construída)
+### 3.1 Pré-requisito: TURN (fatia S2, escopo reduzido)
 
-O teste não pode ser feito no ambiente de desenvolvimento atual: **não existe
-TURN configurado**. Com UDP bloqueado, hoje a conexão simplesmente falha — e isso
-não diria nada sobre o produto, só sobre a config de dev.
-
-Antes da 3.2 é preciso:
-
-1. Provisionar a VM com Postgres, LiveKit, Caddy e o servidor.
-2. Dar ao TURN um **IP público dedicado**, com hostname e certificado próprios —
-   a 443 já é do Caddy e os dois não dividem a porta.
-3. Configurar `turn:` no LiveKit com `tls_port: 443` e o certificado.
-4. Acrescentar o domínio de produção ao `connect-src` do `tauri.conf.json`.
-
-Esta é a fatia S2 do roadmap. É trabalho de infraestrutura, e está em zona de
-revisão humana (`CLAUDE.md` §10) — posso escrever o cloud-init e a configuração,
-mas quem aplica é você.
+Sem IP dedicado e sem disputar a 443 com o Caddy — isso existia para parecer
+HTTPS a um inspetor de tráfego que não existe. Uma VM comum com Caddy, LiveKit e
+TURN na porta padrão resolve. A 443 continua sendo a porta que mais atravessa
+firewall corporativo; se sair barata, vale.
 
 ### 3.2 O teste
 
@@ -288,9 +329,9 @@ netsh advfirewall firewall add rule name="ldkcord-teste-dns" dir=out action=allo
 netsh advfirewall firewall add rule name="ldkcord-teste-bloqueio-udp" dir=out action=block protocol=UDP
 ```
 
-Com as regras ativas, faça uma sessão 1080p de **20 minutos** e registre os
-mesmos números da 2.3, com um a mais: **a proporção de conexões relayadas** —
-elas devem ser 100%, ou o bloqueio não pegou.
+Com as regras ativas, faça uma sessão 1080p e confirme que ela estabelece e se
+sustenta, com **100% das conexões relayadas** — se não forem 100%, o bloqueio não
+pegou. Registre os mesmos números da 2.3 em `docs/RESULTS.md`.
 
 Para remover:
 
@@ -299,20 +340,19 @@ netsh advfirewall firewall delete rule name="ldkcord-teste-bloqueio-udp"
 netsh advfirewall firewall delete rule name="ldkcord-teste-dns"
 ```
 
-### 3.3 O ponto de decisão
-
-Escreva os números em `docs/RESULTS.md` e decida, com eles na mão:
-
-- **Sustentou 1080p pelo relay** → a premissa do produto está provada. Siga para
-  S7, S8, S9.
-- **Não sustentou** → **não remende.** Decida entre baixar o alvo (1080p30, ou
-  720p60) ou concluir que o produto não atende o mercado que motivou o pivô. Essa
-  decisão vira um ADR novo, seja qual for.
-
-O erro que não pode se repetir é o da v1: onze estágios construídos sem nunca
-verificar se o produto era viável.
-
 ---
+
+## O teste que passou a ser o mais valioso
+
+Não é a Fase 3. É **repetir a medição de qualidade com o espectador em outra
+máquina física**, com decode acelerado por hardware.
+
+A Fase 2 registrou 139 s de congelamento em 26 min e concluiu, corretamente, que
+o número é **inconclusivo**: as três pontas dividiam a mesma CPU, e a assinatura
+— buffer de jitter subindo, RTT saltando, perda quase nula — é de contenção, não
+de rede. Enquanto isso não for refeito, não se sabe se o produto engasga.
+
+É barato, e é o que separa "funciona na minha máquina" de "funciona".
 
 ## Lacunas conhecidas, para você não descobrir sozinho
 
@@ -341,13 +381,18 @@ Coisas que estão faltando de propósito ou que eu não consegui fechar:
 ## Resumo do caminho crítico
 
 ```
-Fase 0 (15 min)      token do bot          -> destrava tudo
-Fase 1 (30 min)      roteiro de aceite     -> prova identidade/autorizacao/sala
-Fase 2 (1 dia)       duas maquinas, LAN    -> primeiros numeros, melhor caso
+Fase 0  (feita)      token do bot
+Fase 1  (feita)      roteiro de aceite
+Fase 2  (feita)      medicao real -> RNF-02/03/04/05 passam (RESULTS.md)
   |
-  +-- S2: VM com TURN/TLS 443              <- trabalho de infra, precisa de voce
+  +-- PROXIMO: qualidade com espectador em outra maquina  <- maior valor, barato
   |
-Fase 3               UDP bloqueado         -> DECIDE SE O PRODUTO EXISTE
+  +-- S2: VM com TURN (escopo reduzido)                   <- precisa de voce
+  |     +-- Fase 3: caminho relayado, junto de S2
+  |
+  +-- S9: audio por aplicativo                            <- maior risco de produto
 ```
 
-Enquanto a Fase 3 não tiver números, o produto compila, roda e não está provado.
+O produto funciona ponta a ponta e cabe no orçamento. O que falta para chamá-lo
+de pronto é uma medição limpa de qualidade, uma implantação de verdade, e o
+áudio.

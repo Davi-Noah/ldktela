@@ -30,7 +30,12 @@ services:
       start_period: 5s
 
   livekit:
-    image: livekit/livekit-server:v1.8
+    # Versao EXATA, e emparelhada com `livekit-client` no package.json. As duas
+    # negociam um protocolo em comum: um cliente a frente do servidor publica
+    # um canal de dados que o servidor nao conhece, a negociacao expira em 15 s
+    # e so o compartilhamento quebra — conectar e assinar continuam funcionando,
+    # que e o que torna essa falha tao dificil de ver.
+    image: livekit/livekit-server:v1.13.6
     container_name: ldkcord-livekit
     command: --config /etc/livekit.yaml --dev
     volumes:
@@ -42,6 +47,9 @@ services:
     ports:
       - "7880:7880"
       - "7881:7881"
+      # Metricas do SFU (RNF-05). So escuta no loopback: e superficie de
+      # diagnostico, nao precisa sair da maquina.
+      - "127.0.0.1:6789:6789"
       # Faixa UDP de midia. Sem ela, so o fallback TCP/7881 funciona, e um teste
       # entre duas maquinas mediria o caminho errado. E a faixa reduzida de dev
       # (DECISIONS [E0]); a de producao, 50000-60000, nao cabe no Docker Desktop.

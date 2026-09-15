@@ -490,4 +490,46 @@ mod tests {
             "despublicar so o audio nao pode derrubar o estado da tela"
         );
     }
+
+    /// Guarda metade do par de versoes do LiveKit (ADR-0019); a outra metade, o
+    /// `livekit-client`, e verificada em `desktop/src/media/versions.test.ts`.
+    ///
+    /// Uma tag movel como `v1.8` troca a versao do SFU embaixo do cliente sem
+    /// ninguem decidir. Quando as duas pontas divergem, so a publicacao quebra:
+    /// a negociacao expira em 15 s e o cliente reconecta em laco, enquanto
+    /// parear, entrar na sala e assinar seguem funcionando e o servidor responde
+    /// 200 em tudo.
+    #[test]
+    fn the_dev_compose_pins_an_exact_livekit_server_version() {
+        let compose = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docker/compose.dev.yml"
+        ))
+        .expect("docker/compose.dev.yml deve existir");
+
+        let image = compose
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("image:"))
+            .map(str::trim)
+            .find(|image| image.starts_with("livekit/livekit-server:"))
+            .expect("o compose deve declarar a imagem do livekit-server");
+
+        let tag = image
+            .split_once(':')
+            .map(|(_, tag)| tag)
+            .unwrap_or_default();
+        let exact = tag.strip_prefix('v').is_some_and(|version| {
+            let parts: Vec<&str> = version.split('.').collect();
+            parts.len() == 3
+                && parts
+                    .iter()
+                    .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+        });
+
+        assert!(
+            exact,
+            "a imagem esta como {image}. Uma tag movel muda o SFU sem ninguem \
+             decidir; fixe vX.Y.Z e releia o ADR-0019 antes de trocar."
+        );
+    }
 }

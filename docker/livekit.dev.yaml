@@ -1,16 +1,23 @@
 # Configuracao de DESENVOLVIMENTO do LiveKit. Chaves triviais, nunca reais.
 port: 7880
+# Contadores reais de bytes, medidos pelo SFU. O RNF-05 exige egress *medido* e
+# nao extrapolado do painel do cliente, que so sabe o que ele acha que enviou.
+prometheus_port: 6789
 rtc:
   tcp_port: 7881
   port_range_start: 50000
   port_range_end: 50019
+  # PRECISA ficar `false`. Com `true` o LiveKit descobre o IP PUBLICO por STUN e
+  # sobrescreve o `node_ip` abaixo: os candidatos ICE saem com o IP do provedor,
+  # que nem a propria maquina alcanca (roteador domestico nao faz hairpin NAT).
+  # O sintoma e `could not establish pc connection` com a sinalizacao funcionando.
   use_external_ip: false
   # Sem isto o LiveKit anuncia o IP do CONTAINER (172.x) como candidato ICE, e a
   # maquina do host nao roteia para la: a sinalizacao conecta, a midia nao, e o
   # sintoma e alguns segundos de espera seguidos de falha — nao um erro claro.
   # Para o teste entre duas maquinas (DESTRAVAR.md, Fase 2), troque pelo IP da
   # maquina na LAN.
-  node_ip: 127.0.0.1
+  node_ip: 192.168.0.9
 
 keys:
   devkey: dev-only-not-a-real-key-0123456789abcdef
