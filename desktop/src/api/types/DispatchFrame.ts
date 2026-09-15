@@ -6,10 +6,11 @@ import type { RoomLeave } from "./RoomLeave";
 import type { RoomParticipantAdd } from "./RoomParticipantAdd";
 import type { RoomParticipantRemove } from "./RoomParticipantRemove";
 import type { RoomState } from "./RoomState";
-import type { ShareEvent } from "./ShareEvent";
+import type { ShareStart } from "./ShareStart";
+import type { ShareStop } from "./ShareStop";
 
 /**
  * `op: 0`. `t` and `d` come from the flattened event; `s` is the per-session
  * monotonic sequence used only to detect a gap on resume (§6.1).
  */
-export type DispatchFrame = { op: Opcode, s: number, } & ({ "t": "READY", "d": Ready } | { "t": "RESUMED", "d": Resumed } | { "t": "ROOM_JOIN", "d": RoomState } | { "t": "ROOM_LEAVE", "d": RoomLeave } | { "t": "ROOM_PARTICIPANT_ADD", "d": RoomParticipantAdd } | { "t": "ROOM_PARTICIPANT_REMOVE", "d": RoomParticipantRemove } | { "t": "SHARE_START", "d": ShareEvent } | { "t": "SHARE_STOP", "d": ShareEvent });
+export type DispatchFrame = { op: Opcode, s: number, } & ({ "t": "READY", "d": Ready } | { "t": "RESUMED", "d": Resumed } | { "t": "ROOM_JOIN", "d": RoomState } | { "t": "ROOM_LEAVE", "d": RoomLeave } | { "t": "ROOM_PARTICIPANT_ADD", "d": RoomParticipantAdd } | { "t": "ROOM_PARTICIPANT_REMOVE", "d": RoomParticipantRemove } | { "t": "SHARE_START", "d": ShareStart } | { "t": "SHARE_STOP", "d": ShareStop });

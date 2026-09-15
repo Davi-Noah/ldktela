@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::scalars::Snowflake;
+use crate::scalars::{Snowflake, Timestamp};
 use crate::user::UserSummary;
 
 /// `POST /rooms/{discord_channel_id}/token`.
@@ -34,13 +34,18 @@ pub struct RoomTokenResponse {
     pub expires_in: i64,
 }
 
-/// Someone present in a room. Presence here means "connected to the Discord
-/// voice channel", which is the only definition the product has.
+/// Someone present in a room.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct RoomParticipant {
     pub user: UserSummary,
     pub publishing: bool,
+    /// When this person's screen went live, from the server (RF-34).
+    ///
+    /// Not the moment the viewer joined: someone who arrives twenty minutes in
+    /// has to see twenty minutes, not zero. `None` when not publishing.
+    #[ts(optional)]
+    pub publishing_since: Option<Timestamp>,
 }
 
 /// The full state of one room, carried by `ROOM_JOIN`.
@@ -92,11 +97,23 @@ pub struct RoomParticipantRemove {
     pub user_id: Uuid,
 }
 
-/// Body of `SHARE_START` and `SHARE_STOP`. Fed exclusively by LiveKit webhooks,
-/// never by the client.
+/// Body of `SHARE_START`. Fed exclusively by LiveKit webhooks, never by the
+/// client.
+///
+/// Separate from `ShareStop` because it carries `started_at`, and a stop event
+/// with a start time would be a field that is always a lie.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS)]
 #[ts(export)]
-pub struct ShareEvent {
+pub struct ShareStart {
+    pub discord_channel_id: Snowflake,
+    pub user_id: Uuid,
+    pub started_at: Timestamp,
+}
+
+/// Body of `SHARE_STOP`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ShareStop {
     pub discord_channel_id: Snowflake,
     pub user_id: Uuid,
 }

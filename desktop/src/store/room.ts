@@ -4,6 +4,7 @@ import type { RoomLeaveReason } from '../api/types/RoomLeaveReason';
 import type { RoomParticipant } from '../api/types/RoomParticipant';
 import type { RoomState } from '../api/types/RoomState';
 import type { Snowflake } from '../api/types/Snowflake';
+import type { Timestamp } from '../api/types/Timestamp';
 
 /**
  * The room the user is in, normalised by user id. There is no room picker: this
@@ -77,9 +78,9 @@ export function applyRoomEvent(room: RoomSnapshot, event: DispatchEvent): RoomSn
     case 'ROOM_PARTICIPANT_REMOVE':
       return removeParticipant(room, event.d.discord_channel_id, event.d.user_id);
     case 'SHARE_START':
-      return setPublishing(room, event.d.discord_channel_id, event.d.user_id, true);
+      return setPublishing(room, event.d.discord_channel_id, event.d.user_id, event.d.started_at);
     case 'SHARE_STOP':
-      return setPublishing(room, event.d.discord_channel_id, event.d.user_id, false);
+      return setPublishing(room, event.d.discord_channel_id, event.d.user_id, null);
     case 'RESUMED':
       return room;
   }
@@ -95,7 +96,11 @@ function addParticipant(
   }
   const id = participant.user.id;
   const known = room.participants[id];
-  if (known !== undefined && known.publishing === participant.publishing) {
+  if (
+    known !== undefined &&
+    known.publishing === participant.publishing &&
+    known.publishing_since === participant.publishing_since
+  ) {
     return room;
   }
   const participants = { ...room.participants, [id]: participant };
@@ -118,11 +123,17 @@ function removeParticipant(room: RoomSnapshot, channelId: Snowflake, userId: str
   };
 }
 
+/**
+ * `since` is the server's start time on SHARE_START and `null` on SHARE_STOP.
+ *
+ * It has to come from the server: a viewer who joins twenty minutes in must see
+ * twenty minutes, not zero (RF-34).
+ */
 function setPublishing(
   room: RoomSnapshot,
   channelId: Snowflake,
   userId: string,
-  publishing: boolean,
+  since: Timestamp | null,
 ): RoomSnapshot {
   const participant = room.participants[userId];
   // A share event for someone we do not know yet is dropped: the matching
@@ -130,12 +141,21 @@ function setPublishing(
   if (room.channelId !== channelId || participant === undefined) {
     return room;
   }
-  if (participant.publishing === publishing) {
+  const publishing = since !== null;
+  if (
+    participant.publishing === publishing &&
+    participant.publishing_since === (since ?? undefined)
+  ) {
     return room;
   }
+  const updated: RoomParticipant = {
+    ...participant,
+    publishing,
+    publishing_since: since ?? undefined,
+  };
   return {
     ...room,
-    participants: { ...room.participants, [userId]: { ...participant, publishing } },
+    participants: { ...room.participants, [userId]: updated },
     publisherIds: withPublisher(room.publisherIds, userId, publishing),
   };
 }

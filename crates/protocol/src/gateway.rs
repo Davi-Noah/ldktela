@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::room::{RoomLeave, RoomParticipantAdd, RoomParticipantRemove, RoomState, ShareEvent};
+use crate::room::{
+    RoomLeave, RoomParticipantAdd, RoomParticipantRemove, RoomState, ShareStart, ShareStop,
+};
 use crate::user::CurrentUser;
 
 /// Frame opcode (`docs/websocket.md` §2.1). Serialised as an integer.
@@ -226,9 +228,9 @@ pub enum DispatchEvent {
     RoomParticipantRemove(RoomParticipantRemove),
 
     #[serde(rename = "SHARE_START")]
-    ShareStart(ShareEvent),
+    ShareStart(ShareStart),
     #[serde(rename = "SHARE_STOP")]
-    ShareStop(ShareEvent),
+    ShareStop(ShareStop),
 }
 
 impl DispatchEvent {
@@ -278,15 +280,16 @@ pub struct Resumed {
 mod tests {
     use super::*;
     use crate::room::RoomLeaveReason;
-    use crate::scalars::Snowflake;
+    use crate::scalars::{Snowflake, Timestamp};
 
     #[test]
     fn dispatch_frame_matches_the_documented_envelope() {
         let frame = DispatchFrame::new(
             4211,
-            DispatchEvent::ShareStart(ShareEvent {
+            DispatchEvent::ShareStart(ShareStart {
                 discord_channel_id: Snowflake::new(42),
                 user_id: Uuid::nil(),
+                started_at: Timestamp::new(time::OffsetDateTime::UNIX_EPOCH),
             }),
         );
         let json = serde_json::to_value(&frame).unwrap();
@@ -304,7 +307,7 @@ mod tests {
         // 2^53 + 1 perde precisao em Number; um id de canal real passa disso.
         let frame = DispatchFrame::new(
             1,
-            DispatchEvent::ShareStop(ShareEvent {
+            DispatchEvent::ShareStop(ShareStop {
                 discord_channel_id: Snowflake::new(9_007_199_254_740_993),
                 user_id: Uuid::nil(),
             }),
@@ -360,9 +363,10 @@ mod tests {
     fn every_event_name_is_screaming_snake_case() {
         for event in [
             DispatchEvent::Resumed(Resumed { replayed: 0 }),
-            DispatchEvent::ShareStart(ShareEvent {
+            DispatchEvent::ShareStart(ShareStart {
                 discord_channel_id: Snowflake::new(1),
                 user_id: Uuid::nil(),
+                started_at: Timestamp::new(time::OffsetDateTime::UNIX_EPOCH),
             }),
             DispatchEvent::RoomLeave(RoomLeave {
                 discord_channel_id: Snowflake::new(1),

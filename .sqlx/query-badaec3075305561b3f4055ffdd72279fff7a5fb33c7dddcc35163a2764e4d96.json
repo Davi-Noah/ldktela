@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        -- O inicio da transmissao vem da sessao aberta, nao de `room_presence`:\n        -- duplicar a coluna criaria uma segunda verdade para o mesmo fato, e e\n        -- a sessao que o relatorio de egress ja usa.\n        SELECT p.user_id,\n               u.discord_user_id,\n               u.username,\n               u.display_name,\n               u.avatar_url,\n               p.publishing,\n               p.joined_at,\n               s.started_at AS \"publishing_since?\"\n          FROM room_presence p\n          JOIN users u ON u.id = p.user_id\n          LEFT JOIN share_sessions s\n                 ON s.discord_channel_id = p.discord_channel_id\n                AND s.publisher_id       = p.user_id\n                AND s.ended_at IS NULL\n         WHERE p.discord_channel_id = $1\n         ORDER BY p.joined_at\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "discord_user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "display_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "avatar_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "publishing",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "joined_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "publishing_since?",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "badaec3075305561b3f4055ffdd72279fff7a5fb33c7dddcc35163a2764e4d96"
+}

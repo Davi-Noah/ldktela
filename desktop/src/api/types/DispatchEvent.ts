@@ -5,7 +5,8 @@ import type { RoomLeave } from "./RoomLeave";
 import type { RoomParticipantAdd } from "./RoomParticipantAdd";
 import type { RoomParticipantRemove } from "./RoomParticipantRemove";
 import type { RoomState } from "./RoomState";
-import type { ShareEvent } from "./ShareEvent";
+import type { ShareStart } from "./ShareStart";
+import type { ShareStop } from "./ShareStop";
 
 /**
  * Every dispatch event (`docs/websocket.md` §5).
@@ -17,4 +18,4 @@ import type { ShareEvent } from "./ShareEvent";
  * that consumed a sequence without entering the resume buffer; with it gone,
  * the buffer holds everything the session ever sent.
  */
-export type DispatchEvent = { "t": "READY", "d": Ready } | { "t": "RESUMED", "d": Resumed } | { "t": "ROOM_JOIN", "d": RoomState } | { "t": "ROOM_LEAVE", "d": RoomLeave } | { "t": "ROOM_PARTICIPANT_ADD", "d": RoomParticipantAdd } | { "t": "ROOM_PARTICIPANT_REMOVE", "d": RoomParticipantRemove } | { "t": "SHARE_START", "d": ShareEvent } | { "t": "SHARE_STOP", "d": ShareEvent };
+export type DispatchEvent = { "t": "READY", "d": Ready } | { "t": "RESUMED", "d": Resumed } | { "t": "ROOM_JOIN", "d": RoomState } | { "t": "ROOM_LEAVE", "d": RoomLeave } | { "t": "ROOM_PARTICIPANT_ADD", "d": RoomParticipantAdd } | { "t": "ROOM_PARTICIPANT_REMOVE", "d": RoomParticipantRemove } | { "t": "SHARE_START", "d": ShareStart } | { "t": "SHARE_STOP", "d": ShareStop };

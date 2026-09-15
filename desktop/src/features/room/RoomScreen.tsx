@@ -2,23 +2,22 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { media } from '../../app/runtime';
 import { CHROME_IDLE_MS } from '../../config';
 import type { CaptureRequest } from '../../media/tracks';
-import type { QualityChoice } from '../../store/media';
 import { useMediaStore } from '../../store/media';
 import { RoomBody } from './RoomBody';
 import { RoomChrome } from './RoomChrome';
+import { ScreenGrid } from './ScreenGrid';
 import { SharePicker } from './SharePicker';
-import { VideoStage } from './VideoStage';
 
 export function RoomScreen() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const watching = useMediaStore((state) => state.watching);
+  const screenCount = useMediaStore((state) => state.screenOrder.length);
   const [picker, setPicker] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [chromeVisible, setChromeVisible] = useState(true);
   // Mirrors the state so pointer moves do not touch React on every event.
   const chromeVisibleRef = useRef(true);
 
-  const hasVideo = watching !== null;
+  const hasVideo = screenCount > 0;
 
   useEffect(() => {
     if (!hasVideo) {
@@ -89,16 +88,12 @@ export function RoomScreen() {
     void media.stopShare();
   }, []);
 
-  const onQuality = useCallback((choice: QualityChoice) => {
-    media.setQuality(choice);
-  }, []);
-
   return (
     <main ref={containerRef} className="relative h-full w-full overflow-hidden bg-surface-0">
       {/* Mounted for the life of the screen. Only the wrapper's visibility changes,
           so the decoder survives every layout change. */}
       <div hidden={!hasVideo} className="absolute inset-0 bg-stage">
-        <VideoStage />
+        <ScreenGrid />
       </div>
 
       {!hasVideo && (
@@ -115,7 +110,6 @@ export function RoomScreen() {
             onShare={onShare}
             onStop={onStop}
             onToggleFullscreen={onToggleFullscreen}
-            onQuality={onQuality}
             fullscreen={fullscreen}
           />
         </div>

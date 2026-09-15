@@ -4,7 +4,7 @@
 //! there is no presence, so none of this should survive a crash.
 
 use protocol::room::RoomParticipant;
-use protocol::scalars::Snowflake;
+use protocol::scalars::{Snowflake, Timestamp};
 use protocol::user::UserSummary;
 use sqlx::{PgExecutor, PgPool};
 use time::OffsetDateTime;
@@ -22,6 +22,8 @@ pub struct ParticipantRow {
     pub avatar_url: Option<String>,
     pub publishing: bool,
     pub joined_at: OffsetDateTime,
+    /// When the open share session for this publisher started (RF-34).
+    pub publishing_since: Option<OffsetDateTime>,
 }
 
 impl ParticipantRow {
@@ -35,6 +37,7 @@ impl ParticipantRow {
                 avatar_url: self.avatar_url.clone(),
             },
             publishing: self.publishing,
+            publishing_since: self.publishing_since.map(Timestamp::new),
         }
     }
 }
@@ -107,15 +110,23 @@ pub async fn list_by_channel(
     let rows = sqlx::query_as!(
         ParticipantRow,
         r#"
+        -- O inicio da transmissao vem da sessao aberta, nao de `room_presence`:
+        -- duplicar a coluna criaria uma segunda verdade para o mesmo fato, e e
+        -- a sessao que o relatorio de egress ja usa.
         SELECT p.user_id,
                u.discord_user_id,
                u.username,
                u.display_name,
                u.avatar_url,
                p.publishing,
-               p.joined_at
+               p.joined_at,
+               s.started_at AS "publishing_since?"
           FROM room_presence p
           JOIN users u ON u.id = p.user_id
+          LEFT JOIN share_sessions s
+                 ON s.discord_channel_id = p.discord_channel_id
+                AND s.publisher_id       = p.user_id
+                AND s.ended_at IS NULL
          WHERE p.discord_channel_id = $1
          ORDER BY p.joined_at
         "#,

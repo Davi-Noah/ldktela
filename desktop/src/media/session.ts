@@ -1,11 +1,11 @@
 import { RemoteAudioTrack, RemoteVideoTrack, Room, RoomEvent, Track } from 'livekit-client';
 import type { RemoteParticipant, RemoteTrackPublication } from 'livekit-client';
 import { type ApiClient, ApiError } from '../api/client';
-import { describeError, log } from '../log';
 import type { Snowflake } from '../api/types/Snowflake';
 import { STATS_SAMPLE_INTERVAL_MS } from '../config';
 import { backoffDelayMs } from '../gateway/backoff';
-import { type QualityChoice, useMediaStore } from '../store/media';
+import { describeError, log } from '../log';
+import { type PublishPreset, type QualityChoice, useMediaStore } from '../store/media';
 import type { CaptureRequest, ScreenCapture, SenderSample } from './tracks';
 import {
   applyQuality,
@@ -16,9 +16,33 @@ import {
   unpublishScreen,
 } from './tracks';
 
+/** Everything we hold for one remote screen, keyed by publisher identity. */
+interface RemoteScreen {
+  video: RemoteVideoTrack | null;
+  audio: RemoteAudioTrack | null;
+  publication: RemoteTrackPublication | null;
+  videoElement: HTMLVideoElement | null;
+  audioElement: HTMLAudioElement | null;
+}
+
+function emptyScreen(): RemoteScreen {
+  return {
+    video: null,
+    audio: null,
+    publication: null,
+    videoElement: null,
+    audioElement: null,
+  };
+}
+
 /**
  * Owns the LiveKit room. Joining is never a user action: the gateway says which
  * Discord voice channel we are in and this follows it (ADR-0011).
+ *
+ * Holds **N** remote screens, not one (RF-31). Layer selection is left to
+ * `adaptiveStream` by default: a video rendered small in the grid gets the low
+ * layer on its own, and that is what keeps the egress of N screens from
+ * multiplying by N (RF-32). Do not replace it with a fixed layer.
  */
 export class MediaSession {
   private readonly api: ApiClient;
@@ -26,11 +50,7 @@ export class MediaSession {
   private channelId: Snowflake | null = null;
   private canPublish = false;
   private capture: ScreenCapture | null = null;
-  private videoElement: HTMLVideoElement | null = null;
-  private audioElement: HTMLAudioElement | null = null;
-  private activeVideo: RemoteVideoTrack | null = null;
-  private activeAudio: RemoteAudioTrack | null = null;
-  private activePublication: RemoteTrackPublication | null = null;
+  private readonly remotes = new Map<string, RemoteScreen>();
   private statsTimer: ReturnType<typeof setInterval> | null = null;
   private lastSample: SenderSample | null = null;
   private rejoinTimer: ReturnType<typeof setTimeout> | null = null;
@@ -40,24 +60,43 @@ export class MediaSession {
     this.api = api;
   }
 
-  /** The video element is created once and outlives every track (CLAUDE.md §7). */
-  registerVideoElement(element: HTMLVideoElement | null): void {
-    if (this.videoElement !== null && this.activeVideo !== null) {
-      this.activeVideo.detach(this.videoElement);
+  private screen(identity: string): RemoteScreen {
+    const existing = this.remotes.get(identity);
+    if (existing !== undefined) {
+      return existing;
     }
-    this.videoElement = element;
-    if (element !== null && this.activeVideo !== null) {
-      this.activeVideo.attach(element);
+    const created = emptyScreen();
+    this.remotes.set(identity, created);
+    return created;
+  }
+
+  /**
+   * The video element of one screen. Created once per screen and never
+   * remounted (CLAUDE.md §7) — moving it into the picture-in-picture window
+   * keeps the same element, and therefore the same decoder.
+   */
+  registerVideoElement(identity: string, element: HTMLVideoElement | null): void {
+    const screen = this.screen(identity);
+    if (screen.videoElement !== null && screen.video !== null) {
+      screen.video.detach(screen.videoElement);
+    }
+    screen.videoElement = element;
+    if (element !== null && screen.video !== null) {
+      screen.video.attach(element);
     }
   }
 
-  registerAudioElement(element: HTMLAudioElement | null): void {
-    if (this.audioElement !== null && this.activeAudio !== null) {
-      this.activeAudio.detach(this.audioElement);
+  registerAudioElement(identity: string, element: HTMLAudioElement | null): void {
+    const screen = this.screen(identity);
+    if (screen.audioElement !== null && screen.audio !== null) {
+      screen.audio.detach(screen.audioElement);
     }
-    this.audioElement = element;
-    if (element !== null && this.activeAudio !== null) {
-      this.activeAudio.attach(element);
+    screen.audioElement = element;
+    if (element !== null) {
+      element.volume = useMediaStore.getState().screens[identity]?.volume ?? 1;
+      if (screen.audio !== null) {
+        screen.audio.attach(element);
+      }
     }
   }
 
@@ -79,7 +118,7 @@ export class MediaSession {
     this.canPublish = false;
     const room = this.room;
     this.room = null;
-    this.detachRemote();
+    this.detachAll();
     if (this.capture !== null) {
       stopCapture(this.capture);
       this.capture = null;
@@ -98,12 +137,23 @@ export class MediaSession {
     }
     store.setError(null);
     store.setStarting(true);
+
     let capture: ScreenCapture;
+    log.info('compartilhamento: abrindo o seletor de tela', {
+      superficie: request.surface,
+      audio: request.audio,
+      preset: request.preset,
+    });
     try {
       // The OS picker runs first: it is the slow part, and a user who cancels it
       // must not cost an admission slot.
       capture = await captureScreen(request);
+      log.info('compartilhamento: tela capturada', {
+        temAudio: capture.audio !== null,
+        trilha: capture.video.mediaStreamTrack.label,
+      });
     } catch (error) {
+      log.error('compartilhamento: captura falhou', error);
       store.setStarting(false);
       store.setError(captureMessage(error));
       return;
@@ -119,7 +169,7 @@ export class MediaSession {
         throw new Error('a sala não está conectada');
       }
       log.debug('compartilhamento: publicando trilhas no LiveKit');
-      await publishScreen(room.localParticipant, capture);
+      await publishScreen(room.localParticipant, capture, request.preset);
       log.info('compartilhamento: no ar');
       this.capture = capture;
       capture.video.mediaStreamTrack.addEventListener(
@@ -156,10 +206,35 @@ export class MediaSession {
     stopCapture(capture);
   }
 
-  setQuality(choice: QualityChoice): void {
-    useMediaStore.getState().setQuality(choice);
-    if (this.activePublication !== null) {
-      applyQuality(this.activePublication, choice);
+  /**
+   * Republishes with a different ladder (RF-36). Changing resolution or frame
+   * rate cannot be negotiated in place — the track is replaced, and the caller
+   * has to say so instead of letting the UI look frozen.
+   */
+  async changePreset(preset: PublishPreset): Promise<void> {
+    useMediaStore.getState().setPublishPreset(preset);
+    const capture = this.capture;
+    if (capture === null) {
+      return;
+    }
+    log.info('compartilhamento: trocando o preset', { preset });
+    await this.stopShare();
+    await this.startShare({ surface: capture.surface, audio: capture.audio !== null, preset });
+  }
+
+  setVolume(identity: string, volume: number): void {
+    useMediaStore.getState().setVolume(identity, volume);
+    const element = this.remotes.get(identity)?.audioElement;
+    if (element != null) {
+      element.volume = useMediaStore.getState().screens[identity]?.volume ?? volume;
+    }
+  }
+
+  setQuality(identity: string, choice: QualityChoice): void {
+    useMediaStore.getState().setQuality(identity, choice);
+    const publication = this.remotes.get(identity)?.publication;
+    if (publication != null) {
+      applyQuality(publication, choice);
     }
   }
 
@@ -173,7 +248,7 @@ export class MediaSession {
 
     const previous = this.room;
     this.room = null;
-    this.detachRemote();
+    this.detachAll();
     if (previous !== null) {
       previous.removeAllListeners();
       await previous.disconnect(false);
@@ -189,8 +264,10 @@ export class MediaSession {
       throw error;
     }
     log.debug('sala: token recebido', { url: credentials.url, sala: credentials.room });
+
     const room = new Room({
-      // RF-16: both are mandatory. A viewer who is not looking receives no layer.
+      // RF-32: both are mandatory. A screen rendered small in the grid gets the
+      // low layer, and one that is not visible gets nothing.
       adaptiveStream: true,
       dynacast: true,
       stopLocalTrackOnUnpublish: false,
@@ -217,13 +294,14 @@ export class MediaSession {
     room.on(RoomEvent.TrackSubscribed, (_track, publication, participant) => {
       this.adoptPublication(publication, participant);
     });
-    room.on(RoomEvent.TrackUnsubscribed, (_track, publication) => {
-      this.dropPublication(publication);
+    room.on(RoomEvent.TrackUnsubscribed, (_track, publication, participant) => {
+      this.dropPublication(publication, participant);
     });
     room.on(RoomEvent.ParticipantConnected, () => {
       this.syncViewers();
     });
-    room.on(RoomEvent.ParticipantDisconnected, () => {
+    room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+      this.forget(participant.identity);
       this.syncViewers();
     });
     room.on(RoomEvent.Reconnecting, () => {
@@ -253,56 +331,84 @@ export class MediaSession {
     participant: RemoteParticipant,
   ): void {
     const track = publication.track;
+    const identity = participant.identity;
+    const store = useMediaStore.getState();
+
     if (publication.source === Track.Source.ScreenShare && track instanceof RemoteVideoTrack) {
-      this.activeVideo = track;
-      this.activePublication = publication;
-      if (this.videoElement !== null) {
-        track.attach(this.videoElement);
+      const screen = this.screen(identity);
+      screen.video = track;
+      screen.publication = publication;
+      if (screen.videoElement !== null) {
+        track.attach(screen.videoElement);
       }
-      applyQuality(publication, useMediaStore.getState().quality);
-      useMediaStore.getState().setWatching(participant.identity);
+      store.addScreen(identity, 'video');
+      applyQuality(publication, store.screens[identity]?.quality ?? 'auto');
+      log.info('sala: tela recebida', { de: identity });
       this.syncViewers();
       return;
     }
+
     if (publication.source === Track.Source.ScreenShareAudio && track instanceof RemoteAudioTrack) {
-      this.activeAudio = track;
-      if (this.audioElement !== null) {
-        track.attach(this.audioElement);
+      const screen = this.screen(identity);
+      screen.audio = track;
+      if (screen.audioElement !== null) {
+        track.attach(screen.audioElement);
+        screen.audioElement.volume = store.screens[identity]?.volume ?? 1;
       }
+      store.addScreen(identity, 'audio');
     }
   }
 
-  private dropPublication(publication: RemoteTrackPublication): void {
-    if (publication === this.activePublication) {
-      this.detachVideo();
-      useMediaStore.getState().setWatching(null);
+  private dropPublication(
+    publication: RemoteTrackPublication,
+    participant: RemoteParticipant,
+  ): void {
+    const identity = participant.identity;
+    const screen = this.remotes.get(identity);
+    if (screen === undefined) {
+      return;
+    }
+    if (publication.source === Track.Source.ScreenShare) {
+      if (screen.video !== null && screen.videoElement !== null) {
+        screen.video.detach(screen.videoElement);
+      }
+      screen.video = null;
+      screen.publication = null;
+      useMediaStore.getState().removeScreen(identity, 'video');
       this.syncViewers();
       return;
     }
     if (publication.source === Track.Source.ScreenShareAudio) {
-      this.detachAudio();
+      if (screen.audio !== null && screen.audioElement !== null) {
+        screen.audio.detach(screen.audioElement);
+      }
+      screen.audio = null;
+      useMediaStore.getState().removeScreen(identity, 'audio');
     }
   }
 
-  private detachRemote(): void {
-    this.detachVideo();
-    this.detachAudio();
-    useMediaStore.getState().setWatching(null);
+  /** Everything belonging to one publisher is gone. */
+  private forget(identity: string): void {
+    const screen = this.remotes.get(identity);
+    if (screen === undefined) {
+      return;
+    }
+    if (screen.video !== null && screen.videoElement !== null) {
+      screen.video.detach(screen.videoElement);
+    }
+    if (screen.audio !== null && screen.audioElement !== null) {
+      screen.audio.detach(screen.audioElement);
+    }
+    this.remotes.delete(identity);
+    const store = useMediaStore.getState();
+    store.removeScreen(identity, 'video');
+    store.removeScreen(identity, 'audio');
   }
 
-  private detachVideo(): void {
-    if (this.activeVideo !== null && this.videoElement !== null) {
-      this.activeVideo.detach(this.videoElement);
+  private detachAll(): void {
+    for (const identity of [...this.remotes.keys()]) {
+      this.forget(identity);
     }
-    this.activeVideo = null;
-    this.activePublication = null;
-  }
-
-  private detachAudio(): void {
-    if (this.activeAudio !== null && this.audioElement !== null) {
-      this.activeAudio.detach(this.audioElement);
-    }
-    this.activeAudio = null;
   }
 
   private syncViewers(): void {

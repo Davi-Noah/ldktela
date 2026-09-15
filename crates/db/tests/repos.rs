@@ -299,3 +299,104 @@ async fn upserting_a_discord_profile_keeps_the_original_id() {
         Some("https://cdn.example/a.png")
     );
 }
+
+#[tokio::test]
+async fn a_viewer_who_arrives_late_sees_the_real_time_on_air() {
+    // RF-34: o inicio vem da sessao, nao do momento em que o espectador entrou.
+    // Sem isto, quem chega aos vinte minutos ve "no ar ha 0s".
+    let db = TestDb::migrated().await;
+    let publisher = seed_user(&db.pool, 1, "quem-publica").await;
+    let latecomer = seed_user(&db.pool, 2, "quem-chega-depois").await;
+
+    db::repo::presence::join(&db.pool, publisher, 900)
+        .await
+        .expect("publicador entra");
+    db::repo::presence::set_publishing(&db.pool, publisher, true)
+        .await
+        .expect("comeca a publicar");
+    let session = db::repo::sessions::open(&db.pool, Uuid::now_v7(), 900, publisher)
+        .await
+        .expect("sessao aberta");
+
+    db::repo::presence::join(&db.pool, latecomer, 900)
+        .await
+        .expect("espectador entra depois");
+
+    let rows = db::repo::presence::list_by_channel(&db.pool, 900)
+        .await
+        .expect("listando");
+    let publishing = rows
+        .iter()
+        .find(|r| r.user_id == publisher)
+        .expect("publicador na lista");
+    assert_eq!(
+        publishing.publishing_since,
+        Some(session.started_at),
+        "o inicio precisa ser o da sessao"
+    );
+
+    let viewer = rows
+        .iter()
+        .find(|r| r.user_id == latecomer)
+        .expect("espectador na lista");
+    assert!(
+        viewer.publishing_since.is_none(),
+        "quem nao publica nao tem inicio de transmissao"
+    );
+}
+
+#[tokio::test]
+async fn a_closed_session_stops_reporting_time_on_air() {
+    let db = TestDb::migrated().await;
+    let publisher = seed_user(&db.pool, 1, "pessoa").await;
+    db::repo::presence::join(&db.pool, publisher, 900)
+        .await
+        .expect("entrando");
+    db::repo::sessions::open(&db.pool, Uuid::now_v7(), 900, publisher)
+        .await
+        .expect("abrindo");
+    db::repo::sessions::close(&db.pool, 900, publisher, OffsetDateTime::now_utc())
+        .await
+        .expect("fechando");
+
+    let rows = db::repo::presence::list_by_channel(&db.pool, 900)
+        .await
+        .expect("listando");
+    assert!(
+        rows[0].publishing_since.is_none(),
+        "sessao fechada nao pode continuar contando tempo"
+    );
+}
+
+#[tokio::test]
+async fn two_publishers_in_one_room_each_keep_their_own_start() {
+    // RF-31: a sala passa a comportar varias telas, e cada uma tem o seu tempo.
+    let db = TestDb::migrated().await;
+    let a = seed_user(&db.pool, 1, "a").await;
+    let b = seed_user(&db.pool, 2, "b").await;
+    for user in [a, b] {
+        db::repo::presence::join(&db.pool, user, 900)
+            .await
+            .expect("entrando");
+        db::repo::presence::set_publishing(&db.pool, user, true)
+            .await
+            .expect("publicando");
+    }
+    let first = db::repo::sessions::open(&db.pool, Uuid::now_v7(), 900, a)
+        .await
+        .expect("sessao de a");
+    let second = db::repo::sessions::open(&db.pool, Uuid::now_v7(), 900, b)
+        .await
+        .expect("sessao de b");
+    assert_ne!(first.id, second.id, "duas telas, duas sessoes");
+
+    let rows = db::repo::presence::list_by_channel(&db.pool, 900)
+        .await
+        .expect("listando");
+    assert_eq!(rows.len(), 2);
+    assert!(
+        rows.iter()
+            .all(|r| r.publishing && r.publishing_since.is_some()),
+        "cada publicador precisa do proprio inicio"
+    );
+}

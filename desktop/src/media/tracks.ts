@@ -12,7 +12,7 @@ import type {
   TrackPublishOptions,
   VideoSenderStats,
 } from 'livekit-client';
-import type { PublisherStats, QualityChoice } from '../store/media';
+import type { PublishPreset, PublisherStats, QualityChoice } from '../store/media';
 
 /**
  * The only module in the app that acquires media (ADR-0005). `contentHint`,
@@ -20,35 +20,84 @@ import type { PublisherStats, QualityChoice } from '../store/media';
  * here, because that is the part of the product most likely to change.
  */
 
-/** ~6 Mbps is the figure the egress budget in RNF-05 is written against. */
-export const LAYER_1080P60 = new VideoPreset({
-  width: 1920,
-  height: 1080,
-  maxBitrate: 6_000_000,
-  maxFramerate: 60,
-  priority: 'high',
-});
+/**
+ * The ladder each publisher preset produces (RF-36).
+ *
+ * The publisher picks resolution and frame rate because the publisher pays for
+ * the encode; the viewer picks among the layers that result (ADR-0023). Two
+ * layers, not four: a four-way ladder doubles the encode cost of one person to
+ * give options to everyone else, and the encode already costs ~1 core at
+ * 1080p60 (RESULTS.md, RNF-04).
+ */
+interface Ladder {
+  high: VideoPreset;
+  low: VideoPreset;
+}
 
-export const LAYER_720P30 = new VideoPreset({
-  width: 1280,
-  height: 720,
-  maxBitrate: 1_800_000,
-  maxFramerate: 30,
-});
-
-export const SCREEN_PUBLISH_OPTIONS: TrackPublishOptions = {
-  source: Track.Source.ScreenShare,
-  simulcast: true,
-  videoCodec: 'vp9',
-  backupCodec: { codec: 'h264' },
-  // Motion over sharpness: this is gameplay, not a spreadsheet. It is also why we
-  // override the SDK default of 'maintain-resolution' for screen share.
-  degradationPreference: 'maintain-framerate',
-  screenShareEncoding: LAYER_1080P60.encoding,
-  // Only the H.264 backup uses these: VP9 carries its layers as SVC instead.
-  screenShareSimulcastLayers: [LAYER_720P30],
-  stream: 'screen',
+/** ~6 Mbps at 1080p60 is the figure the egress budget in RNF-05 is written against. */
+const LADDERS: Record<PublishPreset, Ladder> = {
+  '1080p60': {
+    high: new VideoPreset({
+      width: 1920,
+      height: 1080,
+      maxBitrate: 6_000_000,
+      maxFramerate: 60,
+      priority: 'high',
+    }),
+    low: new VideoPreset({ width: 960, height: 540, maxBitrate: 1_200_000, maxFramerate: 30 }),
+  },
+  '1080p30': {
+    high: new VideoPreset({
+      width: 1920,
+      height: 1080,
+      maxBitrate: 4_000_000,
+      maxFramerate: 30,
+      priority: 'high',
+    }),
+    low: new VideoPreset({ width: 960, height: 540, maxBitrate: 1_000_000, maxFramerate: 30 }),
+  },
+  '720p60': {
+    high: new VideoPreset({
+      width: 1280,
+      height: 720,
+      maxBitrate: 3_000_000,
+      maxFramerate: 60,
+      priority: 'high',
+    }),
+    low: new VideoPreset({ width: 640, height: 360, maxBitrate: 700_000, maxFramerate: 30 }),
+  },
+  '720p30': {
+    high: new VideoPreset({
+      width: 1280,
+      height: 720,
+      maxBitrate: 1_800_000,
+      maxFramerate: 30,
+      priority: 'high',
+    }),
+    low: new VideoPreset({ width: 640, height: 360, maxBitrate: 500_000, maxFramerate: 30 }),
+  },
 };
+
+export function ladderFor(preset: PublishPreset): Ladder {
+  return LADDERS[preset];
+}
+
+export function screenPublishOptions(preset: PublishPreset): TrackPublishOptions {
+  const ladder = LADDERS[preset];
+  return {
+    source: Track.Source.ScreenShare,
+    simulcast: true,
+    videoCodec: 'vp9',
+    backupCodec: { codec: 'h264' },
+    // Motion over sharpness: this is gameplay, not a spreadsheet. It is also why
+    // we override the SDK default of 'maintain-resolution' for screen share.
+    degradationPreference: 'maintain-framerate',
+    screenShareEncoding: ladder.high.encoding,
+    // Only the H.264 backup uses these: VP9 carries its layers as SVC instead.
+    screenShareSimulcastLayers: [ladder.low],
+    stream: 'screen',
+  };
+}
 
 export const SCREEN_AUDIO_PUBLISH_OPTIONS: TrackPublishOptions = {
   source: Track.Source.ScreenShareAudio,
@@ -63,11 +112,14 @@ export type CaptureSurface = 'monitor' | 'window';
 export interface CaptureRequest {
   surface: CaptureSurface;
   audio: boolean;
+  preset: PublishPreset;
 }
 
 export interface ScreenCapture {
   video: LocalVideoTrack;
   audio: LocalAudioTrack | null;
+  /** Remembered so republishing with a new preset can reuse the same choice. */
+  surface: CaptureSurface;
 }
 
 /** RF-14: window capture is video only until the per-process audio path exists. */
@@ -77,12 +129,13 @@ export function audioAvailableFor(surface: CaptureSurface): boolean {
 
 export async function captureScreen(request: CaptureRequest): Promise<ScreenCapture> {
   const wantsAudio = request.audio && audioAvailableFor(request.surface);
+  const { high } = LADDERS[request.preset];
   const tracks = await createLocalScreenTracks({
     video: { displaySurface: request.surface },
     audio: wantsAudio
       ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
       : false,
-    resolution: { width: 1920, height: 1080, frameRate: 60 },
+    resolution: { width: high.width, height: high.height, frameRate: high.encoding.maxFramerate },
     contentHint: 'motion',
     systemAudio: wantsAudio ? 'include' : 'exclude',
     selfBrowserSurface: 'exclude',
@@ -104,14 +157,15 @@ export async function captureScreen(request: CaptureRequest): Promise<ScreenCapt
     }
     throw new Error('screen capture returned no video track');
   }
-  return { video, audio };
+  return { video, audio, surface: request.surface };
 }
 
 export async function publishScreen(
   local: LocalParticipant,
   capture: ScreenCapture,
+  preset: PublishPreset,
 ): Promise<void> {
-  await local.publishTrack(capture.video, SCREEN_PUBLISH_OPTIONS);
+  await local.publishTrack(capture.video, screenPublishOptions(preset));
   if (capture.audio !== null) {
     await local.publishTrack(capture.audio, SCREEN_AUDIO_PUBLISH_OPTIONS);
   }
@@ -133,20 +187,33 @@ export function stopCapture(capture: ScreenCapture): void {
 }
 
 /**
- * RF-19. `auto` leaves adaptiveStream in charge; the pinned choices cap the layer
- * the SFU is allowed to send. adaptiveStream can still go below a pinned layer
- * when the window is small — RF-16 outranks RF-19 on purpose.
+ * RF-19, and the viewer half of ADR-0023.
+ *
+ * `auto` leaves `adaptiveStream` in charge, which is what keeps a grid of N
+ * screens from costing N full streams (RF-32): a video rendered small gets the
+ * small layer on its own. `high` overrides that heuristic by asking for the
+ * published dimensions, which is the only way to get the top layer into a
+ * thumbnail-sized element. `low` caps at the bottom layer.
+ *
+ * There is no frame-rate choice here on purpose: frame rate belongs to the
+ * publisher, and a selector offering one would be offering something nobody is
+ * sending.
  */
 export function applyQuality(publication: RemoteTrackPublication, choice: QualityChoice): void {
   switch (choice) {
     case 'auto':
       publication.setVideoQuality(VideoQuality.HIGH);
       return;
-    case 'high':
-      publication.setVideoDimensions({ width: LAYER_1080P60.width, height: LAYER_1080P60.height });
+    case 'high': {
+      const published = publication.dimensions;
+      if (published !== undefined) {
+        publication.setVideoDimensions(published);
+      }
+      publication.setVideoQuality(VideoQuality.HIGH);
       return;
+    }
     case 'low':
-      publication.setVideoQuality(VideoQuality.MEDIUM);
+      publication.setVideoQuality(VideoQuality.LOW);
       return;
   }
 }

@@ -12,9 +12,9 @@ use db::repo::{presence, sessions, users};
 use protocol::gateway::DispatchEvent;
 use protocol::room::{
     RoomParticipantAdd, RoomParticipantRemove, RoomState, RoomTokenRequest, RoomTokenResponse,
-    ShareEvent,
+    ShareStart, ShareStop,
 };
-use protocol::scalars::Snowflake;
+use protocol::scalars::{Snowflake, Timestamp};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -184,7 +184,10 @@ async fn on_join(state: &AppState, channel: i64, user_id: Uuid) -> Result<(), Ap
                 discord_channel_id: Snowflake::new(channel),
                 participant: protocol::room::RoomParticipant {
                     user: user.to_summary(),
+                    // Quem acaba de entrar na sala ainda nao publica; o
+                    // SHARE_START vem depois, com o inicio real.
                     publishing: false,
+                    publishing_since: None,
                 },
             })),
         )
@@ -225,7 +228,9 @@ async fn on_share_start(state: &AppState, channel: i64, user_id: Uuid) -> Result
         // Webhook chegou depois de o usuario ja ter saido. Nao e erro.
         return Ok(());
     }
-    sessions::open(&state.pool, Uuid::now_v7(), channel, user_id).await?;
+    // `open` devolve a sessao ja existente quando a segunda track chega, entao
+    // `started_at` e o inicio real da transmissao e nao o da track de audio.
+    let session = sessions::open(&state.pool, Uuid::now_v7(), channel, user_id).await?;
     record_peak_viewers(state, channel).await?;
 
     state
@@ -233,9 +238,10 @@ async fn on_share_start(state: &AppState, channel: i64, user_id: Uuid) -> Result
         .publish_to_room(
             &state.pool,
             channel,
-            DispatchEvent::ShareStart(ShareEvent {
+            DispatchEvent::ShareStart(ShareStart {
                 discord_channel_id: Snowflake::new(channel),
                 user_id,
+                started_at: Timestamp::new(session.started_at),
             }),
         )
         .await;
@@ -252,7 +258,7 @@ async fn on_share_stop(state: &AppState, channel: i64, user_id: Uuid) -> Result<
         .publish_to_room(
             &state.pool,
             channel,
-            DispatchEvent::ShareStop(ShareEvent {
+            DispatchEvent::ShareStop(ShareStop {
                 discord_channel_id: Snowflake::new(channel),
                 user_id,
             }),

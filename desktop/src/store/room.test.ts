@@ -91,7 +91,7 @@ describe('applyRoomEvent', () => {
     const room = applyRoomEvent(EMPTY_ROOM, JOIN);
     const start: DispatchEvent = {
       t: 'SHARE_START',
-      d: { discord_channel_id: '100', user_id: 'ana' },
+      d: { discord_channel_id: '100', user_id: 'ana', started_at: '2026-09-14T12:00:00Z' },
     };
     const started = applyRoomEvent(room, start);
     expect(started.publisherIds).toEqual(['bia', 'ana']);
@@ -114,7 +114,10 @@ describe('applyRoomEvent', () => {
         d: { discord_channel_id: '999', participant: participant('x') },
       },
       { t: 'ROOM_PARTICIPANT_REMOVE', d: { discord_channel_id: '999', user_id: 'ana' } },
-      { t: 'SHARE_START', d: { discord_channel_id: '999', user_id: 'ana' } },
+      {
+        t: 'SHARE_START',
+        d: { discord_channel_id: '999', user_id: 'ana', started_at: '2026-09-14T12:00:00Z' },
+      },
       { t: 'ROOM_LEAVE', d: { discord_channel_id: '999', reason: 'left' } },
     ];
     for (const event of events) {
@@ -126,7 +129,7 @@ describe('applyRoomEvent', () => {
     const room = applyRoomEvent(EMPTY_ROOM, JOIN);
     const event: DispatchEvent = {
       t: 'SHARE_START',
-      d: { discord_channel_id: '100', user_id: 'fantasma' },
+      d: { discord_channel_id: '100', user_id: 'fantasma', started_at: '2026-09-14T12:00:00Z' },
     };
     expect(applyRoomEvent(room, event)).toBe(room);
   });

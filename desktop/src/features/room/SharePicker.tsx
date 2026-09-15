@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { CaptureRequest, CaptureSurface } from '../../media/tracks';
 import { audioAvailableFor } from '../../media/tracks';
+import { type PublishPreset, PUBLISH_PRESETS, useMediaStore } from '../../store/media';
 import { Button } from '../../ui/Button';
 
 interface SharePickerProps {
@@ -11,6 +12,7 @@ interface SharePickerProps {
 export function SharePicker({ onCancel, onConfirm }: SharePickerProps) {
   const [surface, setSurface] = useState<CaptureSurface>('monitor');
   const [audio, setAudio] = useState(false);
+  const [preset, setPreset] = useState<PublishPreset>(useMediaStore.getState().publishPreset);
   const audioPossible = audioAvailableFor(surface);
 
   return (
@@ -37,6 +39,32 @@ export function SharePicker({ onCancel, onConfirm }: SharePickerProps) {
             detail="Sem áudio: capturar o som de uma janela só ainda não existe."
           />
         </div>
+
+        <fieldset className="mt-group">
+          <legend className="text-text">Qualidade que você vai enviar</legend>
+          <p className="text-xs text-text-faint">
+            Resolução e taxa de quadros são suas: é a sua máquina que codifica. Quem assiste escolhe
+            entre as camadas que chegam.
+          </p>
+          <div className="mt-row flex flex-wrap gap-2">
+            {PUBLISH_PRESETS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => {
+                  setPreset(option);
+                }}
+                className={
+                  option === preset
+                    ? 'rounded border border-accent px-2 py-1 text-xs text-text'
+                    : 'rounded border border-line px-2 py-1 text-xs text-text-muted hover:text-text'
+                }
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </fieldset>
 
         <label
           className={`mt-group flex items-start gap-2 ${audioPossible ? 'text-text' : 'text-text-faint'}`}
@@ -67,7 +95,7 @@ export function SharePicker({ onCancel, onConfirm }: SharePickerProps) {
           <Button
             variant="primary"
             onClick={() => {
-              onConfirm({ surface, audio: audio && audioPossible });
+              onConfirm({ surface, audio: audio && audioPossible, preset });
             }}
           >
             Escolher tela
