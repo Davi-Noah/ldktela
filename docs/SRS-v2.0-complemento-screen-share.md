@@ -168,7 +168,7 @@ descrevem por que ele não é de outro jeito.
 | ID | Requisito | Descrição | Prioridade |
 |---|---|---|---|
 | RF-13 **[M]** | Tela inteira com áudio | Captura de tela inteira com áudio. Resolução e taxa de quadros são escolhidas por **quem publica** (RF-36), porque é ele quem paga o encode. `contentHint: 'motion'`, `degradationPreference: 'maintain-framerate'`; duas camadas de simulcast derivadas da escolha; VP9 preferencial, H.264 como alternativa. | Must |
-| RF-14 | Janela específica | Captura de janela individual, **vídeo apenas** enquanto RF-29 não existir. A interface declara a limitação no momento da escolha, sem eufemismo. | Must |
+| RF-14 | Janela específica | Captura de janela individual, pelo `DesktopCapturer` do core Rust. O áudio não é da janela e sim do sistema menos o Discord (RF-29), e a interface diz isso no momento da escolha, sem eufemismo. | Must |
 | RF-15 | Teto de publicadores | Máximo configurável de publicadores simultâneos por sala, padrão 2, por controle de admissão no momento de emitir o token. | Must |
 | RF-16 | Adaptação de qualidade | `adaptiveStream` e `dynacast` obrigatoriamente habilitados. Espectador que não está vendo não recebe camada alguma. | Must |
 | RF-17 | Encerramento | Parar de compartilhar despublica as tracks e propaga o estado. Fechar o aplicativo ou perder a conexão produz o mesmo efeito, por `departure_timeout` do SFU. | Must |
@@ -203,7 +203,7 @@ descrevem por que ele não é de outro jeito.
 
 | ID | Requisito | Descrição | Prioridade |
 |---|---|---|---|
-| RF-29 **[M]** | Áudio do sistema sem o Discord | No Windows, captura do áudio do sistema **excluindo a árvore de processos do Discord**, via WASAPI process loopback em modo `EXCLUDE_TARGET_PROCESS_TREE`, no core Rust, transportada por IPC e injetada como track no WebView. O usuário não escolhe processo: sai tudo menos o Discord. Ver [ADR-0025](adr/0025-audio-exclui-o-discord.md). | Must |
+| RF-29 **[M]** | Áudio do sistema sem o Discord | No Windows, captura do áudio do sistema **excluindo a árvore de processos do Discord**, via WASAPI process loopback em modo `EXCLUDE_TARGET_PROCESS_TREE`, no core Rust, entregue direto ao `NativeAudioSource` do publicador — **sem IPC e sem `AudioContext`**, porque captura e codificação passaram a viver no mesmo processo ([ADR-0026](adr/0026-publicacao-no-rust-nativo.md)). O usuário não escolhe processo: sai tudo menos o Discord. Ver [ADR-0025](adr/0025-audio-exclui-o-discord.md). | Must |
 | RF-30 | Fallback declarado | Onde o process loopback não estiver disponível, cai para áudio do sistema **com aviso explícito** de que a voz dos outros participantes será retransmitida. Compartilhar sem áudio é sempre uma opção de um clique. | Must |
 
 
@@ -220,7 +220,7 @@ ser N publicadores para N espectadores.
 | RF-34 **[N]** | Dono e tempo de transmissão | Cada tela exibe de quem é e há quanto tempo está no ar. O início vem do servidor (`share_sessions.started_at`), não do momento em que o espectador entrou: quem chega depois precisa ver o tempo real da transmissão. | Must |
 | RF-35 **[N]** | Volume por tela | Cada tela tem controle de volume independente, do silêncio ao máximo, e o estado sobrevive à troca de foco. | Must |
 | RF-36 **[N]** | Resolução e fps no publicador | Quem compartilha escolhe entre 1080p60, 1080p30, 720p60 e 720p30. A escolha define a camada alta; a baixa é derivada. Trocar durante a transmissão republica a track, e a interface diz isso em vez de parecer travada. | Must |
-| RF-37 **[N]** | Interface própria de compartilhamento | Os controles de iniciar, parar e configurar são nossos. **O seletor de fonte continua sendo o do Chromium**, porque o WebView2 não permite fornecer a fonte — ver [ADR-0021](adr/0021-seletor-de-tela-e-o-do-chromium.md), que também registra quando isso será reavaliado. | Should |
+| RF-37 **[N]** | Interface própria de compartilhamento | Todo o fluxo é nosso, **seletor de fonte incluído**: telas e janelas são enumeradas pelo `DesktopCapturer` do core Rust e apresentadas na nossa interface. Como `getDisplayMedia` deixa de ser chamado, a barra "você está compartilhando" do Chromium não aparece. Ver [ADR-0026](adr/0026-publicacao-no-rust-nativo.md). | Should |
 
 ### 3.10 Módulo 10 — Marcação de quem transmite
 
@@ -499,6 +499,8 @@ Publicador escolhe tela ou janela
 | 1080p60 não se sustenta pelo caminho relayado | Média | Alto | Medido em S0; a resposta é baixar o alvo com número na mão, e registrar em ADR |
 | Bot do Discord fora do ar ou com intent revogado | Média | Alto | RF-09: modo degradado, falha fechada, sessões em curso preservadas |
 | Eco de áudio: a voz do Discord volta pela tela compartilhada | **Alta** | Alto | RF-29/RF-30; até S9, compartilhar sem áudio ou aceitar conscientemente |
+| Eco de áudio: o som da tela alheia volta pela nossa captura | Média | Médio | A exclusão do WASAPI aceita um processo só, gasto no Discord. Mitigado silenciando as telas alheias enquanto se transmite áudio ([ADR-0028](adr/0028-silenciar-telas-alheias-ao-transmitir-audio.md)) |
+| `webrtc-sys` quebra o build do cliente numa atualização de toolchain | Média | Alto | Versão fixada junto com o par do [ADR-0019](adr/0019-versoes-do-livekit-sao-um-par.md); `LK_CUSTOM_WEBRTC` permite apontar para um libwebrtc próprio se necessário |
 | Egress estoura o teto | Média | Alto | RNF-05 medido pelo backend, alerta em 70%, teto de publicadores |
 | CPU da VM satura entre SFU, TURN e encode de relay | Média | Médio | Medido em S0; limites por `docker compose`; RNF-13 para detectar |
 | Instância recuperada por ociosidade do provedor | Média | Alto | Conta convertida para Pay As You Go |

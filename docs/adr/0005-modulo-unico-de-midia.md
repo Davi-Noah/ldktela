@@ -1,6 +1,7 @@
 # ADR-0005 — Aquisição de mídia num único módulo
 
-- **Status:** Aceito
+- **Status:** Aceito; desde o [ADR-0026](0026-publicacao-no-rust-nativo.md) o módulo
+  único de aquisição é o do core Rust, e não mais `desktop/src/media/tracks.ts`
 - **Data:** 2026-08-29 (originado no SRS v1.2 §2.1)
 
 ## Contexto

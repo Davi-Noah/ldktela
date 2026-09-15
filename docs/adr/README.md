@@ -65,15 +65,18 @@ certas.
 | [0011](0011-sala-e-o-canal-de-voz.md) | A sala é o canal de voz do Discord | Aceito |
 | [0012](0012-midia-unidirecional.md) | Mídia unidirecional: sem microfone, câmera ou texto | Aceito |
 | [0013](0013-turn-tls-443-primario.md) | TURN/TLS em 443 é caminho primário, não fallback | **Rebaixado pelo 0020** |
-| [0014](0014-audio-por-aplicativo.md) | Áudio por aplicativo via WASAPI, transportado por IPC | Aceito, refinado pelo 0025 |
+| [0014](0014-audio-por-aplicativo.md) | Áudio por aplicativo via WASAPI, transportado por IPC | Aceito, refinado pelo 0025; o IPC caiu no 0026 |
 | [0015](0015-postgres-com-schema-reduzido.md) | Postgres mantido apesar do schema reduzido | Aceito |
 | [0016](0016-poda-por-reescrita-de-migrations.md) | Poda do escopo por reescrita das migrations | Aceito |
 | [0017](0017-nao-usar-discord-activity.md) | O produto não é uma Discord Activity | Aceito |
 | [0018](0018-construir-antes-de-medir.md) | Construir S1 e S3–S6 antes de medir S0 | Aceito, dívida quitada em parte |
 | [0019](0019-versoes-do-livekit-sao-um-par.md) | Cliente e servidor do LiveKit são um par fixado | Aceito |
 | [0020](0020-o-bloqueio-e-do-discord-nao-da-rede.md) | O bloqueio é do Discord, não da rede | Aceito |
-| [0021](0021-seletor-de-tela-e-o-do-chromium.md) | O seletor de tela é o do Chromium, até depois do S9 | Aceito |
+| [0021](0021-seletor-de-tela-e-o-do-chromium.md) | O seletor de tela é o do Chromium, até depois do S9 | Substituído pelo 0026 |
 | [0022](0022-destacar-tela-usa-document-pip.md) | Destacar uma tela usa Document Picture-in-Picture | Aceito |
 | [0023](0023-quem-publica-escolhe-resolucao-e-fps.md) | Quem publica escolhe resolução e fps | Aceito |
 | [0024](0024-tag-live-no-apelido.md) | A tag `[LIVE]` vai no apelido, com guardas | Aceito |
 | [0025](0025-audio-exclui-o-discord.md) | O áudio do sistema exclui a árvore do Discord | Aceito |
+| [0026](0026-publicacao-no-rust-nativo.md) | A publicação vai para o core Rust; o WebView só assiste | Aceito |
+| [0027](0027-publicador-e-um-segundo-participante.md) | Quem publica entra na sala como um segundo participante | Aceito |
+| [0028](0028-silenciar-telas-alheias-ao-transmitir-audio.md) | Quem transmite áudio não ouve o áudio das outras telas | Aceito |

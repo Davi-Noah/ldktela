@@ -1,6 +1,8 @@
 # ADR-0001 — Mídia no LiveKit JS SDK dentro do WebView2
 
-- **Status:** Aceito, refinado pelo [ADR-0014](0014-audio-por-aplicativo.md)
+- **Status:** Aceito **apenas para a visualização** — a publicação saiu do WebView no
+  [ADR-0026](0026-publicacao-no-rust-nativo.md). Também refinado pelo
+  [ADR-0014](0014-audio-por-aplicativo.md)
 - **Data:** 2026-08-29 (originado no SRS v1.2 §2.1)
 
 ## Contexto

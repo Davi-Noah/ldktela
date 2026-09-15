@@ -1,6 +1,10 @@
 # ADR-0021 — O seletor de tela é o do Chromium, e continua sendo até depois do S9
 
-- **Status:** Aceito
+- **Status:** Substituído pelo [ADR-0026](0026-publicacao-no-rust-nativo.md)
+
+> A migração que este ADR adiou foi executada. O motivo não foi só a mudança de
+> prioridade: a estimativa aqui contava com escrever a captura de tela à mão, e o
+> `webrtc-sys` já a oferece pronta. O texto abaixo fica como estava.
 - **Data:** 2026-09-14
 
 ## Contexto

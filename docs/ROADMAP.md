@@ -171,14 +171,17 @@ A maior fatia restante. Escopo detalhado em RF-31 a RF-37 do SRS.
 - **Volume por tela** (RF-35).
 - **Resolução e fps no publicador** (RF-36); no espectador, camada
   ([ADR-0023](adr/0023-quem-publica-escolhe-resolucao-e-fps.md)).
-- **Interface própria de compartilhar** (RF-37). O **seletor de fonte continua
-  sendo o do Chromium**: o WebView2 não permite fornecer a fonte, e isso não é
-  questão de esforço ([ADR-0021](adr/0021-seletor-de-tela-e-o-do-chromium.md)).
+- **Interface própria de compartilhar** (RF-37), **seletor de fonte incluído**.
+  Exigiu levar a publicação para o core Rust
+  ([ADR-0026](adr/0026-publicacao-no-rust-nativo.md)), o que substitui o
+  [ADR-0021](adr/0021-seletor-de-tela-e-o-do-chromium.md). O WebView continua
+  assistindo; só deixou de publicar.
 - Bandeja, notificação nativa, atualização automática por `.msi`.
 
 **Aceite:** duas telas publicadas e vistas ao mesmo tempo por dois espectadores;
 uma delas destacada em outro monitor; volume independente por tela; o tempo no ar
-bate com o do servidor para quem entra depois; a grade não consome camada alta.
+bate com o do servidor para quem entra depois; a grade não consome camada alta;
+o seletor é o nosso e a barra do Chromium não aparece em momento algum.
 
 ## S8 — Presença dentro do Discord
 
@@ -202,17 +205,27 @@ novo deixa o apelido limpo.
 
 Captura WASAPI no core Rust em modo
 `PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE`, apontando para a árvore de
-processos do Discord: sai todo o áudio do sistema **menos** o Discord. PCM por
-IPC, injeção como track no WebView
+processos do Discord: sai todo o áudio do sistema **menos** o Discord
 ([ADR-0025](adr/0025-audio-exclui-o-discord.md)). Zona de revisão humana.
+
+Com a publicação já no core ([ADR-0026](adr/0026-publicacao-no-rust-nativo.md)), o
+PCM **não atravessa IPC nem `AudioContext`**: vai direto ao `NativeAudioSource` do
+publicador. A deriva de relógio que o [ADR-0014](adr/0014-audio-por-aplicativo.md)
+apontava como a maior incerteza do roadmap deixou de existir — captura e
+codificação estão no mesmo processo e no mesmo relógio.
+
+A exclusão aceita **um** processo, e ele é gasto no Discord; por isso quem
+transmite áudio silencia as telas alheias enquanto transmite
+([ADR-0028](adr/0028-silenciar-telas-alheias-ao-transmitir-audio.md)).
 
 O compartilhamento com áudio já funciona hoje; o que falta é a exclusão. Excluir
 só a voz dos participantes, mantendo os outros sons do Discord, **não é
 possível** — o Discord mistura tudo num processo só.
 
 **Aceite:** compartilhar um jogo com o Discord aberto e em uso não retransmite a
-voz dos outros participantes; deriva de relógio não acumula desvio audível em
-30 min; sem Discord rodando, a captura é do sistema inteiro e nada quebra.
+voz dos outros participantes; o áudio não dessincroniza do vídeo em 30 min; sem
+Discord rodando, a captura é do sistema inteiro e nada quebra; onde o process
+loopback não existir, cai para o sistema inteiro com aviso (RF-30).
 
 ---
 

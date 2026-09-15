@@ -5,6 +5,9 @@
 - **Refina:** [ADR-0001](0001-midia-no-webview.md)
 - **Refinado por:** [ADR-0025](0025-audio-exclui-o-discord.md) — o modo correto é
   *excluir* a árvore do Discord, não *incluir* o aplicativo compartilhado
+- **Superado em parte por:** [ADR-0026](0026-publicacao-no-rust-nativo.md) — com a
+  publicação no core Rust, o PCM não atravessa IPC nenhum, e a deriva de relógio que
+  este ADR aponta como a maior incerteza do roadmap deixa de existir
 
 ## Contexto
 

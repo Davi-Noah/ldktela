@@ -3,6 +3,8 @@
 - **Status:** Aceito
 - **Data:** 2026-09-14
 - **Refina:** [ADR-0014](0014-audio-por-aplicativo.md)
+- **Complementado por:** [ADR-0028](0028-silenciar-telas-alheias-ao-transmitir-audio.md)
+  — a exclusão aceita um processo só, e o nosso próprio áudio fica de fora dela
 
 ## Contexto
 
