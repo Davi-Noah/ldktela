@@ -10,7 +10,15 @@ mod audio;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{Manager, WindowEvent};
+use tauri::{Emitter, Manager, WindowEvent};
+
+/// Pedido de troca de conta, vindo da bandeja.
+///
+/// O aplicativo nao tem como saber qual conta do Discord esta aberta na maquina
+/// — nao existe API para isso — entao trocar de conta e um ato explicito. Quem
+/// faz o trabalho e o TypeScript, que ja sabe revogar a sessao no servidor antes
+/// de apagar o token do cofre.
+const SIGN_OUT_EVENT: &str = "session://sign-out";
 
 /// Entry point shared by `main.rs` and, later, by mobile targets.
 pub fn run() -> tauri::Result<()> {
@@ -72,8 +80,9 @@ fn enable_linux_webrtc(app: &tauri::AppHandle) {
 
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Abrir", true, None::<&str>)?;
+    let switch = MenuItem::with_id(app, "switch", "Trocar de conta", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let menu = Menu::with_items(app, &[&show, &switch, &quit])?;
 
     TrayIconBuilder::new()
         .icon(
@@ -86,6 +95,12 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => reveal(app),
+            "switch" => {
+                // Abrir junto: a tela de pareamento nao serve para nada na
+                // bandeja, e sem isso o clique nao parece ter feito nada.
+                reveal(app);
+                let _ = app.emit(SIGN_OUT_EVENT, ());
+            }
             "quit" => app.exit(0),
             _ => {}
         })

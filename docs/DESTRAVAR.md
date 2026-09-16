@@ -214,6 +214,8 @@ just app           # abre o aplicativo Tauri
 | **Compartilha, o bitrate oscila, e ninguém vê. Tudo responde 200** | Versões do LiveKit fora do par ([ADR-0019](adr/0019-versoes-do-livekit-sao-um-par.md)). Confirme com `docker logs ldkcord-livekit \| grep "unsupported datachannel"`: se aparecer, o cliente fala um protocolo que o servidor não entende, a negociação de **publicação** expira em 15 s e o cliente reconecta em laço. Conectar e assinar continuam funcionando, e é por isso que o log fica todo verde |
 | Compartilha, mas ninguém vê | Webhook do LiveKit não chega ao backend. Em Linux confira `extra_hosts` no `docker/compose.dev.yml` |
 | Servidor recusa subir | Falta variável no `.env`. A mensagem nomeia qual |
+| **O app está pareado na conta errada** | Bandeja → **Trocar de conta**. Isso revoga a sessão no servidor, limpa o cofre e volta ao pareamento. O aplicativo não tem como descobrir sozinho qual conta do Discord está aberta na máquina |
+| **Dois computadores com o mesmo pareamento** | Só um funciona: o LiveKit expulsa a identidade repetida, e antes disso os dois trocavam a sala em laço. Hoje o segundo para e avisa. Cada máquina precisa do seu próprio `/tela` |
 | **Build do app: `Failed to move extracted WebRTC into place — Acesso negado`** | Dois cargos no mesmo `target/`, quase sempre o rust-analyzer do VS Code. Feche-o, apague `desktop/src-tauri/target/debug/build/scratch-*` e rode de novo |
 | **Build do app: `os error 112` no meio de um link** | Disco cheio. O libwebrtc em debug ocupa vários GB |
 | **Build do app: `C1083` citando cabeçalho que existe** | `MAX_PATH`. Repositório fundo demais; mova para perto da raiz |

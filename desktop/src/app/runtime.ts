@@ -1,6 +1,7 @@
 import { ApiClient, ApiError, NetworkError } from '../api/client';
 import type { AuthResponse } from '../api/types/AuthResponse';
 import { API_BASE_URL, CLIENT_INFO, GATEWAY_URL } from '../config';
+import { listen } from '@tauri-apps/api/event';
 import { GatewayClient } from '../gateway/client';
 import { log } from '../log';
 import { MediaSession } from '../media/session';
@@ -59,6 +60,15 @@ export async function start(): Promise<void> {
   started = true;
 
   log.info('app: iniciando', { api: API_BASE_URL, gateway: GATEWAY_URL });
+
+  // "Trocar de conta", na bandeja. O aplicativo não tem como descobrir qual
+  // conta do Discord está aberta na máquina, então a troca é explícita: sai da
+  // sessão atual — revogando o refresh token no servidor antes de apagá-lo do
+  // cofre — e volta para o pareamento, onde o próximo `/tela` define quem entra.
+  void listen('session://sign-out', () => {
+    log.info('sessão: troca de conta pedida pela bandeja');
+    void signOut();
+  });
 
   useRoomStore.subscribe((state, previous) => {
     if (state.channelId !== previous.channelId) {
