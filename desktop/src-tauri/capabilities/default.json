@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "O WebView so precisa ouvir eventos do core: o aviso de que um compartilhamento terminou sozinho (share://ended). Comandos proprios do aplicativo nao passam por aqui; comandos de plugin, incluindo os do nucleo, passam.",
+  "windows": ["main"],
+  "permissions": ["core:event:default"]
+}
