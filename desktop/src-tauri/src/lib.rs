@@ -24,6 +24,7 @@ pub fn run() -> tauri::Result<()> {
             share::share_sources,
             share::share_start,
             share::share_stop,
+            share::share_stats,
         ])
         .setup(|app| {
             build_tray(app.handle())?;

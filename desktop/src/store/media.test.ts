@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { useMediaStore, withoutTrack, withTrack } from './media';
+import {
+  ownerOf,
+  shouldSilenceOtherScreens,
+  useMediaStore,
+  withoutTrack,
+  withTrack,
+} from './media';
 
 function fresh() {
   useMediaStore.getState().reset();
@@ -92,5 +98,50 @@ describe('volume', () => {
     store.reset();
     store.setVolume('fantasma', 0.5);
     expect(useMediaStore.getState().screens.fantasma).toBeUndefined();
+  });
+});
+
+describe('a identidade de quem publica (ADR-0027)', () => {
+  it('resolve as duas conexões de uma pessoa para o mesmo dono', () => {
+    // Quem compartilha está na sala duas vezes; a grade é indexada pela pessoa,
+    // e é a pessoa que a lista de participantes do servidor conhece.
+    expect(ownerOf('0198c0de-0000-7000-8000-000000000001~pub')).toBe(
+      '0198c0de-0000-7000-8000-000000000001',
+    );
+    expect(ownerOf('0198c0de-0000-7000-8000-000000000001')).toBe(
+      '0198c0de-0000-7000-8000-000000000001',
+    );
+  });
+
+  it('não corta um sufixo que está no meio', () => {
+    expect(ownerOf('ana~pubxyz')).toBe('ana~pubxyz');
+  });
+});
+
+describe('silenciar as telas alheias ao transmitir áudio (ADR-0028)', () => {
+  it('silencia só enquanto transmitimos com áudio', () => {
+    // A exclusão do WASAPI aceita um processo só, e ele é gasto no Discord:
+    // o nosso próprio áudio fica dentro da nossa captura.
+    const store = useMediaStore.getState();
+    store.reset();
+    expect(shouldSilenceOtherScreens(useMediaStore.getState())).toBe(false);
+
+    store.setPublishing(true, false);
+    expect(shouldSilenceOtherScreens(useMediaStore.getState())).toBe(false);
+
+    store.setPublishing(true, true, 'excluding_discord');
+    expect(shouldSilenceOtherScreens(useMediaStore.getState())).toBe(true);
+
+    store.setPublishing(false, false);
+    expect(shouldSilenceOtherScreens(useMediaStore.getState())).toBe(false);
+  });
+
+  it('esquece o modo de áudio ao parar', () => {
+    const store = useMediaStore.getState();
+    store.reset();
+    store.setPublishing(true, true, 'whole_system');
+    expect(useMediaStore.getState().audioMode).toBe('whole_system');
+    store.setPublishing(false, false);
+    expect(useMediaStore.getState().audioMode).toBeNull();
   });
 });

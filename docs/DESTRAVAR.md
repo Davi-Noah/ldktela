@@ -144,6 +144,25 @@ Em outro terminal:
 just app           # abre o aplicativo Tauri
 ```
 
+> **A primeira vez que você roda `just app` depois desta mudança leva vários
+> minutos e não parece estar funcionando.** O core passou a publicar mídia pelo
+> SDK Rust do LiveKit ([ADR-0026](adr/0026-publicacao-no-rust-nativo.md)), que
+> baixa ~114 MB de libwebrtc pré-compilado e compila C++ antes de chegar ao nosso
+> código. Três coisas para saber antes:
+>
+> - **Deixe alguns GB livres.** Os artefatos de debug do libwebrtc são grandes, e
+>   quando o disco enche o erro que aparece é `os error 112` no meio de um link,
+>   sem dizer que é espaço.
+> - **Feche o VS Code, ou pelo menos não deixe o rust-analyzer analisando o
+>   projeto, durante esse primeiro build.** Ele roda `cargo check` no mesmo
+>   `target/`, e os dois disputam a extração do libwebrtc. O sintoma é
+>   `Failed to move extracted WebRTC into place — Acesso negado`. Se acontecer,
+>   apague `desktop/src-tauri/target/debug/build/scratch-*` e rode de novo.
+> - Se aparecer `C1083: cannot open include file` citando cabeçalhos que
+>   claramente existem, o caminho do projeto está fundo demais: os cabeçalhos do
+>   libwebrtc ficam a ~250 caracteres dentro de `target/`, e o `cl.exe` estoura o
+>   `MAX_PATH` de 260. Mova o repositório para mais perto da raiz do disco.
+
 ### O roteiro de aceite
 
 1. **Parear** — no Discord, num canal de texto do servidor, digite `/tela`. O bot
@@ -154,8 +173,23 @@ just app           # abre o aplicativo Tauri
    → Espere: o app troca sozinho para a tela da sala, com o nome do canal. Isto é
    o [ADR-0011](adr/0011-sala-e-o-canal-de-voz.md) funcionando; se você teve que
    escolher alguma coisa, é bug.
-3. **Compartilhar** — clique em compartilhar, escolha a tela inteira.
-   → Espere: o painel de estatísticas mostra bitrate e fps subindo.
+3. **Compartilhar** — clique em compartilhar.
+   → Espere: **o nosso seletor**, listando suas telas e janelas com os nomes
+   certos. Não pode aparecer a caixa do Chromium, nem a barra "você está
+   compartilhando sua tela" — se qualquer uma das duas surgir, o WebView ainda
+   está publicando e a migração do
+   [ADR-0026](adr/0026-publicacao-no-rust-nativo.md) não pegou.
+   → Espere: o painel de estatísticas mostra bitrate e fps subindo, e diz se o
+   encoder é `hardware` ou `software`.
+3b. **Áudio sem o Discord** — com o Discord aberto e alguém falando, compartilhe
+   marcando *Incluir o áudio do sistema*.
+   → Espere: o painel diz `Com áudio, sem o Discord`. Quem assiste ouve o jogo e
+   **não** ouve a própria voz de volta. Se disser `Com áudio do sistema inteiro`,
+   o core não achou o processo do Discord — é o fallback declarado do RF-30, não
+   um silêncio.
+3c. **Fechar a janela compartilhada** — compartilhe uma janela e feche-a.
+   → Espere: o compartilhamento termina sozinho e o botão volta a "Compartilhar
+   tela". Uma imagem congelada no lugar disso é bug.
 4. **Revogação ao vivo** — pelo Discord, tire seu próprio acesso ao canal de voz
    (um overwrite negando `Ver canal` para você, ou saia do servidor num usuário
    de teste).
@@ -180,6 +214,13 @@ just app           # abre o aplicativo Tauri
 | **Compartilha, o bitrate oscila, e ninguém vê. Tudo responde 200** | Versões do LiveKit fora do par ([ADR-0019](adr/0019-versoes-do-livekit-sao-um-par.md)). Confirme com `docker logs ldkcord-livekit \| grep "unsupported datachannel"`: se aparecer, o cliente fala um protocolo que o servidor não entende, a negociação de **publicação** expira em 15 s e o cliente reconecta em laço. Conectar e assinar continuam funcionando, e é por isso que o log fica todo verde |
 | Compartilha, mas ninguém vê | Webhook do LiveKit não chega ao backend. Em Linux confira `extra_hosts` no `docker/compose.dev.yml` |
 | Servidor recusa subir | Falta variável no `.env`. A mensagem nomeia qual |
+| **Build do app: `Failed to move extracted WebRTC into place — Acesso negado`** | Dois cargos no mesmo `target/`, quase sempre o rust-analyzer do VS Code. Feche-o, apague `desktop/src-tauri/target/debug/build/scratch-*` e rode de novo |
+| **Build do app: `os error 112` no meio de um link** | Disco cheio. O libwebrtc em debug ocupa vários GB |
+| **Build do app: `C1083` citando cabeçalho que existe** | `MAX_PATH`. Repositório fundo demais; mova para perto da raiz |
+| **Build do app: centenas de `LNK2038 RuntimeLibrary`** | O `crt-static` não foi aplicado. O cargo lê `.cargo/config.toml` pelo diretório **atual**: rode de dentro de `desktop/src-tauri`, nunca com `--manifest-path` de fora |
+| **Compartilha, mas a outra pessoa não aparece na lista de espectadores** | Conexão de publicação contada como pessoa. Ela usa a identidade `<uuid>~pub` ([ADR-0027](adr/0027-publicador-e-um-segundo-participante.md)) e deve ser ignorada em presença |
+| **O áudio sai com a voz do Discord junto** | O painel do publicador diz `Com áudio do sistema inteiro`: o core não achou o Discord rodando ao iniciar. Pare e recomece o compartilhamento com o Discord aberto |
+| **Compartilhando com áudio, não ouço a tela do outro** | É deliberado ([ADR-0028](adr/0028-silenciar-telas-alheias-ao-transmitir-audio.md)): o nosso próprio som entra na nossa captura e voltaria para a sala |
 
 ### Verificar a publicação ao trocar a versão do LiveKit
 

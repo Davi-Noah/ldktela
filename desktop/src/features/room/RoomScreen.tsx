@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { media } from '../../app/runtime';
 import { CHROME_IDLE_MS } from '../../config';
-import type { CaptureRequest } from '../../media/tracks';
-import { useMediaStore } from '../../store/media';
+import type { ShareChoice } from '../../media/session';
+import { type PublishPreset, useMediaStore } from '../../store/media';
 import { RoomBody } from './RoomBody';
 import { RoomChrome } from './RoomChrome';
 import { ScreenGrid } from './ScreenGrid';
@@ -79,10 +79,12 @@ export function RoomScreen() {
     setPicker(true);
   }, []);
 
-  const onConfirmShare = useCallback((request: CaptureRequest) => {
+  const onConfirmShare = useCallback((choice: ShareChoice, preset: PublishPreset) => {
     setPicker(false);
-    void media.startShare(request);
+    void media.startShare(choice, preset);
   }, []);
+
+  const loadSources = useCallback(() => media.listSources(), []);
 
   const onStop = useCallback(() => {
     void media.stopShare();
@@ -117,6 +119,7 @@ export function RoomScreen() {
 
       {picker && (
         <SharePicker
+          loadSources={loadSources}
           onCancel={() => {
             setPicker(false);
           }}

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { AudioMode } from '../media/native';
 
 export type MediaConnection = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed';
 
@@ -19,6 +20,9 @@ export interface PublisherStats {
   fps: number;
   width: number;
   height: number;
+  /** Whether libwebrtc picked a hardware encoder. Only observable since
+      publishing moved to the core (ADR-0026). */
+  hardwareEncoder: boolean;
 }
 
 /** One screen being received, keyed by the publisher's LiveKit identity. */
@@ -40,6 +44,13 @@ interface MediaState {
   /** True while the OS picker is open, so the button can say so. */
   starting: boolean;
   sharingAudio: boolean;
+  /**
+   * Which capture mode the core got when audio was requested (RF-30).
+   * `whole_system` means everyone's Discord voice is going out with the screen,
+   * and the interface has to say so rather than let the user find out from
+   * their friends.
+   */
+  audioMode: AudioMode | null;
   publishPreset: PublishPreset;
   /** Screens being received, by publisher identity (RF-31). */
   screens: Record<string, ScreenState>;
@@ -57,7 +68,7 @@ interface MediaState {
 
 interface MediaStore extends MediaState {
   setConnection: (connection: MediaConnection) => void;
-  setPublishing: (publishing: boolean, sharingAudio: boolean) => void;
+  setPublishing: (publishing: boolean, sharingAudio: boolean, audioMode?: AudioMode | null) => void;
   setStarting: (starting: boolean) => void;
   setPublishPreset: (preset: PublishPreset) => void;
   addScreen: (identity: string, kind: 'video' | 'audio') => void;
@@ -77,6 +88,7 @@ const INITIAL: MediaState = {
   publishing: false,
   starting: false,
   sharingAudio: false,
+  audioMode: null,
   publishPreset: '1080p60',
   screens: {},
   screenOrder: [],
@@ -163,11 +175,11 @@ export const useMediaStore = create<MediaStore>()((set) => ({
   setConnection: (connection) => {
     set({ connection });
   },
-  setPublishing: (publishing, sharingAudio) => {
+  setPublishing: (publishing, sharingAudio, audioMode = null) => {
     set(
       publishing
-        ? { publishing, sharingAudio, starting: false }
-        : { publishing, sharingAudio, starting: false, stats: null },
+        ? { publishing, sharingAudio, audioMode, starting: false }
+        : { publishing, sharingAudio, audioMode: null, starting: false, stats: null },
     );
   },
   setStarting: (starting) => {
@@ -220,3 +232,31 @@ export const useMediaStore = create<MediaStore>()((set) => ({
     set(INITIAL);
   },
 }));
+
+/**
+ * The suffix the server gives the publishing connection (ADR-0027).
+ *
+ * A person who shares is in the LiveKit room twice, and the screens store is
+ * keyed by the person: the room's participant list, the owner shown on a tile
+ * and the elapsed clock all come from the server under the plain user id.
+ */
+export const PUBLISHER_SUFFIX = '~pub';
+
+export function ownerOf(identity: string): string {
+  return identity.endsWith(PUBLISHER_SUFFIX)
+    ? identity.slice(0, -PUBLISHER_SUFFIX.length)
+    : identity;
+}
+
+/**
+ * ADR-0028: while transmitting audio, other people's screen audio is silenced
+ * locally.
+ *
+ * `EXCLUDE_TARGET_PROCESS_TREE` takes one process id and it is spent on Discord,
+ * so our own playback is inside our own capture. Without this, two people
+ * sharing audio at once would hear each other echoed, and everyone else would
+ * receive one of them twice.
+ */
+export function shouldSilenceOtherScreens(state: MediaState): boolean {
+  return state.publishing && state.sharingAudio;
+}

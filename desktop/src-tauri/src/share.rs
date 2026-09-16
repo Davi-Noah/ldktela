@@ -11,7 +11,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Mutex;
 
 use crate::capture::{self, Capture, ShareSource, SourceKind};
-use crate::publisher::{Preset, Publisher};
+use crate::publisher::{Preset, Publisher, PublisherStats};
 
 /// Emitted when a share ends without the user asking: the SFU dropped us, or the
 /// window being shared was closed. The interface has to notice, because the
@@ -144,6 +144,18 @@ pub async fn share_start(
         audio: audio.0,
     });
     Ok(StartedShare { audio: audio.1 })
+}
+
+/// Sampled by the interface on a timer. `None` when nothing is being shared.
+#[tauri::command]
+pub async fn share_stats(
+    state: State<'_, Sharing>,
+) -> Result<Option<PublisherStats>, ShareFailure> {
+    let active = state.active.lock().await;
+    match active.as_ref() {
+        Some(active) => Ok(Some(active.publisher.stats().await)),
+        None => Ok(None),
+    }
 }
 
 #[tauri::command]

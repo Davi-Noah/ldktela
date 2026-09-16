@@ -5,18 +5,27 @@ import type { Snowflake } from '../api/types/Snowflake';
 import { STATS_SAMPLE_INTERVAL_MS } from '../config';
 import { backoffDelayMs } from '../gateway/backoff';
 import { describeError, log } from '../log';
-import { type PublishPreset, type QualityChoice, useMediaStore } from '../store/media';
-import type { CaptureRequest, ScreenCapture, SenderSample } from './tracks';
 import {
-  applyQuality,
-  captureScreen,
-  publishScreen,
-  readSenderStats,
-  stopCapture,
-  unpublishScreen,
-} from './tracks';
+  ownerOf,
+  PUBLISHER_SUFFIX,
+  type PublishPreset,
+  type QualityChoice,
+  shouldSilenceOtherScreens,
+  useMediaStore,
+} from '../store/media';
+import { useSessionStore } from '../store/session';
+import {
+  listShareSources,
+  onShareEnded,
+  type ShareSource,
+  type SourceKind,
+  startNativeShare,
+  stopNativeShare,
+} from './native';
+import { invoke } from '@tauri-apps/api/core';
+import { applyQuality } from './tracks';
 
-/** Everything we hold for one remote screen, keyed by publisher identity. */
+/** Everything we hold for one remote screen, keyed by the publisher's user id. */
 interface RemoteScreen {
   video: RemoteVideoTrack | null;
   audio: RemoteAudioTrack | null;
@@ -35,9 +44,22 @@ function emptyScreen(): RemoteScreen {
   };
 }
 
+/** What the core needs to start a share; remembered so a preset change can redo it. */
+export interface ShareChoice {
+  sourceId: string;
+  kind: SourceKind;
+  audio: boolean;
+}
+
 /**
- * Owns the LiveKit room. Joining is never a user action: the gateway says which
- * Discord voice channel we are in and this follows it (ADR-0011).
+ * Owns the LiveKit room the app **watches** with. Joining is never a user
+ * action: the gateway says which Discord voice channel we are in and this
+ * follows it (ADR-0011).
+ *
+ * Publishing is not here any more. It lives in the Rust core, on its own
+ * connection with its own identity (ADR-0026, ADR-0027), which is why starting
+ * a share no longer tears this connection down — it used to reconnect just to
+ * swap the token, dropping every subscription and decoder on the way.
  *
  * Holds **N** remote screens, not one (RF-31). Layer selection is left to
  * `adaptiveStream` by default: a video rendered small in the grid gets the low
@@ -48,25 +70,39 @@ export class MediaSession {
   private readonly api: ApiClient;
   private room: Room | null = null;
   private channelId: Snowflake | null = null;
-  private canPublish = false;
-  private capture: ScreenCapture | null = null;
+  private sharing: ShareChoice | null = null;
   private readonly remotes = new Map<string, RemoteScreen>();
   private statsTimer: ReturnType<typeof setInterval> | null = null;
-  private lastSample: SenderSample | null = null;
   private rejoinTimer: ReturnType<typeof setTimeout> | null = null;
   private rejoinAttempt = 0;
 
   constructor(api: ApiClient) {
     this.api = api;
+    void onShareEnded((reason) => {
+      // O core parou sem nos pedir: o SFU derrubou, ou a janela compartilhada
+      // foi fechada. Sem isto o botao continuaria dizendo "parar".
+      log.warn('compartilhamento: encerrado pelo sistema', { motivo: reason });
+      this.sharing = null;
+      this.stopStatsSampling();
+      const store = useMediaStore.getState();
+      store.setPublishing(false, false);
+      store.setError('O compartilhamento foi encerrado.');
+      this.applyAudioPolicy();
+    });
   }
 
-  private screen(identity: string): RemoteScreen {
-    const existing = this.remotes.get(identity);
+  /** The list the picker shows (RF-37). Enumerated by the core, not by Chromium. */
+  listSources(): Promise<ShareSource[]> {
+    return listShareSources();
+  }
+
+  private screen(owner: string): RemoteScreen {
+    const existing = this.remotes.get(owner);
     if (existing !== undefined) {
       return existing;
     }
     const created = emptyScreen();
-    this.remotes.set(identity, created);
+    this.remotes.set(owner, created);
     return created;
   }
 
@@ -75,8 +111,8 @@ export class MediaSession {
    * remounted (CLAUDE.md §7) — moving it into the picture-in-picture window
    * keeps the same element, and therefore the same decoder.
    */
-  registerVideoElement(identity: string, element: HTMLVideoElement | null): void {
-    const screen = this.screen(identity);
+  registerVideoElement(owner: string, element: HTMLVideoElement | null): void {
+    const screen = this.screen(owner);
     if (screen.videoElement !== null && screen.video !== null) {
       screen.video.detach(screen.videoElement);
     }
@@ -86,17 +122,17 @@ export class MediaSession {
     }
   }
 
-  registerAudioElement(identity: string, element: HTMLAudioElement | null): void {
-    const screen = this.screen(identity);
+  registerAudioElement(owner: string, element: HTMLAudioElement | null): void {
+    const screen = this.screen(owner);
     if (screen.audioElement !== null && screen.audio !== null) {
       screen.audio.detach(screen.audioElement);
     }
     screen.audioElement = element;
     if (element !== null) {
-      element.volume = useMediaStore.getState().screens[identity]?.volume ?? 1;
       if (screen.audio !== null) {
         screen.audio.attach(element);
       }
+      this.applyAudioPolicy();
     }
   }
 
@@ -107,7 +143,7 @@ export class MediaSession {
     await this.leave();
     this.channelId = channelId;
     if (channelId !== null) {
-      await this.connect(false);
+      await this.connect();
     }
   }
 
@@ -115,13 +151,14 @@ export class MediaSession {
     this.clearRejoin();
     this.stopStatsSampling();
     this.channelId = null;
-    this.canPublish = false;
     const room = this.room;
     this.room = null;
     this.detachAll();
-    if (this.capture !== null) {
-      stopCapture(this.capture);
-      this.capture = null;
+    if (this.sharing !== null) {
+      this.sharing = null;
+      await stopNativeShare().catch((error: unknown) => {
+        log.error('compartilhamento: falha ao parar', error);
+      });
     }
     if (room !== null) {
       room.removeAllListeners();
@@ -130,115 +167,122 @@ export class MediaSession {
     useMediaStore.getState().reset();
   }
 
-  async startShare(request: CaptureRequest): Promise<void> {
+  /**
+   * Starts a share in the core.
+   *
+   * The publish token is fetched here and handed over, rather than letting the
+   * core talk to our API: the session already lives on this side, and a second
+   * copy of authentication would be a second place for it to go wrong. It is
+   * also what keeps the admission guard (RF-13) working unchanged — the server
+   * still decides, against the authenticated user.
+   */
+  async startShare(choice: ShareChoice, preset: PublishPreset): Promise<void> {
     const store = useMediaStore.getState();
-    if (this.channelId === null || this.capture !== null) {
+    const channelId = this.channelId;
+    if (channelId === null || this.sharing !== null) {
       return;
     }
     store.setError(null);
     store.setStarting(true);
+    log.info('compartilhamento: iniciando', { ...choice, preset });
 
-    let capture: ScreenCapture;
-    log.info('compartilhamento: abrindo o seletor de tela', {
-      superficie: request.surface,
-      audio: request.audio,
-      preset: request.preset,
-    });
+    let credentials;
     try {
-      // The OS picker runs first: it is the slow part, and a user who cancels it
-      // must not cost an admission slot.
-      capture = await captureScreen(request);
-      log.info('compartilhamento: tela capturada', {
-        temAudio: capture.audio !== null,
-        trilha: capture.video.mediaStreamTrack.label,
-      });
+      credentials = await this.api.roomToken(channelId, true);
     } catch (error) {
-      log.error('compartilhamento: captura falhou', error);
+      log.error('compartilhamento: o servidor recusou o token', error);
       store.setStarting(false);
-      store.setError(captureMessage(error));
+      store.setError(publishMessage(error));
       return;
     }
 
     try {
-      if (!this.canPublish) {
-        log.debug('compartilhamento: reconectando com token de publicação');
-        await this.connect(true);
+      const started = await startNativeShare({
+        url: credentials.url,
+        token: credentials.token,
+        sourceId: choice.sourceId,
+        kind: choice.kind,
+        preset,
+        audio: choice.audio,
+      });
+      this.sharing = choice;
+      store.setPublishing(true, started.audio !== null, started.audio);
+      log.info('compartilhamento: no ar', { audio: started.audio });
+      if (started.audio === 'whole_system') {
+        log.warn('compartilhamento: sem Discord para excluir, indo o sistema inteiro');
       }
-      const room = this.room;
-      if (room === null) {
-        throw new Error('a sala não está conectada');
-      }
-      log.debug('compartilhamento: publicando trilhas no LiveKit');
-      await publishScreen(room.localParticipant, capture, request.preset);
-      log.info('compartilhamento: no ar');
-      this.capture = capture;
-      capture.video.mediaStreamTrack.addEventListener(
-        'ended',
-        () => {
-          // The user pressed the browser's own stop-sharing control.
-          void this.stopShare();
-        },
-        { once: true },
-      );
-      store.setPublishing(true, capture.audio !== null);
+      this.applyAudioPolicy();
       this.startStatsSampling();
-      this.syncViewers();
     } catch (error) {
-      log.error('compartilhamento: publicação falhou', error);
-      stopCapture(capture);
+      log.error('compartilhamento: o core recusou', error);
       store.setStarting(false);
       store.setError(publishMessage(error));
     }
   }
 
   async stopShare(): Promise<void> {
-    const capture = this.capture;
-    this.capture = null;
-    this.stopStatsSampling();
-    useMediaStore.getState().setPublishing(false, false);
-    if (capture === null) {
+    if (this.sharing === null) {
       return;
     }
-    const room = this.room;
-    if (room !== null) {
-      await unpublishScreen(room.localParticipant, capture);
+    this.sharing = null;
+    this.stopStatsSampling();
+    useMediaStore.getState().setPublishing(false, false);
+    this.applyAudioPolicy();
+    try {
+      await stopNativeShare();
+    } catch (error) {
+      log.error('compartilhamento: falha ao parar', error);
     }
-    stopCapture(capture);
   }
 
   /**
-   * Republishes with a different ladder (RF-36). Changing resolution or frame
-   * rate cannot be negotiated in place — the track is replaced, and the caller
-   * has to say so instead of letting the UI look frozen.
+   * Republishes with a different ladder (RF-36). Resolution and frame rate
+   * cannot be renegotiated in place — the track is replaced, and the interface
+   * warns that it will blink.
    */
   async changePreset(preset: PublishPreset): Promise<void> {
     useMediaStore.getState().setPublishPreset(preset);
-    const capture = this.capture;
-    if (capture === null) {
+    const choice = this.sharing;
+    if (choice === null) {
       return;
     }
     log.info('compartilhamento: trocando o preset', { preset });
     await this.stopShare();
-    await this.startShare({ surface: capture.surface, audio: capture.audio !== null, preset });
+    await this.startShare(choice, preset);
   }
 
-  setVolume(identity: string, volume: number): void {
-    useMediaStore.getState().setVolume(identity, volume);
-    const element = this.remotes.get(identity)?.audioElement;
-    if (element != null) {
-      element.volume = useMediaStore.getState().screens[identity]?.volume ?? volume;
-    }
+  setVolume(owner: string, volume: number): void {
+    useMediaStore.getState().setVolume(owner, volume);
+    this.applyAudioPolicy();
   }
 
-  setQuality(identity: string, choice: QualityChoice): void {
-    useMediaStore.getState().setQuality(identity, choice);
-    const publication = this.remotes.get(identity)?.publication;
+  setQuality(owner: string, choice: QualityChoice): void {
+    useMediaStore.getState().setQuality(owner, choice);
+    const publication = this.remotes.get(owner)?.publication;
     if (publication != null) {
       applyQuality(publication, choice);
     }
   }
 
-  private async connect(publish: boolean): Promise<void> {
+  /**
+   * ADR-0028. While we transmit audio, other people's screen audio is silenced
+   * here, because it would otherwise be picked up by our own system capture and
+   * sent back out.
+   */
+  private applyAudioPolicy(): void {
+    const state = useMediaStore.getState();
+    const silence = shouldSilenceOtherScreens(state);
+    for (const [owner, screen] of this.remotes) {
+      const element = screen.audioElement;
+      if (element === null) {
+        continue;
+      }
+      element.muted = silence;
+      element.volume = state.screens[owner]?.volume ?? 1;
+    }
+  }
+
+  private async connect(): Promise<void> {
     const channelId = this.channelId;
     if (channelId === null) {
       return;
@@ -254,16 +298,15 @@ export class MediaSession {
       await previous.disconnect(false);
     }
 
-    log.debug('sala: pedindo token', { canal: channelId, publicar: publish });
+    log.debug('sala: pedindo token de espectador', { canal: channelId });
     let credentials;
     try {
-      credentials = await this.api.roomToken(channelId, publish);
+      credentials = await this.api.roomToken(channelId, false);
     } catch (error) {
       log.error('sala: o servidor recusou o token', error, { canal: channelId });
       store.setConnection('failed');
       throw error;
     }
-    log.debug('sala: token recebido', { url: credentials.url, sala: credentials.room });
 
     const room = new Room({
       // RF-32: both are mandatory. A screen rendered small in the grid gets the
@@ -274,17 +317,15 @@ export class MediaSession {
     });
     this.wire(room);
     this.room = room;
-    this.canPublish = publish;
     try {
       await room.connect(credentials.url, credentials.token);
     } catch (error) {
       log.error('sala: LiveKit recusou a conexão', error, { url: credentials.url });
       this.room = null;
-      this.canPublish = false;
       store.setConnection('failed');
       throw error;
     }
-    log.info('sala: conectado ao LiveKit', { sala: credentials.room, publicar: publish });
+    log.info('sala: conectado ao LiveKit', { sala: credentials.room });
     store.setConnection('connected');
     this.adoptExistingTracks(room);
     this.syncViewers();
@@ -301,7 +342,7 @@ export class MediaSession {
       this.syncViewers();
     });
     room.on(RoomEvent.ParticipantDisconnected, (participant) => {
-      this.forget(participant.identity);
+      this.forget(ownerOf(participant.identity));
       this.syncViewers();
     });
     room.on(RoomEvent.Reconnecting, () => {
@@ -326,36 +367,47 @@ export class MediaSession {
     }
   }
 
+  /** Our own publishing connection, which is a remote participant to this one. */
+  private isOurOwnPublisher(identity: string): boolean {
+    const me = useSessionStore.getState().user?.id;
+    return me !== undefined && identity === `${me}${PUBLISHER_SUFFIX}`;
+  }
+
   private adoptPublication(
     publication: RemoteTrackPublication,
     participant: RemoteParticipant,
   ): void {
+    // Assinar a propria tela custaria egress e ingress para receber de volta o
+    // que ja esta nesta maquina.
+    if (this.isOurOwnPublisher(participant.identity)) {
+      return;
+    }
     const track = publication.track;
-    const identity = participant.identity;
+    const owner = ownerOf(participant.identity);
     const store = useMediaStore.getState();
 
     if (publication.source === Track.Source.ScreenShare && track instanceof RemoteVideoTrack) {
-      const screen = this.screen(identity);
+      const screen = this.screen(owner);
       screen.video = track;
       screen.publication = publication;
       if (screen.videoElement !== null) {
         track.attach(screen.videoElement);
       }
-      store.addScreen(identity, 'video');
-      applyQuality(publication, store.screens[identity]?.quality ?? 'auto');
-      log.info('sala: tela recebida', { de: identity });
+      store.addScreen(owner, 'video');
+      applyQuality(publication, store.screens[owner]?.quality ?? 'auto');
+      log.info('sala: tela recebida', { de: owner });
       this.syncViewers();
       return;
     }
 
     if (publication.source === Track.Source.ScreenShareAudio && track instanceof RemoteAudioTrack) {
-      const screen = this.screen(identity);
+      const screen = this.screen(owner);
       screen.audio = track;
       if (screen.audioElement !== null) {
         track.attach(screen.audioElement);
-        screen.audioElement.volume = store.screens[identity]?.volume ?? 1;
       }
-      store.addScreen(identity, 'audio');
+      store.addScreen(owner, 'audio');
+      this.applyAudioPolicy();
     }
   }
 
@@ -363,8 +415,8 @@ export class MediaSession {
     publication: RemoteTrackPublication,
     participant: RemoteParticipant,
   ): void {
-    const identity = participant.identity;
-    const screen = this.remotes.get(identity);
+    const owner = ownerOf(participant.identity);
+    const screen = this.remotes.get(owner);
     if (screen === undefined) {
       return;
     }
@@ -374,7 +426,7 @@ export class MediaSession {
       }
       screen.video = null;
       screen.publication = null;
-      useMediaStore.getState().removeScreen(identity, 'video');
+      useMediaStore.getState().removeScreen(owner, 'video');
       this.syncViewers();
       return;
     }
@@ -383,13 +435,13 @@ export class MediaSession {
         screen.audio.detach(screen.audioElement);
       }
       screen.audio = null;
-      useMediaStore.getState().removeScreen(identity, 'audio');
+      useMediaStore.getState().removeScreen(owner, 'audio');
     }
   }
 
   /** Everything belonging to one publisher is gone. */
-  private forget(identity: string): void {
-    const screen = this.remotes.get(identity);
+  private forget(owner: string): void {
+    const screen = this.remotes.get(owner);
     if (screen === undefined) {
       return;
     }
@@ -399,18 +451,24 @@ export class MediaSession {
     if (screen.audio !== null && screen.audioElement !== null) {
       screen.audio.detach(screen.audioElement);
     }
-    this.remotes.delete(identity);
+    this.remotes.delete(owner);
     const store = useMediaStore.getState();
-    store.removeScreen(identity, 'video');
-    store.removeScreen(identity, 'audio');
+    store.removeScreen(owner, 'video');
+    store.removeScreen(owner, 'audio');
   }
 
   private detachAll(): void {
-    for (const identity of [...this.remotes.keys()]) {
-      this.forget(identity);
+    for (const owner of [...this.remotes.keys()]) {
+      this.forget(owner);
     }
   }
 
+  /**
+   * Who is watching.
+   *
+   * Publishing connections are skipped: they are not people, and counting them
+   * would make every publisher show up as one of their own viewers.
+   */
   private syncViewers(): void {
     const room = this.room;
     if (room === null) {
@@ -419,6 +477,9 @@ export class MediaSession {
     }
     const viewers: string[] = [];
     for (const participant of room.remoteParticipants.values()) {
+      if (participant.identity.endsWith(PUBLISHER_SUFFIX)) {
+        continue;
+      }
       if (participant.getTrackPublication(Track.Source.ScreenShare) === undefined) {
         viewers.push(participant.identity);
       }
@@ -428,24 +489,31 @@ export class MediaSession {
 
   private startStatsSampling(): void {
     this.stopStatsSampling();
-    this.lastSample = null;
     this.statsTimer = setInterval(() => {
       void this.sampleStats();
     }, STATS_SAMPLE_INTERVAL_MS);
   }
 
+  /** Sampled on an interval, never in the media path (CLAUDE.md §7). */
   private async sampleStats(): Promise<void> {
-    const capture = this.capture;
-    if (capture === null) {
+    if (this.sharing === null) {
       return;
     }
     try {
-      const layers = await capture.video.getSenderStats();
-      const reading = readSenderStats(layers, this.lastSample);
-      this.lastSample = reading.sample;
-      useMediaStore.getState().setStats(reading.stats);
+      const stats = await invoke<NativeStats | null>('share_stats');
+      useMediaStore.getState().setStats(
+        stats === null
+          ? null
+          : {
+              bitrateKbps: stats.bitrate_kbps,
+              fps: stats.fps,
+              width: stats.width,
+              height: stats.height,
+              hardwareEncoder: stats.hardware_encoder,
+            },
+      );
     } catch {
-      // A stats read that fails is not worth surfacing; the next tick tries again.
+      // Uma leitura que falha nao vale um erro na tela; o proximo tique tenta.
     }
   }
 
@@ -454,22 +522,20 @@ export class MediaSession {
       clearInterval(this.statsTimer);
       this.statsTimer = null;
     }
-    this.lastSample = null;
+    useMediaStore.getState().setStats(null);
   }
 
   private scheduleRejoin(): void {
     if (this.channelId === null || this.rejoinTimer !== null) {
       return;
     }
-    const store = useMediaStore.getState();
-    store.setConnection('reconnecting');
-    const wantsPublish = this.canPublish;
+    useMediaStore.getState().setConnection('reconnecting');
     const delay = backoffDelayMs(this.rejoinAttempt);
     this.rejoinAttempt += 1;
     this.rejoinTimer = setTimeout(() => {
       this.rejoinTimer = null;
       // A fresh token, not the old one: the media token can simply have expired.
-      void this.connect(wantsPublish).then(
+      void this.connect().then(
         () => {
           this.rejoinAttempt = 0;
         },
@@ -489,12 +555,13 @@ export class MediaSession {
   }
 }
 
-function captureMessage(error: unknown): string | null {
-  if (error instanceof DOMException && error.name === 'NotAllowedError') {
-    // Cancelling the picker is not an error worth showing.
-    return null;
-  }
-  return `Não foi possível capturar a tela. (${describeError(error)})`;
+/** The core's stats, in its own snake_case. */
+interface NativeStats {
+  bitrate_kbps: number;
+  fps: number;
+  width: number;
+  height: number;
+  hardware_encoder: boolean;
 }
 
 function publishMessage(error: unknown): string {

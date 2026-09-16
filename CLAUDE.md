@@ -63,12 +63,17 @@ Violar qualquer uma destas invalida o trabalho, mesmo que compile e passe nos te
 │   ├── bot/                    # Discord (serenity): pareamento, replica, presenca.
 │   └── server/                 # binario unico que compoe api + bot.
 ├── desktop/
-│   ├── src-tauri/              # core Rust: cofre, bandeja, IPC, captura de audio
+│   ├── src-tauri/              # core Rust: cofre, bandeja, IPC
+│   │   ├── capture.rs          # enumeracao de fontes e laco de captura de tela
+│   │   ├── publisher.rs        # conexao LiveKit que publica (identidade `~pub`)
+│   │   ├── audio.rs            # WASAPI process loopback, excluindo o Discord
+│   │   └── share.rs            # comandos Tauri de compartilhamento
 │   └── src/                    # React 19 + TS
 │       ├── api/                # cliente REST tipado (tipos gerados)
 │       ├── gateway/            # cliente WS, resume, dispatch
 │       ├── store/              # zustand: estado normalizado
-│       ├── media/tracks.ts     # UNICO lugar que adquire midia. Ver ADR-0005
+│       ├── media/native.ts     # ponte com o core: fontes, iniciar, parar
+│       ├── media/tracks.ts     # so a escolha de camada do espectador
 │       ├── features/           # share/, view/, pairing/, settings/
 │       └── ui/                 # componentes de base
 └── spike/                      # DESCARTAVEL. Nao importar daqui. Ver §9.
@@ -104,7 +109,15 @@ Não substitua estas escolhas sem discussão explícita.
 
 **Saem na fatia S1:** `argon2` (não há senha — [ADR-0009](docs/adr/0009-identidade-por-pareamento.md)), `aws-sdk-s3`/`aws-config`/`aws-credential-types` (não há anexos — [ADR-0006](docs/adr/0006-anexos-em-tabela-propria.md)), `validator` (a validação vive em `domain`).
 
-**Frontend:** React 19 · TypeScript strict · Vite · Tailwind · zustand (estado de domínio) · livekit-client.
+**Frontend:** React 19 · TypeScript strict · Vite · Tailwind · zustand (estado de domínio) · livekit-client (**só para assistir**).
+
+**Core do cliente (`desktop/src-tauri`):** `livekit` 0.9 (SDK Rust, publica) · `windows` 0.61 (WASAPI) · tauri 2 · keyring.
+
+> Este crate está **fora do workspace** e exige `crt-static`: o libwebrtc pré-compilado é ligado ao
+> CRT estático, e sem isso o link falha com centenas de `LNK2038`. O `.cargo/config.toml` dele cuida
+> disso — e o `justfile` precisa entrar no diretório com `cd`, porque o cargo lê esse arquivo pelo
+> diretório **atual** e não pelo `--manifest-path`. O primeiro build baixa ~114 MB e compila C++ por
+> vários minutos; reserve alguns GB de disco.
 
 **Saem na fatia S1:** `marked` e `shiki` (não há markdown), `@tanstack/react-virtual` (não há lista longa), `@tanstack/react-query` (sobra REST demais pouco para justificar — o estado chega por WS).
 
@@ -149,7 +162,7 @@ Regras:
 - `strict: true`. `any` proibido; use `unknown` e refine.
 - Tipos de payload **nunca escritos à mão**: vêm de `just types`. Se falta um tipo, adicione no crate `protocol` e regenere.
 - Estado de domínio (salas, presença, quem publica) em zustand, **normalizado por ID**. Os eventos do WS escrevem direto no store; o REST só recupera lacuna.
-- **Toda aquisição de mídia passa por `desktop/src/media/tracks.ts`.** Nenhum componente chama `getDisplayMedia` direto. Ver [ADR-0005](docs/adr/0005-modulo-unico-de-midia.md).
+- **Nada no WebView adquire mídia.** Captura, codificação e publicação vivem no core Rust ([ADR-0026](docs/adr/0026-publicacao-no-rust-nativo.md)); `getDisplayMedia` não é chamado em lugar nenhum, e é por isso que não existe seletor nem barra do Chromium. O WebView **assiste**: `desktop/src/media/tracks.ts` guarda só a escolha de camada do espectador ([ADR-0005](docs/adr/0005-modulo-unico-de-midia.md), que mudou de linguagem, não de ideia).
 - Nada de trabalho por frame no caminho de render do vídeo: sem observer de resize no elemento de vídeo, sem estado do React atualizando a cada estatística. Estatística de mídia é amostrada em intervalo, nunca no fluxo.
 - O elemento de vídeo é montado uma vez por track e nunca remontado por mudança de layout. Remontar derruba o decodificador e custa segundos de tela preta.
 
@@ -177,7 +190,7 @@ Não altere sem confirmação explícita:
 
 - `migrations/` — qualquer migration destrutiva (drop, alteração de tipo, remoção de coluna). Inclui a poda proposta em [ADR-0016](docs/adr/0016-poda-por-reescrita-de-migrations.md), que está **Proposto** e não deve ser executada sem aval.
 - Configuração de rede e infraestrutura da VM (firewall, portas do LiveKit, TLS, o IP dedicado do TURN).
-- Código de captura de mídia e permissões de sistema operacional em `desktop/src-tauri/` — inclui a captura WASAPI do [ADR-0014](docs/adr/0014-audio-por-aplicativo.md).
+- Código de captura de mídia e permissões de sistema operacional em `desktop/src-tauri/` — inclui `capture.rs`, `audio.rs` e `publisher.rs` ([ADR-0025](docs/adr/0025-audio-exclui-o-discord.md), [ADR-0026](docs/adr/0026-publicacao-no-rust-nativo.md)).
 - Qualquer coisa que toque em credencial, token do bot ou chave de assinatura.
 - O modelo de autorização derivado do Discord. Se parecer errado, pergunte; não "corrija".
 

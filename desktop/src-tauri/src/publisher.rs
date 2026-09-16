@@ -9,7 +9,8 @@
 //! The connection exists only while sharing. An idle app holds no media
 //! connection at all (RNF-03).
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
+use std::time::Instant;
 
 use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
 use livekit::track::{LocalAudioTrack, LocalTrack, LocalVideoTrack, TrackSource};
@@ -17,6 +18,7 @@ use livekit::webrtc::audio_source::native::NativeAudioSource;
 use livekit::webrtc::audio_source::AudioSourceOptions;
 use livekit::webrtc::prelude::{RtcAudioSource, RtcVideoSource};
 use livekit::webrtc::rtp_parameters::DegradationPreference;
+use livekit::webrtc::stats::{OutboundRtpStats, RtcStats};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::VideoResolution;
 use livekit::{Room, RoomEvent, RoomOptions};
@@ -98,10 +100,27 @@ pub enum PublishError {
     Publish(String),
 }
 
+/// Sampled on an interval by the interface, never in the media path (RF-21,
+/// RF-22, `CLAUDE.md` §7).
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+pub struct PublisherStats {
+    pub bitrate_kbps: u32,
+    pub fps: u32,
+    pub width: u32,
+    pub height: u32,
+    /// True when libwebrtc chose a hardware encoder. Worth surfacing: it is the
+    /// difference between a core of CPU and almost none, and until the move to
+    /// the core it was not even observable.
+    pub hardware_encoder: bool,
+}
+
 pub struct Publisher {
     room: Arc<Room>,
     video: NativeVideoSource,
     audio: Option<NativeAudioSource>,
+    track: LocalVideoTrack,
+    /// Last (bytes_sent, instant) seen, so bitrate is a delta and not a total.
+    last_sample: StdMutex<Option<(u64, Instant)>>,
 }
 
 impl Publisher {
@@ -152,7 +171,7 @@ impl Publisher {
 
         room.local_participant()
             .publish_track(
-                LocalTrack::Video(track),
+                LocalTrack::Video(track.clone()),
                 TrackPublishOptions {
                     source: TrackSource::Screenshare,
                     video_codec: VideoCodec::VP9,
@@ -228,7 +247,68 @@ impl Publisher {
             }
         });
 
-        Ok(Self { room, video, audio })
+        Ok(Self {
+            room,
+            video,
+            audio,
+            track,
+            last_sample: StdMutex::new(None),
+        })
+    }
+
+    /// Bitrate, frame rate and the resolution actually being encoded.
+    ///
+    /// Summed across every spatial layer: with SVC the encoder produces several,
+    /// and reporting only one would understate what the upload is costing. The
+    /// resolution reported is the widest layer, which is what the top viewer
+    /// sees.
+    pub async fn stats(&self) -> PublisherStats {
+        let Ok(report) = self.track.get_stats().await else {
+            return PublisherStats::default();
+        };
+
+        let mut bytes_sent = 0u64;
+        let mut widest: Option<&OutboundRtpStats> = None;
+        for entry in &report {
+            let RtcStats::OutboundRtp(outbound) = entry else {
+                continue;
+            };
+            bytes_sent += outbound.sent.bytes_sent;
+            if widest.is_none_or(|w| outbound.outbound.frame_width > w.outbound.frame_width) {
+                widest = Some(outbound);
+            }
+        }
+
+        let now = Instant::now();
+        let bitrate_kbps = match self.last_sample.lock() {
+            Ok(mut last) => {
+                let previous = last.replace((bytes_sent, now));
+                previous
+                    .and_then(|(bytes, at)| {
+                        let elapsed = now.saturating_duration_since(at).as_secs_f64();
+                        (elapsed > 0.0).then(|| {
+                            (bytes_sent.saturating_sub(bytes) as f64 * 8.0 / elapsed / 1000.0)
+                                .round() as u32
+                        })
+                    })
+                    .unwrap_or(0)
+            }
+            Err(_) => 0,
+        };
+
+        let Some(widest) = widest else {
+            return PublisherStats {
+                bitrate_kbps,
+                ..Default::default()
+            };
+        };
+        PublisherStats {
+            bitrate_kbps,
+            fps: widest.outbound.frames_per_second.round() as u32,
+            width: widest.outbound.frame_width,
+            height: widest.outbound.frame_height,
+            hardware_encoder: widest.outbound.power_efficient_encoder,
+        }
     }
 
     pub fn video_sink(&self) -> NativeVideoSource {
@@ -248,5 +328,31 @@ impl Publisher {
         if let Err(error) = self.room.close().await {
             eprintln!("publicacao: erro ao sair da sala: {error}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// The third leg of the version pair (ADR-0019).
+    ///
+    /// The other two are guarded already: `livekit-client` in
+    /// `desktop/src/media/versions.test.ts`, and the server image in
+    /// `crates/api/src/livekit.rs`. This SDK speaks the same signalling
+    /// protocol, so it can drift away from the server exactly the same way —
+    /// and when it does, only publishing breaks, which is the failure that cost
+    /// a whole debugging session once already.
+    #[test]
+    fn the_rust_sdk_is_pinned_to_an_exact_version() {
+        let manifest = include_str!("../Cargo.toml");
+        let line = manifest
+            .lines()
+            .find(|line| line.starts_with("livekit ="))
+            .expect("o Cargo.toml deve declarar o SDK do LiveKit");
+
+        assert!(
+            line.contains("version = \"="),
+            "o livekit esta como {line}. Uma faixa deixa o SDK derivar para longe do \
+             servidor e quebra so a publicacao. Ver ADR-0019."
+        );
     }
 }
