@@ -1,0 +1,63 @@
+name: release
+
+# Publica o instalador `.msi` assinado e o `latest.json` que o atualizador lê
+# (RF-28). Dispara numa tag `vX.Y.Z`, e nao em push para main: uma versao e um
+# ato deliberado, e o atualizador puxa todo mundo para o que estiver publicado.
+on:
+  push:
+    tags: ["v*"]
+  # Permite um ensaio sem criar tag. O rascunho fica como draft e nao alcanca
+  # ninguem ate ser publicado a mao.
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  SQLX_OFFLINE: "true"
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      # O core do cliente baixa ~114 MB de libwebrtc pre-compilado e compila C++
+      # antes de chegar ao nosso codigo. Sem cache, isso acontece em toda
+      # publicacao e domina o tempo do job (ADR-0026).
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> desktop/src-tauri/target
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+        working-directory: desktop
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Gerados por `npm run tauri signer generate` e guardados como segredos
+          # do repositorio. A chave privada nunca entra no codigo: o atualizador
+          # so confia num pacote que ela assinou, entao vaza-la e entregar a
+          # capacidade de publicar uma atualizacao para todo mundo.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: ldkcord ${{ github.ref_name }}
+          releaseDraft: true
+          prerelease: false
+          # E este arquivo que o aplicativo consulta; sem ele a release existe e
+          # ninguem e atualizado.
+          includeUpdaterJson: true

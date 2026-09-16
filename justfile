@@ -11,8 +11,13 @@ default:
 # ---------------------------------------------------------------------------
 # Verificacao. E o oraculo de correcao do projeto: se falha, nada esta pronto.
 # ---------------------------------------------------------------------------
-check: fmt-check lint sqlx-check test-rs test-tauri types-check test-ts
+check: check-server lint-tauri test-tauri
     @echo "OK — tudo verde"
+
+# Tudo menos o core do cliente. O CI Linux usa esta receita: compilar o libwebrtc
+# la custa dezenas de minutos e nao prova nada que o job Windows nao prove melhor,
+# porque a plataforma distribuida e Windows (RNF-11).
+check-server: fmt-check lint-rs lint-ts sqlx-check test-rs types-check test-ts
 
 fmt:
     cargo fmt --all
@@ -24,12 +29,18 @@ fmt-check:
     cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --all -- --check
     cd desktop && npm run format:check
 
+lint: lint-rs lint-tauri lint-ts
+
+lint-rs:
+    cargo clippy --workspace --all-targets -- -D warnings
+
 # O `cd` nao e estilo: o cargo le .cargo/config.toml pelo diretorio ATUAL, e nao
 # pelo --manifest-path. De fora, o crt-static que o libwebrtc exige nao seria
 # aplicado e o link falharia com centenas de LNK2038. Ver ADR-0026.
-lint:
-    cargo clippy --workspace --all-targets -- -D warnings
+lint-tauri:
     cd desktop/src-tauri && cargo clippy --all-targets -- -D warnings
+
+lint-ts:
     cd desktop && npm run lint
 
 # Falha se .sqlx/ estiver desatualizado em relacao as queries do codigo

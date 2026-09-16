@@ -62,8 +62,11 @@ jobs:
         env:
           DATABASE_URL: postgres://comms:comms@localhost:5432/comms
 
-      - name: just check
-        run: just check
+      # `check-server`, e nao `check`: o core do cliente traz o libwebrtc, que
+      # aqui custaria dezenas de minutos para provar o que o job Windows prova
+      # na plataforma que realmente e distribuida.
+      - name: just check-server
+        run: just check-server
         env:
           DATABASE_URL: postgres://comms:comms@localhost:5432/comms
           DATABASE_MAX_CONNECTIONS: "10"
@@ -71,13 +74,29 @@ jobs:
           BIND_ADDR: 0.0.0.0:8080
           PUBLIC_BASE_URL: http://localhost:8080
 
-  # A plataforma de distribuicao e Windows. Este job existe para pegar quebra
-  # especifica de Windows sem exigir Docker no runner.
-  windows-compile:
+  # A plataforma de distribuicao e Windows, e o core do cliente so existe de
+  # verdade aqui: a captura de tela e o WASAPI sao codigo Windows, e o libwebrtc
+  # e ligado ao CRT estatico. Por isso este job roda o lint e os testes do core,
+  # e nao so um `cargo check`.
+  windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          # O `target/` do core guarda o libwebrtc extraido, que e grande e caro
+          # de refazer; sem chave propria ele disputaria cache com o workspace.
+          workspaces: |
+            . -> target
+            desktop/src-tauri -> desktop/src-tauri/target
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
       - run: cargo check --workspace --all-targets
-      - run: cargo check --manifest-path desktop/src-tauri/Cargo.toml --all-targets
+      # `just`, e nao cargo direto: as receitas entram em desktop/src-tauri, que
+      # e o que faz o cargo ler o .cargo/config.toml com o crt-static (ADR-0026).
+      - run: just lint-tauri
+      - run: just test-tauri
