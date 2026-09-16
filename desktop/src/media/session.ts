@@ -23,7 +23,7 @@ import {
   stopNativeShare,
 } from './native';
 import { invoke } from '@tauri-apps/api/core';
-import { applyQuality } from './tracks';
+import { applyQuality, DUPLICATE_IDENTITY_MESSAGE, shouldRejoin } from './tracks';
 
 /** Everything we hold for one remote screen, keyed by the publisher's user id. */
 interface RemoteScreen {
@@ -352,10 +352,20 @@ export class MediaSession {
       useMediaStore.getState().setConnection('connected');
       this.syncViewers();
     });
-    room.on(RoomEvent.Disconnected, () => {
-      if (this.room === room) {
-        this.scheduleRejoin();
+    room.on(RoomEvent.Disconnected, (reason) => {
+      if (this.room !== room) {
+        return;
       }
+      if (!shouldRejoin(reason)) {
+        // Reconectar aqui expulsaria a outra ponta, que reconectaria e nos
+        // expulsaria: as duas trocariam a sala para sempre.
+        log.error('sala: a mesma conta entrou de outro lugar', undefined, { reason });
+        const store = useMediaStore.getState();
+        store.setConnection('failed');
+        store.setError(DUPLICATE_IDENTITY_MESSAGE);
+        return;
+      }
+      this.scheduleRejoin();
     });
   }
 

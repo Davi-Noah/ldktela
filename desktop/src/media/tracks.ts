@@ -1,4 +1,4 @@
-import { VideoQuality } from 'livekit-client';
+import { DisconnectReason, VideoQuality } from 'livekit-client';
 import type { RemoteTrackPublication } from 'livekit-client';
 import type { QualityChoice } from '../store/media';
 
@@ -42,3 +42,24 @@ export function applyQuality(publication: RemoteTrackPublication, choice: Qualit
       return;
   }
 }
+
+/**
+ * Whether a disconnect from the SFU is worth retrying.
+ *
+ * Everything is, except one. `DUPLICATE_IDENTITY` means the room kicked us
+ * because the same account joined from somewhere else — a second machine, or a
+ * second copy of the app. Reconnecting then kicks *them*, which makes them
+ * reconnect and kick us, and the two clients trade the room about once a second
+ * for as long as both are open. Nobody watches anything, and the publisher's
+ * encoder is paused the whole time because it never sees a stable subscriber.
+ *
+ * Observed exactly that way: five joins and four `DUPLICATE_IDENTITY` removals
+ * in four seconds, with `peak_viewers` stuck at zero.
+ */
+export function shouldRejoin(reason: DisconnectReason | undefined): boolean {
+  return reason !== DisconnectReason.DUPLICATE_IDENTITY;
+}
+
+/** Said to the user, because the loop is otherwise indistinguishable from a bug. */
+export const DUPLICATE_IDENTITY_MESSAGE =
+  'Esta conta entrou na sala de outro lugar. O ldkcord só funciona em um computador por vez — feche o outro e entre de novo no canal de voz.';
