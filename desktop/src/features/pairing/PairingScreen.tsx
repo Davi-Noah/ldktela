@@ -28,7 +28,7 @@ export function PairingScreen() {
         <ol className="mt-group space-y-row text-text-muted">
           <li>
             1. No Discord, rode{' '}
-            <code className="rounded bg-surface-2 px-1 font-mono text-text">/tela parear</code>.
+            <code className="rounded bg-surface-2 px-1 font-mono text-text">/tela</code>.
           </li>
           <li>
             2. Digite abaixo o código de {PAIRING_CODE_LENGTH} caracteres que o bot responder.

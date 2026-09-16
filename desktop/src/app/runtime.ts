@@ -10,7 +10,7 @@ import { useSessionStore } from '../store/session';
 
 /** Same wording for a wrong code and an expired one: the server does not tell them apart. */
 export const PAIRING_FAILED_MESSAGE =
-  'Código inválido ou expirado. Peça um novo com /tela parear no Discord.';
+  'Código inválido ou expirado. Peça um novo com /tela no Discord.';
 
 export const api = new ApiClient({
   baseUrl: API_BASE_URL,
