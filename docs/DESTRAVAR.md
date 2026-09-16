@@ -44,13 +44,25 @@ Menu lateral → **OAuth2** → **URL Generator**:
 
 - **Scopes:** `bot` **e** `applications.commands`
   (sem o segundo, o comando `/tela` não aparece)
-- **Bot Permissions:** `View Channels`
+- **Bot Permissions:** `View Channels`, `Send Messages`, `Manage Nicknames`
 
 Copie a URL gerada, abra no navegador, escolha o servidor, autorize.
 
-> `View Channels` é o mínimo. O bot não envia mensagem em canal — a resposta do
-> `/tela` é efêmera e não precisa de permissão. Quando a fatia S8 (anúncio no
-> Discord) existir, aí sim entra `Send Messages`.
+> `View Channels` é o mínimo para enxergar os canais de voz. `Send Messages` é o
+> anúncio da sessão (S8), que o bot **edita** em vez de republicar. `Manage
+> Nicknames` é a tag `[LIVE]` (RF-38).
+
+**Depois de autorizar, mova o cargo do bot para cima dos cargos de membro**
+(Configurações do servidor → Cargos, arraste o cargo do bot para perto do topo).
+
+> Sem isso a tag `[LIVE]` simplesmente não aparece para quem tem cargo acima do
+> bot — o Discord recusa, e o produto pula em silêncio com um aviso no log em vez
+> de tentar e falhar a cada transmissão.
+>
+> **O dono do servidor nunca recebe a tag, e não há o que fazer.** Não é bug e
+> não é permissão faltando: o Discord não deixa bot nenhum renomear o dono, por
+> mais alto que esteja o cargo ([ADR-0024](adr/0024-tag-live-no-apelido.md)).
+> Se você é o dono e quer ver a tag funcionando, teste com outra conta.
 
 ### 0.4 Colar o token
 
@@ -190,6 +202,19 @@ just app           # abre o aplicativo Tauri
 3c. **Fechar a janela compartilhada** — compartilhe uma janela e feche-a.
    → Espere: o compartilhamento termina sozinho e o botão volta a "Compartilhar
    tela". Uma imagem congelada no lugar disso é bug.
+3d. **O Discord percebe** (S8) — com alguém transmitindo, olhe o chat do canal
+   de voz e a lista de membros.
+   → Espere: **uma** mensagem dizendo quem transmite, em qual canal e quantos
+   assistem — e ela é **editada** conforme gente entra e sai, não repetida. Ao
+   parar, vira "A transmissão terminou.". Uma sessão inteira produz uma mensagem
+   só.
+   → Espere: `[LIVE] ` no apelido de quem transmite, sumindo ao parar. Se não
+   aparecer, o log do servidor diz por quê — e "dono do servidor" é o motivo mais
+   provável.
+3e. **A queda não suja apelido alheio** (RF-40) — com alguém marcado, mate o
+   servidor (Ctrl+C) e suba de novo.
+   → Espere: no arranque, `limpando tags [LIVE] de uma queda`, e o apelido volta
+   ao que era **antes** — inclusive voltando a não ter apelido, se não tinha.
 4. **Revogação ao vivo** — pelo Discord, tire seu próprio acesso ao canal de voz
    (um overwrite negando `Ver canal` para você, ou saia do servidor num usuário
    de teste).

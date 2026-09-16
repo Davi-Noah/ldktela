@@ -80,3 +80,4 @@ certas.
 | [0026](0026-publicacao-no-rust-nativo.md) | A publicação vai para o core Rust; o WebView só assiste | Aceito |
 | [0027](0027-publicador-e-um-segundo-participante.md) | Quem publica entra na sala como um segundo participante | Aceito |
 | [0028](0028-silenciar-telas-alheias-ao-transmitir-audio.md) | Quem transmite áudio não ouve o áudio das outras telas | Aceito |
+| [0029](0029-link-profundo-espera-uma-pagina-https.md) | O link profundo espera uma página https; o esquema não basta | Aceito |

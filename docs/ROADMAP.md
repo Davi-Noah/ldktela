@@ -18,8 +18,8 @@ documentos antigos.
 | S4 — Réplica e autorização | Feita, com revogação ao vivo |
 | S5 — Sala atrelada ao canal de voz | Feita |
 | S6 — Compartilhar e assistir | **Funciona ponta a ponta**, medido em 2026-09-14 |
-| S7 — Cliente completo | Várias telas, grade e foco, destacar, volume e tempo no ar feitos. Seletor próprio e publicação nativa feitos ([ADR-0026](adr/0026-publicacao-no-rust-nativo.md)). Notificação nativa e atualização por `.msi` não |
-| S8 — Presença no Discord | Não feita |
+| S7 — Cliente completo | Várias telas, grade e foco, destacar, volume e tempo no ar feitos. Seletor próprio e publicação nativa feitos ([ADR-0026](adr/0026-publicacao-no-rust-nativo.md)). Notificação nativa feita. Atualização por `.msi` pendente de chave de assinatura |
+| S8 — Presença no Discord | Anúncio (uma mensagem por sessão, editada) e tag `[LIVE]` com as quatro guardas, feitos. Link profundo adiado: o Discord não torna esquema próprio clicável ([ADR-0029](adr/0029-link-profundo-espera-uma-pagina-https.md)) |
 | S9 — Áudio por aplicativo | Feita e medida: modo `ExcludingDiscord`, 143.520 amostras/canal em 3 s. Falta ouvir numa sessão real entre duas máquinas |
 
 ### O que mudou em 2026-09-14
