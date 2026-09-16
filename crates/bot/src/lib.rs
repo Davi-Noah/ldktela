@@ -5,6 +5,7 @@
 //! changes, pairing codes) that `api` consumes, so the arrow points at the
 //! consumer's state.
 
+pub mod announce;
 pub mod handler;
 pub mod pairing;
 pub mod replica_sync;

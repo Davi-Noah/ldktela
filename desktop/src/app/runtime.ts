@@ -2,6 +2,7 @@ import { ApiClient, ApiError, NetworkError } from '../api/client';
 import type { AuthResponse } from '../api/types/AuthResponse';
 import { API_BASE_URL, CLIENT_INFO, GATEWAY_URL } from '../config';
 import { listen } from '@tauri-apps/api/event';
+import { notifyShareStarted, shouldNotify } from '../platform/notify';
 import { GatewayClient } from '../gateway/client';
 import { log } from '../log';
 import { MediaSession } from '../media/session';
@@ -30,6 +31,9 @@ export const gateway = new GatewayClient({
     if (event.t === 'READY') {
       authRetryUsed = false;
       useSessionStore.getState().signedIn(event.d.user);
+    }
+    if (event.t === 'SHARE_START') {
+      announceShare(event.d.user_id);
     }
     useRoomStore.getState().apply(event);
   },
@@ -156,4 +160,24 @@ async function recoverFromAuthFailure(): Promise<void> {
   } catch {
     await signOut();
   }
+}
+
+/**
+ * RF-27. Reads the publisher's name from the room the event already updated, so
+ * the notification says who rather than a bare id.
+ */
+function announceShare(publisherId: string): void {
+  const room = useRoomStore.getState();
+  if (
+    !shouldNotify({
+      publisherId,
+      selfId: useSessionStore.getState().user?.id,
+      windowFocused: document.hasFocus(),
+    })
+  ) {
+    return;
+  }
+  const participant = room.participants[publisherId];
+  const name = participant?.user.display_name ?? participant?.user.username ?? 'Alguém';
+  void notifyShareStarted(name, room.channelName);
 }

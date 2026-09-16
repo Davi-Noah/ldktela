@@ -4,6 +4,7 @@
 //! The client never picks one: it is told which room it is in and asks for a
 //! token to enter it.
 
+use crate::announce::RoomBroadcast;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
@@ -172,6 +173,13 @@ async fn webhook(
         "room_finished" => {
             presence::clear_channel(&state.pool, channel).await?;
             state.rooms.forget_room(channel).await;
+            // A sala sumiu: o anuncio precisa saber, ou a mensagem fica no ar
+            // dizendo que alguem transmite.
+            state.announce.publish(RoomBroadcast {
+                discord_channel_id: channel,
+                publishers: Vec::new(),
+                viewers: 0,
+            });
         }
         _ => {}
     }
@@ -183,7 +191,7 @@ async fn on_join(state: &AppState, channel: i64, user_id: Uuid) -> Result<(), Ap
     presence::join(&state.pool, user_id, channel).await?;
     let user = users::find_by_id(&state.pool, user_id).await?;
 
-    record_peak_viewers(state, channel).await?;
+    observe_room(state, channel).await?;
 
     state
         .hub
@@ -216,6 +224,7 @@ async fn on_leave(state: &AppState, channel: i64, user_id: Uuid) -> Result<(), A
     presence::leave(&state.pool, user_id).await?;
     sessions::close(&state.pool, channel, user_id, OffsetDateTime::now_utc()).await?;
     state.rooms.release_publisher(channel, user_id).await;
+    observe_room(state, channel).await?;
 
     state
         .hub
@@ -241,7 +250,7 @@ async fn on_share_start(state: &AppState, channel: i64, user_id: Uuid) -> Result
     // `open` devolve a sessao ja existente quando a segunda track chega, entao
     // `started_at` e o inicio real da transmissao e nao o da track de audio.
     let session = sessions::open(&state.pool, Uuid::now_v7(), channel, user_id).await?;
-    record_peak_viewers(state, channel).await?;
+    observe_room(state, channel).await?;
 
     state
         .hub
@@ -262,6 +271,7 @@ async fn on_share_stop(state: &AppState, channel: i64, user_id: Uuid) -> Result<
     presence::set_publishing(&state.pool, user_id, false).await?;
     sessions::close(&state.pool, channel, user_id, OffsetDateTime::now_utc()).await?;
     state.rooms.release_publisher(channel, user_id).await;
+    observe_room(state, channel).await?;
 
     state
         .hub
@@ -277,13 +287,26 @@ async fn on_share_stop(state: &AppState, channel: i64, user_id: Uuid) -> Result<
     Ok(())
 }
 
-/// Feeds `peak_viewers`, which is the only audience number the product keeps.
+/// Feeds `peak_viewers` and tells the Discord side what the room looks like now.
+///
+/// One listing serves both: they need the same rows, and reading twice would let
+/// the audience number and the announcement disagree about the same instant.
 ///
 /// A viewer is someone in the room who is not publishing. The count is a count:
 /// who watched is deliberately not recorded (RNF-08).
-async fn record_peak_viewers(state: &AppState, channel: i64) -> Result<(), AppError> {
+async fn observe_room(state: &AppState, channel: i64) -> Result<(), AppError> {
     let participants = presence::list_by_channel(&state.pool, channel).await?;
     let viewers = participants.iter().filter(|p| !p.publishing).count();
     sessions::observe_viewers(&state.pool, channel, viewers as i32).await?;
+
+    state.announce.publish(RoomBroadcast {
+        discord_channel_id: channel,
+        publishers: participants
+            .iter()
+            .filter(|p| p.publishing)
+            .map(|p| p.discord_user_id)
+            .collect(),
+        viewers,
+    });
     Ok(())
 }

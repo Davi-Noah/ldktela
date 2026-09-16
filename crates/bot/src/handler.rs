@@ -17,15 +17,22 @@ use serenity::model::user::User;
 use serenity::model::voice::VoiceState;
 use serenity::prelude::*;
 
-use crate::{pairing, replica_sync, revoke};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use crate::{announce, pairing, replica_sync, revoke};
 
 pub struct Handler {
     state: AppState,
+    /// `ready` chega de novo a cada reconexao de shard; o anunciador e um so.
+    announcing: AtomicBool,
 }
 
 impl Handler {
     pub fn new(state: AppState) -> Self {
-        Self { state }
+        Self {
+            state,
+            announcing: AtomicBool::new(false),
+        }
     }
 
     /// A voice channel changed shape: refresh it and recheck who is inside.
@@ -183,6 +190,12 @@ impl EventHandler for Handler {
         }
 
         self.state.replica.set_connected(true).await;
+
+        // O anunciador sobe uma vez por processo, e a primeira coisa que ele faz
+        // e limpar as tags [LIVE] que uma queda deixou (RF-40).
+        if !self.announcing.swap(true, Ordering::SeqCst) {
+            announce::spawn(self.state.clone(), ctx.clone());
+        }
     }
 
     async fn resume(&self, _ctx: Context, _: ResumedEvent) {

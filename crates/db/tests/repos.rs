@@ -400,3 +400,108 @@ async fn two_publishers_in_one_room_each_keep_their_own_start() {
         "cada publicador precisa do proprio inicio"
     );
 }
+
+/// RF-38 a RF-40 e ADR-0024.
+///
+/// O apelido é estado do usuário no servidor **dele**: é a única coisa que este
+/// produto escreve fora de si mesmo, e errar a restauração estraga algo que não
+/// é nosso. Por isso a restauração é testada antes e com mais cuidado do que a
+/// marcação.
+mod live_tags {
+    use super::*;
+    use db::repo::live_tags;
+
+    const GUILD: i64 = 1_436_472_447_275_761_798;
+    const MEMBER: i64 = 464_986_116_957_667_330;
+
+    #[tokio::test]
+    async fn a_member_with_no_nickname_goes_back_to_having_none() {
+        // O caso que o ADR-0024 chama pelo nome. Restaurar "sem apelido" como o
+        // nome de usuário deixaria o apelido gravado para sempre — e ninguém
+        // notaria, porque na tela fica igual.
+        let db = TestDb::migrated().await;
+        live_tags::remember(&db.pool, GUILD, MEMBER, None, OffsetDateTime::now_utc())
+            .await
+            .expect("marcar");
+
+        let restored = live_tags::forget(&db.pool, GUILD, MEMBER)
+            .await
+            .expect("desmarcar");
+        assert_eq!(restored.expect("estava marcado").previous_nick, None);
+    }
+
+    #[tokio::test]
+    async fn the_previous_nickname_comes_back_exactly() {
+        let db = TestDb::migrated().await;
+        live_tags::remember(
+            &db.pool,
+            GUILD,
+            MEMBER,
+            Some("  Gabriel  "),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .expect("marcar");
+
+        let restored = live_tags::forget(&db.pool, GUILD, MEMBER)
+            .await
+            .expect("desmarcar");
+        assert_eq!(
+            restored.expect("estava marcado").previous_nick.as_deref(),
+            Some("  Gabriel  "),
+            "espaços incluídos: o apelido é do usuário, não nosso para normalizar"
+        );
+    }
+
+    #[tokio::test]
+    async fn tagging_twice_keeps_the_first_nickname() {
+        // Sem isto, a segunda marcação gravaria "[LIVE] Gabriel" como apelido
+        // anterior e o prefixo viraria permanente (ADR-0024, guarda 4).
+        let db = TestDb::migrated().await;
+        let now = OffsetDateTime::now_utc();
+        live_tags::remember(&db.pool, GUILD, MEMBER, Some("Gabriel"), now)
+            .await
+            .expect("primeira");
+        live_tags::remember(&db.pool, GUILD, MEMBER, Some("[LIVE] Gabriel"), now)
+            .await
+            .expect("segunda");
+
+        let restored = live_tags::forget(&db.pool, GUILD, MEMBER)
+            .await
+            .expect("desmarcar");
+        assert_eq!(
+            restored.expect("estava marcado").previous_nick.as_deref(),
+            Some("Gabriel")
+        );
+    }
+
+    #[tokio::test]
+    async fn untagging_someone_who_is_not_tagged_does_nothing() {
+        let db = TestDb::migrated().await;
+        assert_eq!(
+            live_tags::forget(&db.pool, GUILD, 1)
+                .await
+                .expect("desmarcar"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn the_sweep_sees_everyone_still_marked() {
+        // RF-40: é o que sobra depois de uma queda, e o que a varredura de
+        // arranque precisa encontrar antes de aceitar sessão nova.
+        let db = TestDb::migrated().await;
+        let now = OffsetDateTime::now_utc();
+        live_tags::remember(&db.pool, GUILD, 1, Some("um"), now)
+            .await
+            .expect("um");
+        live_tags::remember(&db.pool, GUILD, 2, None, now)
+            .await
+            .expect("dois");
+
+        let left = live_tags::all(&db.pool).await.expect("varredura");
+        assert_eq!(left.len(), 2);
+        assert_eq!(left[0].previous_nick.as_deref(), Some("um"));
+        assert_eq!(left[1].previous_nick, None);
+    }
+}

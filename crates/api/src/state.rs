@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use db::PgPool;
 
+use crate::announce::Announcer;
 use crate::config::Config;
 use crate::discord::Replica;
 use crate::gateway::Hub;
@@ -22,6 +23,10 @@ pub struct AppState {
     ///
     /// Shared with the bot, which is the only writer. Handlers only read.
     pub replica: Arc<Replica>,
+    /// Room snapshots for the Discord side to announce (S8).
+    ///
+    /// Written here, read by the bot. The arrow stays pointed at the consumer.
+    pub announce: Arc<Announcer>,
 }
 
 impl AppState {
@@ -35,6 +40,7 @@ impl AppState {
             hub,
             rooms,
             replica,
+            announce: Arc::new(Announcer::new()),
         }
     }
 }

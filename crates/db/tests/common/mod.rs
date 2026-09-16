@@ -168,6 +168,7 @@ impl TestDb {
 /// Five tables. If this list starts growing, the question to ask is whether the
 /// thing being persisted is really ours or Discord's (ADR-0010).
 pub const EXPECTED_TABLES: &[&str] = &[
+    "live_tags",
     "pairing_codes",
     "refresh_tokens",
     "room_presence",

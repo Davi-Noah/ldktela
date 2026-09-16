@@ -1,5 +1,6 @@
 //! HTTP surface: REST routes, WebSocket gateway and middleware.
 
+pub mod announce;
 pub mod auth;
 pub mod config;
 pub mod discord;

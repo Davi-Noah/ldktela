@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO live_tags (discord_guild_id, discord_user_id, previous_nick, tagged_at)\n             VALUES ($1, $2, $3, $4)\n        ON CONFLICT (discord_guild_id, discord_user_id) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "90be3ccb0db14b49c643c1dde9164f54ebc7d7698219d2a83ad4534b6f2e4d88"
+}
