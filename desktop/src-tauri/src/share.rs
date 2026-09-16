@@ -156,6 +156,8 @@ pub async fn share_stats(
         return Ok(None);
     };
     let mut stats = active.publisher.stats().await;
+    stats.captured_frames = active.capture.produced_frames();
+    stats.encoded_frames = active.capture.delivered_frames();
     stats.audio_samples = audio_samples(active);
     Ok(Some(stats))
 }

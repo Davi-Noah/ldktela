@@ -8,7 +8,7 @@
 //! the publisher really does choose the frame rate (RF-36) instead of asking the
 //! platform for one and hoping.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -147,9 +147,26 @@ fn even(value: u32) -> u32 {
 pub struct Capture {
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
+    /// Frames converted and offered to the encoder, whether or not it took them.
+    produced: Arc<AtomicU64>,
+    /// Frames the encoder actually accepted.
+    ///
+    /// The two differ for a reason worth knowing: libwebrtc's adapter refuses
+    /// every frame while **no subscriber wants the track**, which is the normal
+    /// state of a paused stream and indistinguishable from a dead capture unless
+    /// both numbers are kept.
+    delivered: Arc<AtomicU64>,
 }
 
 impl Capture {
+    pub fn produced_frames(&self) -> u64 {
+        self.produced.load(Ordering::Relaxed)
+    }
+
+    pub fn delivered_frames(&self) -> u64 {
+        self.delivered.load(Ordering::Relaxed)
+    }
+
     pub fn stop(mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(thread) = self.thread.take() {
@@ -185,28 +202,59 @@ pub fn start(
 
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = Arc::clone(&stop);
+    let delivered = Arc::new(AtomicU64::new(0));
+    let produced = Arc::new(AtomicU64::new(0));
+    let counted = Arc::clone(&delivered);
+    let counted_produced = Arc::clone(&produced);
     let period = Duration::from_secs_f64(1.0 / f64::from(fps.max(1)));
 
     let thread = std::thread::Builder::new()
         .name("ldkcord-capture".into())
-        .spawn(move || run(kind, source_id, max, period, sink, &thread_stop, on_lost))
+        .spawn(move || {
+            run(
+                Job {
+                    kind,
+                    source_id,
+                    max,
+                    period,
+                    delivered: counted,
+                    produced: counted_produced,
+                },
+                sink,
+                &thread_stop,
+                on_lost,
+            )
+        })
         .map_err(|_| CaptureError::Unavailable("thread"))?;
 
     Ok(Capture {
         stop,
         thread: Some(thread),
+        produced,
+        delivered,
     })
 }
 
-fn run(
+/// What the capture thread needs to do its job, in one piece.
+struct Job {
     kind: SourceKind,
     source_id: u64,
     max: Size,
     period: Duration,
-    sink: NativeVideoSource,
-    stop: &AtomicBool,
-    on_lost: impl Fn() + Send + 'static,
-) {
+    delivered: Arc<AtomicU64>,
+    produced: Arc<AtomicU64>,
+}
+
+fn run(job: Job, sink: NativeVideoSource, stop: &AtomicBool, on_lost: impl Fn() + Send + 'static) {
+    let Job {
+        kind,
+        source_id,
+        max,
+        period,
+        delivered,
+        produced,
+    } = job;
+
     let Some(mut capturer) = open(kind) else {
         eprintln!("captura: o capturador sumiu entre escolher e comecar");
         on_lost();
@@ -224,7 +272,7 @@ fn run(
 
     let lost = Arc::new(AtomicBool::new(false));
     let callback_lost = Arc::clone(&lost);
-    let mut scratch = Scratch::new(max, sink);
+    let mut scratch = Scratch::new(max, sink, delivered, produced);
     capturer.start_capture(Some(source), move |result| match result {
         Ok(frame) => scratch.push(&frame),
         Err(CaptureFailure::Temporary) => {
@@ -262,14 +310,23 @@ struct Scratch {
     max: Size,
     sink: NativeVideoSource,
     buffer: Option<(Size, NV12Buffer)>,
+    delivered: Arc<AtomicU64>,
+    produced: Arc<AtomicU64>,
 }
 
 impl Scratch {
-    fn new(max: Size, sink: NativeVideoSource) -> Self {
+    fn new(
+        max: Size,
+        sink: NativeVideoSource,
+        delivered: Arc<AtomicU64>,
+        produced: Arc<AtomicU64>,
+    ) -> Self {
         Self {
             max,
             sink,
             buffer: None,
+            delivered,
+            produced,
         }
     }
 
@@ -334,18 +391,85 @@ impl Scratch {
         let target = fit(captured, self.max);
         let buffer = nv12.scale(target.width as i32, target.height as i32);
 
-        self.sink.capture_frame(&VideoFrame {
+        let accepted = self.sink.capture_frame(&VideoFrame {
             rotation: VideoRotation::VideoRotation0,
             timestamp_us: 0,
             buffer,
             frame_metadata: Default::default(),
         });
+        self.produced.fetch_add(1, Ordering::Relaxed);
+        if accepted {
+            self.delivered.fetch_add(1, Ordering::Relaxed);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Touches the real screen, so it is not part of `just check`.
+    ///
+    /// Run it by hand, from `desktop/src-tauri`:
+    ///
+    /// ```text
+    /// cargo test -- --ignored --nocapture
+    /// ```
+    ///
+    /// It answers the one question the interface cannot: whether frames are
+    /// actually reaching the encoder. A publisher panel showing 0 fps looks the
+    /// same whether the capture is dead or the stream is paused downstream, and
+    /// those have nothing to do with each other.
+    /// `tokio::test` nao e detalhe: `NativeVideoSource::new` semeia um quadro
+    /// preto de keepalive com `tokio::spawn`, entao construir a fonte fora de um
+    /// runtime entra em panico antes de qualquer captura.
+    #[tokio::test]
+    #[ignore]
+    async fn the_screen_really_produces_frames() {
+        let sources = list_sources(&[]);
+        for source in &sources {
+            println!("fonte {:?} {} {:?}", source.kind, source.id, source.title);
+        }
+        let screen = sources
+            .iter()
+            .find(|s| s.kind == SourceKind::Screen)
+            .expect("deve existir pelo menos uma tela");
+        let id: u64 = screen.id.parse().expect("id numerico");
+
+        let sink = NativeVideoSource::new(
+            livekit::webrtc::video_source::VideoResolution {
+                width: 1920,
+                height: 1080,
+            },
+            true,
+        );
+        let capture = start(
+            SourceKind::Screen,
+            id,
+            Size {
+                width: 1920,
+                height: 1080,
+            },
+            30,
+            sink,
+            || eprintln!("fonte perdida"),
+        )
+        .expect("a captura deve iniciar");
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let produced = capture.produced_frames();
+        capture.stop();
+
+        // `produced`, e nao `delivered`: sem ninguem assinando a track, o
+        // adaptador do libwebrtc recusa todo quadro, e exigir aceitacao aqui
+        // testaria o SFU em vez da captura. Quem cobre a outra ponta e o
+        // `a_real_screen_reaches_the_sfu`.
+        println!("quadros produzidos em 2 s: {produced} (esperado ~60)");
+        assert!(
+            produced > 10,
+            "a captura abriu mas nao produziu quadro nenhum"
+        );
+    }
 
     fn size(width: u32, height: u32) -> Size {
         Size { width, height }

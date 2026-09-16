@@ -439,3 +439,17 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   contrário: num endpoint de saída em loopback o evento não dispara enquanto a máquina está
   muda, então lá a espera é por tempo. Medido: 143.520 amostras por canal em 3 s contra
   144.000 teóricas.
+- **[S7] `scalability_mode` no `TrackPublishOptions` faz a publicação sair pelo ralo** — com
+  VP9, definir `scalability_mode: Some("L3T3_KEY")` produz uma sessão que parece perfeita e
+  não transmite nada: a captura entrega quadros, o encoder **aceita** 414 deles, a track é
+  publicada, o webhook dispara, o espectador assina — e recebe **zero**. Medido contra o SFU
+  de desenvolvimento, com e sem `simulcast`; o modo explícito quebra nos dois. A combinação
+  que funciona é `simulcast: true` com `scalability_mode: None`, que é a mesma que o cliente
+  JS usava e contra a qual o `RESULTS.md` foi medido. Fica o teste
+  `publisher::tests::a_real_screen_reaches_the_sfu`, que publica uma tela de verdade e conta
+  quadros **no espectador** — a única medida que distingue "transmitindo" de "parece que
+  está transmitindo".
+- **[S7] O adaptador do libwebrtc recusa todo quadro enquanto ninguém assina a track** — é o
+  comportamento normal de uma publicação pausada (`dynacast`), e é indistinguível de uma
+  captura morta se só se contar quadro aceito. Por isso a captura conta os dois: `produced`
+  (convertidos e oferecidos) e `delivered` (aceitos pelo encoder).

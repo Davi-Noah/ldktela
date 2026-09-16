@@ -51,6 +51,12 @@ keyring = { version = "3", features = ["sync-secret-service"] }
 # resolve (2.0.2); divergir daria dois tipos `WebView` incompativeis.
 webkit2gtk = { version = "2.0", features = ["v2_38"] }
 
+# So para cunhar um token no teste ponta a ponta contra o LiveKit de
+# desenvolvimento. `access-token` sozinho nao traz cliente HTTP nenhum.
+[dev-dependencies]
+livekit-api = { version = "0.6", default-features = false, features = ["access-token"] }
+futures-util = "0.3"
+
 [profile.release]
 codegen-units = 1
 lto = true

@@ -23,6 +23,11 @@ export interface PublisherStats {
   /** Whether libwebrtc picked a hardware encoder. Only observable since
       publishing moved to the core (ADR-0026). */
   hardwareEncoder: boolean;
+  /** Frames taken from the screen, and of those how many the encoder accepted.
+      A wide gap means the stream is paused for want of a subscriber, which looks
+      exactly like a dead capture from outside. */
+  capturedFrames: number;
+  encodedFrames: number;
   /** Samples per channel captured, or `null` when sharing without audio. Zero
       while sharing with audio means the capture opened but nothing is coming
       through — which sounds exactly like a muted game and is not the same. */

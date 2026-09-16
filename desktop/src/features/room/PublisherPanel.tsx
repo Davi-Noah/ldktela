@@ -14,6 +14,15 @@ export function PublisherPanel() {
     <div className="rounded-panel border border-border bg-surface-1 p-3">
       <p className="font-semibold text-text">Você está compartilhando</p>
       <p className="text-text-muted">{sharingAudio ? audioLabel(audioMode) : 'Sem áudio'}</p>
+      {stats !== null && stats.capturedFrames > 30 && stats.encodedFrames === 0 && (
+        // A tela está sendo capturada e o encoder recusa tudo: é o estado de uma
+        // transmissão pausada por falta de quem assista, e por fora é idêntico a
+        // uma captura morta.
+        <p className="mt-row text-warning">
+          A tela está sendo capturada, mas nada está sendo codificado. Normalmente é porque ninguém
+          está assistindo ainda.
+        </p>
+      )}
       {sharingAudio && stats !== null && stats.audioSamples === 0 && (
         <p className="mt-row text-warning">
           A captura de áudio abriu, mas nada está chegando. Some com o jogo mudo na aparência e não

@@ -520,6 +520,8 @@ export class MediaSession {
               width: stats.width,
               height: stats.height,
               hardwareEncoder: stats.hardware_encoder,
+              capturedFrames: stats.captured_frames,
+              encodedFrames: stats.encoded_frames,
               audioSamples: stats.audio_samples,
             },
       );
@@ -573,6 +575,8 @@ interface NativeStats {
   width: number;
   height: number;
   hardware_encoder: boolean;
+  captured_frames: number;
+  encoded_frames: number;
   audio_samples: number | null;
 }
 

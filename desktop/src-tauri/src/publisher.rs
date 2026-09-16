@@ -77,16 +77,6 @@ impl Preset {
     }
 }
 
-/// Three spatial layers, three temporal, with layer switching only on key
-/// frames.
-///
-/// VP9 carries its ladder as SVC rather than as separate simulcast encodings, so
-/// `simulcast` stays off and this carries the shape instead. Three spatial
-/// layers means 1080/540/270, which is what makes a screen rendered small in the
-/// grid cost the small layer (RF-32) — the whole egress argument depends on
-/// this line.
-const SCALABILITY_MODE: &str = "L3T3_KEY";
-
 /// Opus runs at 48 kHz; asking the capture for anything else only inserts a
 /// resampler between the sound card and the encoder.
 pub const SAMPLE_RATE: u32 = 48_000;
@@ -112,6 +102,17 @@ pub struct PublisherStats {
     /// difference between a core of CPU and almost none, and until the move to
     /// the core it was not even observable.
     pub hardware_encoder: bool,
+    /// Frames converted from the screen and offered to the encoder.
+    ///
+    /// Together with a zero bitrate it separates the two failures that look the
+    /// same: a dead capture produces nothing, while a stream nobody is watching
+    /// produces plenty and has every frame refused.
+    pub captured_frames: u64,
+    /// Of those, the ones the encoder accepted.
+    ///
+    /// Equal to `captured_frames` when the stream is live; stuck at zero while
+    /// it is paused for want of a subscriber. The gap is the diagnosis.
+    pub encoded_frames: u64,
     /// Samples per channel captured so far, when sharing with audio.
     ///
     /// It is the only thing that tells a muted game apart from a broken capture:
@@ -180,8 +181,16 @@ impl Publisher {
                 TrackPublishOptions {
                     source: TrackSource::Screenshare,
                     video_codec: VideoCodec::VP9,
-                    simulcast: false,
-                    scalability_mode: Some(SCALABILITY_MODE.to_owned()),
+                    // `simulcast` ligado e `scalability_mode` **nao** definido.
+                    // Parece redundante para VP9, que carrega a escada como SVC,
+                    // e nao e: pedir um modo explicitamente faz a publicacao sair
+                    // silenciosamente pelo ralo. Medido contra o SFU de
+                    // desenvolvimento — com `scalability_mode`, o encoder aceita
+                    // 414 quadros e o espectador recebe **zero**; sem ele, o
+                    // mesmo espectador recebe vídeo. E a mesma combinacao que o
+                    // cliente JS usava e que o RESULTS.md mediu.
+                    simulcast: true,
+                    scalability_mode: None,
                     video_encoding: Some(VideoEncoding {
                         max_bitrate: preset.max_bitrate(),
                         max_framerate: f64::from(preset.fps()),
@@ -313,7 +322,9 @@ impl Publisher {
             width: widest.outbound.frame_width,
             height: widest.outbound.frame_height,
             hardware_encoder: widest.outbound.power_efficient_encoder,
-            // Preenchido por quem tem a captura de audio em maos.
+            // Preenchidos por quem tem a captura em maos.
+            captured_frames: 0,
+            encoded_frames: 0,
             audio_samples: None,
         }
     }
@@ -340,6 +351,138 @@ impl Publisher {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::capture::{self, SourceKind};
+    use std::time::Duration;
+
+    const DEV_URL: &str = "ws://127.0.0.1:7880";
+    const DEV_KEY: &str = "devkey";
+    const DEV_SECRET: &str = "dev-only-not-a-real-key-0123456789abcdef";
+
+    fn dev_token(room: &str, identity: &str, publish: bool) -> String {
+        use livekit_api::access_token::{AccessToken, VideoGrants};
+        AccessToken::with_api_key(DEV_KEY, DEV_SECRET)
+            .with_identity(identity)
+            .with_name(identity)
+            .with_grants(VideoGrants {
+                room_join: true,
+                room: room.to_owned(),
+                can_subscribe: true,
+                can_publish: publish,
+                ..Default::default()
+            })
+            .to_jwt()
+            .expect("token de desenvolvimento")
+    }
+
+    /// Publishes a real screen to the development SFU and checks that bytes
+    /// actually leave (RF-13, RNF-05).
+    ///
+    /// Needs `just infra-up`, so it is not part of `just check`. Run it from
+    /// `desktop/src-tauri`:
+    ///
+    /// ```text
+    /// cargo test -- --ignored --nocapture
+    /// ```
+    ///
+    /// It exists because every cheaper check passes while the product shows a
+    /// black screen: the capture produces frames, the track is published, the
+    /// webhook fires and the viewer subscribes — and the publisher panel still
+    /// reads 0 kb/s. The one thing none of them prove is that a frame reached
+    /// the encoder, and a subscriber has to be present for that to be true at
+    /// all, because dynacast pauses an unwatched track.
+    #[tokio::test]
+    #[ignore]
+    async fn a_real_screen_reaches_the_sfu() {
+        let room_name = format!("dvc-test-{}", std::process::id());
+
+        // O espectador entra primeiro: sem ninguem assinando, o dynacast mantem
+        // o encoder pausado e a medicao seria de um caminho que o produto nunca
+        // usa.
+        let (_viewer, mut viewer_events) = Room::connect(
+            DEV_URL,
+            &dev_token(&room_name, "espectador", false),
+            RoomOptions::default(),
+        )
+        .await
+        .expect("o espectador deve conectar; rode `just infra-up`");
+
+        // Contar no espectador e a unica prova de que a midia atravessou: tudo
+        // do lado do publicador pode parecer certo sem um byte sair.
+        let received = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let counted = Arc::clone(&received);
+        tokio::spawn(async move {
+            use futures_util::StreamExt as _;
+            use livekit::webrtc::video_stream::native::NativeVideoStream;
+            while let Some(event) = viewer_events.recv().await {
+                if let livekit::RoomEvent::TrackSubscribed { track, .. } = event {
+                    eprintln!("espectador: assinou {:?}", track.kind());
+                    if let livekit::track::RemoteTrack::Video(video) = track {
+                        let counted = Arc::clone(&counted);
+                        tokio::spawn(async move {
+                            let mut stream = NativeVideoStream::new(video.rtc_track());
+                            while let Some(frame) = stream.next().await {
+                                let _ = frame;
+                                counted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        });
+                    }
+                }
+            }
+        });
+
+        let preset = Preset::P720p30;
+        let publisher = Publisher::start(
+            DEV_URL,
+            &dev_token(&room_name, "tester~pub", true),
+            preset,
+            false,
+            |reason| eprintln!("publicacao encerrada: {reason}"),
+        )
+        .await
+        .expect("o publicador deve conectar");
+
+        let screen = capture::list_sources(&[])
+            .into_iter()
+            .find(|s| s.kind == SourceKind::Screen)
+            .expect("deve existir uma tela");
+        let capture = capture::start(
+            SourceKind::Screen,
+            screen.id.parse().expect("id numerico"),
+            preset.ceiling(),
+            preset.fps(),
+            publisher.video_sink(),
+            || eprintln!("fonte perdida"),
+        )
+        .expect("a captura deve iniciar");
+
+        // O primeiro `stats()` so estabelece a linha de base do bitrate, que e
+        // uma diferenca entre duas leituras.
+        tokio::time::sleep(Duration::from_secs(4)).await;
+        let _ = publisher.stats().await;
+        tokio::time::sleep(Duration::from_secs(4)).await;
+
+        let frames = capture.delivered_frames();
+        let stats = publisher.stats().await;
+        capture.stop();
+        publisher.stop().await;
+
+        let got = received.load(std::sync::atomic::Ordering::Relaxed);
+        println!("quadros aceitos pelo encoder: {frames}");
+        println!("quadros recebidos pelo espectador: {got}");
+        println!("{stats:?}");
+
+        assert!(
+            frames > 0,
+            "o encoder recusou todos os quadros: nada foi codificado"
+        );
+        assert!(got > 0, "o espectador nao recebeu quadro nenhum");
+        assert!(
+            stats.bitrate_kbps > 0 && stats.fps > 0,
+            "o espectador recebeu {got} quadros, mas o painel do publicador              mostraria zero: {stats:?}"
+        );
+    }
+
     /// The third leg of the version pair (ADR-0019).
     ///
     /// The other two are guarded already: `livekit-client` in
