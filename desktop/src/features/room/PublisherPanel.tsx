@@ -14,6 +14,12 @@ export function PublisherPanel() {
     <div className="rounded-panel border border-border bg-surface-1 p-3">
       <p className="font-semibold text-text">Você está compartilhando</p>
       <p className="text-text-muted">{sharingAudio ? audioLabel(audioMode) : 'Sem áudio'}</p>
+      {sharingAudio && stats !== null && stats.audioSamples === 0 && (
+        <p className="mt-row text-warning">
+          A captura de áudio abriu, mas nada está chegando. Some com o jogo mudo na aparência e não
+          é a mesma coisa: confira se o som está mesmo tocando neste computador.
+        </p>
+      )}
       {audioMode === 'whole_system' && (
         // RF-30: o fallback é declarado, não escondido. Quem descobre isso pelos
         // amigos descobre tarde demais.

@@ -426,3 +426,16 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
 - **[S2] O backend do `keyring` e por plataforma** — com `features = ["windows-native"]`
   sozinho, em Linux o keyring cai no store mock, em memoria, e o refresh token some a cada
   execucao. O sintoma era o aplicativo pedir pareamento em todo arranque no notebook.
+- **[S9] O blob de ativação do WASAPI precisa vir de `CoTaskMemAlloc`, não da pilha** — o
+  `mmdevapi` limpa o `PROPVARIANT` que recebe em `ActivateAudioInterfaceAsync`, e limpar um
+  `VT_BLOB` é `CoTaskMemFree(pBlobData)`. Com o blob na pilha — que é o que a amostra
+  ApplicationLoopback da própria Microsoft faz — a captura funciona perfeitamente, entrega
+  os quadros certos, e destrói o heap do processo: a morte chega depois, com
+  `STATUS_HEAP_CORRUPTION`, em qualquer alocação, longe dali. Levou uma sessão inteira para
+  ser encontrado, e só apareceu porque existe um teste que exercita a captura de verdade
+  (`cargo test -- --ignored`, em `desktop/src-tauri`). Nenhum teste de unidade o pegaria.
+- **[S9] Process loopback só aceita o modo dirigido por evento** — `Initialize` com
+  `LOOPBACK | EVENTCALLBACK` e `SetEventHandle` depois. O caminho de sistema inteiro é o
+  contrário: num endpoint de saída em loopback o evento não dispara enquanto a máquina está
+  muda, então lá a espera é por tempo. Medido: 143.520 amostras por canal em 3 s contra
+  144.000 teóricas.

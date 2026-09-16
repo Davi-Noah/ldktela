@@ -152,10 +152,25 @@ pub async fn share_stats(
     state: State<'_, Sharing>,
 ) -> Result<Option<PublisherStats>, ShareFailure> {
     let active = state.active.lock().await;
-    match active.as_ref() {
-        Some(active) => Ok(Some(active.publisher.stats().await)),
-        None => Ok(None),
-    }
+    let Some(active) = active.as_ref() else {
+        return Ok(None);
+    };
+    let mut stats = active.publisher.stats().await;
+    stats.audio_samples = audio_samples(active);
+    Ok(Some(stats))
+}
+
+#[cfg(target_os = "windows")]
+fn audio_samples(active: &Active) -> Option<u64> {
+    active
+        .audio
+        .as_ref()
+        .map(crate::audio::AudioCapture::delivered_samples)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn audio_samples(_active: &Active) -> Option<u64> {
+    None
 }
 
 #[tauri::command]

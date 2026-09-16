@@ -112,6 +112,11 @@ pub struct PublisherStats {
     /// difference between a core of CPU and almost none, and until the move to
     /// the core it was not even observable.
     pub hardware_encoder: bool,
+    /// Samples per channel captured so far, when sharing with audio.
+    ///
+    /// It is the only thing that tells a muted game apart from a broken capture:
+    /// both sound like silence to everyone watching, and only one is our fault.
+    pub audio_samples: Option<u64>,
 }
 
 pub struct Publisher {
@@ -308,6 +313,8 @@ impl Publisher {
             width: widest.outbound.frame_width,
             height: widest.outbound.frame_height,
             hardware_encoder: widest.outbound.power_efficient_encoder,
+            // Preenchido por quem tem a captura de audio em maos.
+            audio_samples: None,
         }
     }
 

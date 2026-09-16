@@ -13,8 +13,8 @@
 //! Human review zone (`CLAUDE.md` §10): OS media capture.
 
 use std::borrow::Cow;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Condvar, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{mpsc, Arc};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -22,33 +22,36 @@ use livekit::webrtc::audio_frame::AudioFrame;
 use livekit::webrtc::audio_source::native::NativeAudioSource;
 use serde::Serialize;
 use windows::core::{implement, Interface, Ref};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::Media::Audio::{
     eConsole, eRender, ActivateAudioInterfaceAsync, IActivateAudioInterfaceAsyncOperation,
     IActivateAudioInterfaceCompletionHandler, IActivateAudioInterfaceCompletionHandler_Impl,
     IAudioCaptureClient, IAudioClient, IMMDeviceEnumerator, MMDeviceEnumerator,
     AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
-    AUDCLNT_STREAMFLAGS_LOOPBACK, AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
-    AUDIOCLIENT_ACTIVATION_PARAMS, AUDIOCLIENT_ACTIVATION_PARAMS_0,
-    AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK, AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS,
-    PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE, VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
-    WAVEFORMATEX, WAVE_FORMAT_PCM,
+    AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_LOOPBACK,
+    AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, AUDIOCLIENT_ACTIVATION_PARAMS,
+    AUDIOCLIENT_ACTIVATION_PARAMS_0, AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
+    AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS, PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
+    VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, WAVEFORMATEX, WAVE_FORMAT_PCM,
 };
 use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CoUninitialize, BLOB, CLSCTX_ALL, COINIT_MULTITHREADED,
+    CoCreateInstance, CoInitializeEx, CoTaskMemAlloc, CoUninitialize, BLOB, CLSCTX_ALL,
+    COINIT_MULTITHREADED,
 };
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
+use windows::Win32::System::Threading::{CreateEventW, SetEvent, WaitForSingleObject};
 use windows::Win32::System::Variant::VT_BLOB;
 
 use crate::publisher::{CHANNELS, SAMPLE_RATE};
 
 const BITS_PER_SAMPLE: u16 = 16;
 
-/// 200 ms of slack, polled every 10 ms. Comfortably more than the ~16 ms the
-/// Windows scheduler actually grants a sleeping thread.
-const BUFFER_DURATION_HNS: i64 = 2_000_000;
+/// 20 ms of slack in the shared buffer.
+const BUFFER_DURATION_HNS: i64 = 200_000;
+/// Only used by the whole-system path, which has no event to wait on.
 const POLL: Duration = Duration::from_millis(10);
 
 /// What the user is actually getting, so the interface can say so (RF-30).
@@ -79,9 +82,17 @@ impl From<windows::core::Error> for AudioError {
 pub struct AudioCapture {
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
+    /// Samples per channel handed to the encoder. Cheap, and the only way to
+    /// tell "capturing silence" from "capturing nothing" — they look identical
+    /// from outside and have completely different causes.
+    delivered: Arc<AtomicU64>,
 }
 
 impl AudioCapture {
+    pub fn delivered_samples(&self) -> u64 {
+        self.delivered.load(Ordering::Relaxed)
+    }
+
     pub fn stop(mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(thread) = self.thread.take() {
@@ -106,6 +117,8 @@ pub fn start(sink: NativeAudioSource) -> Result<(AudioCapture, AudioMode), Audio
     // fila so troca falha audivel por memoria e atraso crescente.
     let (frames_tx, mut frames_rx) = tokio::sync::mpsc::channel::<Vec<i16>>(32);
 
+    let delivered = Arc::new(AtomicU64::new(0));
+    let counted = Arc::clone(&delivered);
     tokio::spawn(async move {
         while let Some(samples) = frames_rx.recv().await {
             let samples_per_channel = (samples.len() / CHANNELS as usize) as u32;
@@ -120,7 +133,9 @@ pub fn start(sink: NativeAudioSource) -> Result<(AudioCapture, AudioMode), Audio
             };
             if let Err(error) = sink.capture_frame(&frame).await {
                 eprintln!("audio: quadro recusado pelo encoder: {error}");
+                continue;
             }
+            counted.fetch_add(u64::from(samples_per_channel), Ordering::Relaxed);
         }
     });
 
@@ -134,6 +149,7 @@ pub fn start(sink: NativeAudioSource) -> Result<(AudioCapture, AudioMode), Audio
             AudioCapture {
                 stop,
                 thread: Some(thread),
+                delivered,
             },
             mode,
         )),
@@ -164,37 +180,60 @@ fn run(
         return;
     }
 
-    let outcome = open_client();
-    let (client, mode) = match outcome {
-        Ok(pair) => pair,
-        Err(error) => {
-            let _ = ready.send(Err(error));
-            unsafe { CoUninitialize() };
-            return;
-        }
-    };
+    // Todo objeto COM vive dentro deste escopo. Soltar uma interface DEPOIS de
+    // `CoUninitialize` e comportamento indefinido.
+    {
+        let opened = match open_client() {
+            Ok(opened) => opened,
+            Err(error) => {
+                let _ = ready.send(Err(error));
+                unsafe { CoUninitialize() };
+                return;
+            }
+        };
 
-    if let Err(error) = pump(&client, stop, ready, frames, mode) {
-        eprintln!("audio: captura interrompida: {error}");
+        if let Err(error) = pump(&opened, stop, ready, frames) {
+            eprintln!("audio: captura interrompida: {error}");
+        }
     }
+
     unsafe { CoUninitialize() };
 }
 
-/// Process loopback if Discord is running, whole-system loopback otherwise.
-fn open_client() -> Result<(IAudioClient, AudioMode), AudioError> {
-    match discord_root_pid() {
-        Some(pid) => {
-            match activate_process_loopback(pid) {
-                Ok(client) => Ok((client, AudioMode::ExcludingDiscord)),
-                Err(error) => {
-                    // RF-30: cair para o sistema inteiro e melhor do que nao ter
-                    // audio, desde que a interface diga o que esta acontecendo.
-                    eprintln!("audio: process loopback indisponivel ({error}), caindo para o sistema inteiro");
-                    Ok((activate_whole_system()?, AudioMode::WholeSystem))
-                }
+/// An opened capture, plus the event WASAPI signals when a packet is ready.
+struct Opened {
+    client: IAudioClient,
+    /// `Some` when the client was initialised event-driven, which process
+    /// loopback requires.
+    tick: Option<HANDLE>,
+    mode: AudioMode,
+}
+
+impl Drop for Opened {
+    fn drop(&mut self) {
+        if let Some(tick) = self.tick.take() {
+            unsafe {
+                let _ = CloseHandle(tick);
             }
         }
-        None => Ok((activate_whole_system()?, AudioMode::WholeSystem)),
+    }
+}
+
+/// Process loopback if Discord is running, whole-system loopback otherwise.
+fn open_client() -> Result<Opened, AudioError> {
+    let Some(pid) = discord_root_pid() else {
+        return open_whole_system();
+    };
+    match open_process_loopback(pid) {
+        Ok(opened) => Ok(opened),
+        Err(error) => {
+            // RF-30: cair para o sistema inteiro e melhor do que nao ter audio,
+            // desde que a interface diga o que esta acontecendo.
+            eprintln!(
+                "audio: process loopback indisponivel ({error}), caindo para o sistema inteiro"
+            );
+            open_whole_system()
+        }
     }
 }
 
@@ -213,48 +252,73 @@ fn format() -> WAVEFORMATEX {
 }
 
 /// Signalled by WASAPI when the asynchronous activation finishes.
+///
+/// Signals through a Win32 event rather than a condition variable: this object
+/// is built on our thread and called on a WASAPI pool thread, and an event
+/// handle is the primitive both sides already agree on.
 #[implement(IActivateAudioInterfaceCompletionHandler)]
-struct Completion(Arc<(Mutex<bool>, Condvar)>);
+struct Completion {
+    /// `HANDLE` is a raw pointer and so not `Send`; the numeric value is, and
+    /// the handle is only ever signalled — never closed — from the callback.
+    done: usize,
+}
 
 impl IActivateAudioInterfaceCompletionHandler_Impl for Completion_Impl {
     fn ActivateCompleted(
         &self,
         _operation: Ref<'_, IActivateAudioInterfaceAsyncOperation>,
     ) -> windows::core::Result<()> {
-        let (lock, signal) = &*self.0;
-        if let Ok(mut done) = lock.lock() {
-            *done = true;
+        unsafe {
+            let _ = SetEvent(HANDLE(self.done as *mut std::ffi::c_void));
         }
-        signal.notify_all();
         Ok(())
     }
 }
 
-fn activate_process_loopback(pid: u32) -> Result<IAudioClient, AudioError> {
-    let mut params = AUDIOCLIENT_ACTIVATION_PARAMS {
-        ActivationType: AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
-        Anonymous: AUDIOCLIENT_ACTIVATION_PARAMS_0 {
-            ProcessLoopbackParams: AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS {
-                TargetProcessId: pid,
-                ProcessLoopbackMode: PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
+fn open_process_loopback(pid: u32) -> Result<Opened, AudioError> {
+    // O blob vai em memoria do COM, e nao na pilha, porque o `mmdevapi` limpa o
+    // PROPVARIANT que recebe — e limpar um VT_BLOB e `CoTaskMemFree(pBlobData)`.
+    //
+    // Isto custou uma sessao inteira de depuracao, e a amostra ApplicationLoopback
+    // da propria Microsoft usa a pilha. Com o blob na pilha a captura funciona
+    // perfeitamente, entrega os quadros certos, e destroi o heap do processo: a
+    // morte vem depois, com STATUS_HEAP_CORRUPTION, em qualquer alocacao, longe
+    // daqui. Esta memoria nao e devolvida por nos — quem a libera e o Windows.
+    let params = unsafe {
+        let ptr = CoTaskMemAlloc(std::mem::size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>())
+            .cast::<AUDIOCLIENT_ACTIVATION_PARAMS>();
+        if ptr.is_null() {
+            return Err(AudioError::Windows(
+                "sem memoria para ativar a captura".into(),
+            ));
+        }
+        ptr.write(AUDIOCLIENT_ACTIVATION_PARAMS {
+            ActivationType: AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
+            Anonymous: AUDIOCLIENT_ACTIVATION_PARAMS_0 {
+                ProcessLoopbackParams: AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS {
+                    TargetProcessId: pid,
+                    ProcessLoopbackMode: PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
+                },
             },
-        },
+        });
+        ptr
     };
 
     let mut activation = PROPVARIANT::default();
-    // O PROPVARIANT carrega a struct como blob cru; nao ha construtor tipado
-    // para isto no windows-rs, e a API do Windows nao aceita outra forma.
     unsafe {
         let inner = &mut activation.Anonymous.Anonymous;
         inner.vt = VT_BLOB;
         inner.Anonymous.blob = BLOB {
             cbSize: std::mem::size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>() as u32,
-            pBlobData: std::ptr::from_mut(&mut params).cast::<u8>(),
+            pBlobData: params.cast::<u8>(),
         };
     }
 
-    let state = Arc::new((Mutex::new(false), Condvar::new()));
-    let handler: IActivateAudioInterfaceCompletionHandler = Completion(Arc::clone(&state)).into();
+    let done = unsafe { CreateEventW(None, true, false, None) }?;
+    let handler: IActivateAudioInterfaceCompletionHandler = Completion {
+        done: done.0 as usize,
+    }
+    .into();
 
     let operation = unsafe {
         ActivateAudioInterfaceAsync(
@@ -265,15 +329,12 @@ fn activate_process_loopback(pid: u32) -> Result<IAudioClient, AudioError> {
         )
     }?;
 
-    {
-        let (lock, signal) = &*state;
-        let guard = lock.lock().map_err(|_| AudioError::Timeout)?;
-        let (_guard, timeout) = signal
-            .wait_timeout_while(guard, Duration::from_secs(3), |done| !*done)
-            .map_err(|_| AudioError::Timeout)?;
-        if timeout.timed_out() {
-            return Err(AudioError::Timeout);
-        }
+    let waited = unsafe { WaitForSingleObject(done, 3_000) };
+    unsafe {
+        let _ = CloseHandle(done);
+    }
+    if waited != WAIT_OBJECT_0 {
+        return Err(AudioError::Timeout);
     }
 
     let mut result = windows::core::HRESULT(0);
@@ -284,20 +345,30 @@ fn activate_process_loopback(pid: u32) -> Result<IAudioClient, AudioError> {
         .ok_or_else(|| AudioError::Windows("o Windows nao devolveu um IAudioClient".into()))?
         .cast()?;
 
+    // Process loopback so aceita o modo dirigido por evento.
     unsafe {
         client.Initialize(
             AUDCLNT_SHAREMODE_SHARED,
-            AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
+            AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
             BUFFER_DURATION_HNS,
             0,
             &format(),
             None,
         )
     }?;
-    Ok(client)
+    let tick = unsafe { CreateEventW(None, false, false, None) }?;
+    unsafe { client.SetEventHandle(tick) }?;
+
+    Ok(Opened {
+        client,
+        tick: Some(tick),
+        mode: AudioMode::ExcludingDiscord,
+    })
 }
 
-fn activate_whole_system() -> Result<IAudioClient, AudioError> {
+/// Everything the machine is playing, Discord included: the declared fallback of
+/// RF-30.
+fn open_whole_system() -> Result<Opened, AudioError> {
     let enumerator: IMMDeviceEnumerator =
         unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }?;
     // Loopback e capturar o que a placa esta tocando, entao o dispositivo e o de
@@ -316,28 +387,38 @@ fn activate_whole_system() -> Result<IAudioClient, AudioError> {
             None,
         )
     }?;
-    Ok(client)
+    // Sem evento aqui: num endpoint de saida em loopback o evento nao dispara
+    // enquanto a maquina esta muda, e silencio e o estado normal de um jogo
+    // entre um tiro e outro.
+    Ok(Opened {
+        client,
+        tick: None,
+        mode: AudioMode::WholeSystem,
+    })
 }
 
-/// Polls instead of waiting on an event.
-///
-/// Event-driven loopback is the documented shape for a capture endpoint, but on
-/// a render endpoint in loopback the event does not fire while the machine is
-/// silent — and silence is the normal state of a game between gunshots. Polling
-/// is one code path that behaves the same in both modes.
 fn pump(
-    client: &IAudioClient,
+    opened: &Opened,
     stop: &AtomicBool,
     ready: &mpsc::Sender<Result<AudioMode, AudioError>>,
     frames: &tokio::sync::mpsc::Sender<Vec<i16>>,
-    mode: AudioMode,
 ) -> Result<(), AudioError> {
+    let client = &opened.client;
     let capture: IAudioCaptureClient = unsafe { client.GetService() }?;
     unsafe { client.Start() }?;
-    let _ = ready.send(Ok(mode));
+    let _ = ready.send(Ok(opened.mode));
 
     let mut dropped = 0u64;
     while !stop.load(Ordering::Relaxed) {
+        match opened.tick {
+            // O tempo limite nao e desperdicio: e o que faz o pedido de parada
+            // ser atendido mesmo com a maquina muda.
+            Some(tick) => {
+                unsafe { WaitForSingleObject(tick, 100) };
+            }
+            None => std::thread::sleep(POLL),
+        }
+
         loop {
             let available = unsafe { capture.GetNextPacketSize() }?;
             if available == 0 {
@@ -354,8 +435,7 @@ fn pump(
                 let mut buffer = vec![0i16; samples];
                 let silent = flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0;
                 if !silent && !data.is_null() {
-                    // WASAPI entregou PCM 16 bits intercalado, no formato que
-                    // pedimos em `format()`.
+                    // PCM 16 bits intercalado, no formato pedido em `format()`.
                     unsafe {
                         std::ptr::copy_nonoverlapping(
                             data.cast::<i16>(),
@@ -364,7 +444,7 @@ fn pump(
                         );
                     }
                 }
-                // Silencio tambem e enviado: um fluxo com buracos faz o receptor
+                // Silencio tambem vai: um fluxo com buracos faz o receptor
                 // engasgar mais do que um fluxo de zeros.
                 if frames.try_send(buffer).is_err() {
                     dropped += 1;
@@ -376,7 +456,6 @@ fn pump(
 
             unsafe { capture.ReleaseBuffer(count) }?;
         }
-        std::thread::sleep(POLL);
     }
 
     unsafe { client.Stop() }?;
@@ -451,13 +530,59 @@ fn snapshot() -> Vec<Process> {
             }
         }
     }
-    let _ = unsafe { windows::Win32::Foundation::CloseHandle(handle) };
+    let _ = unsafe { CloseHandle(handle) };
     processes
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use livekit::webrtc::audio_source::AudioSourceOptions;
+
+    /// Touches real audio hardware, so it is not part of `just check`: a machine
+    /// with no render endpoint has nothing to capture and would fail for the
+    /// wrong reason.
+    ///
+    /// Run it by hand, from `desktop/src-tauri`, with Discord open and some
+    /// sound playing:
+    ///
+    /// ```text
+    /// cargo test -- --ignored --nocapture
+    /// ```
+    ///
+    /// It is the only way to see this path work short of a full share, and it is
+    /// what caught the `CoTaskMemAlloc` bug: COM activation, process loopback and
+    /// the fallback are all invisible from the interface until someone complains
+    /// they can hear themselves.
+    #[tokio::test]
+    #[ignore]
+    async fn wasapi_delivers_samples() {
+        let sink =
+            NativeAudioSource::new(AudioSourceOptions::default(), SAMPLE_RATE, CHANNELS, 1_000);
+        let (capture, mode) = start(sink).expect("a captura de audio deve iniciar");
+        println!("modo de captura: {mode:?}");
+        if mode == AudioMode::WholeSystem {
+            println!("  (nenhum Discord rodando: nada a excluir, RF-30)");
+        }
+
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        let delivered = capture.delivered_samples();
+        capture.stop();
+
+        println!(
+            "amostras por canal em 3 s: {delivered} (esperado ~{})",
+            SAMPLE_RATE * 3
+        );
+        assert!(
+            delivered > u64::from(SAMPLE_RATE),
+            "menos de um segundo de audio em tres: a captura abriu mas nao esta entregando"
+        );
+
+        // Se o heap tivesse sido corrompido pela ativacao, e aqui que a conta
+        // chegaria. Foi exatamente assim que o defeito do blob apareceu.
+        let churn: Vec<String> = (0..10_000).map(|i| format!("bloco {i}")).collect();
+        assert_eq!(churn.len(), 10_000);
+    }
 
     fn process(pid: u32, parent: u32, name: &str) -> Process {
         Process {

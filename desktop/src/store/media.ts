@@ -23,6 +23,10 @@ export interface PublisherStats {
   /** Whether libwebrtc picked a hardware encoder. Only observable since
       publishing moved to the core (ADR-0026). */
   hardwareEncoder: boolean;
+  /** Samples per channel captured, or `null` when sharing without audio. Zero
+      while sharing with audio means the capture opened but nothing is coming
+      through — which sounds exactly like a muted game and is not the same. */
+  audioSamples: number | null;
 }
 
 /** One screen being received, keyed by the publisher's LiveKit identity. */

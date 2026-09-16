@@ -510,6 +510,7 @@ export class MediaSession {
               width: stats.width,
               height: stats.height,
               hardwareEncoder: stats.hardware_encoder,
+              audioSamples: stats.audio_samples,
             },
       );
     } catch {
@@ -562,6 +563,7 @@ interface NativeStats {
   width: number;
   height: number;
   hardware_encoder: boolean;
+  audio_samples: number | null;
 }
 
 function publishMessage(error: unknown): string {
