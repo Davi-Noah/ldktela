@@ -1,6 +1,12 @@
 //! Núcleo nativo do cliente desktop: cofre, bandeja e IPC.
 
+mod capture;
+mod publisher;
+mod share;
 mod vault;
+
+#[cfg(target_os = "windows")]
+mod audio;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -10,10 +16,14 @@ use tauri::{Manager, WindowEvent};
 pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .manage(share::Sharing::default())
         .invoke_handler(tauri::generate_handler![
             vault::vault_get_refresh_token,
             vault::vault_set_refresh_token,
             vault::vault_clear_refresh_token,
+            share::share_sources,
+            share::share_start,
+            share::share_stop,
         ])
         .setup(|app| {
             build_tray(app.handle())?;

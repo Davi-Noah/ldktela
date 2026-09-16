@@ -1,0 +1,9 @@
+# O libwebrtc pre-compilado do `webrtc-sys` e ligado ao CRT estatico (/MT). O Rust
+# no MSVC usa o dinamico (/MD) por padrao, e o link falha com centenas de
+# LNK2038 "RuntimeLibrary mismatch". Isto alinha os dois lados -- e tambem faz o
+# `cc` compilar a cola C++ do proprio webrtc-sys com /MT. Ver ADR-0026.
+#
+# Cargo le este arquivo pelo diretorio ATUAL, nao pelo --manifest-path: por isso
+# o justfile entra em desktop/src-tauri antes de chamar cargo.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

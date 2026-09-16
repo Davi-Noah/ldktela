@@ -40,6 +40,23 @@ pub const MAX_TOKEN_TTL_SECONDS: u64 = 3600;
 /// publishes nothing at all, and nobody ever publishes a camera or a microphone.
 const PUBLISHABLE_SOURCES: [&str; 2] = ["screen_share", "screen_share_audio"];
 
+/// Suffix that tells the publishing connection apart from the watching one.
+///
+/// A person who shares is in the room twice: the WebView watching, and the core
+/// publishing (ADR-0027). LiveKit disconnects the first participant when a
+/// second arrives with the same identity, so the two need different names — and
+/// the name is stamped into the signed token here, never chosen by the client,
+/// or a client could take someone else's.
+///
+/// `~` was picked because it cannot occur in a UUID, which makes stripping it
+/// unambiguous.
+pub const PUBLISHER_SUFFIX: &str = "~pub";
+
+/// The identity the core uses to publish for `user_id`.
+pub fn publisher_identity(user_id: Uuid) -> String {
+    format!("{user_id}{PUBLISHER_SUFFIX}")
+}
+
 /// Room name for a Discord voice channel. Deterministic, so two clients whose
 /// Discord put them in the same channel land in the same room with no
 /// coordination between them (ADR-0011).
@@ -103,13 +120,30 @@ impl Rooms {
     /// This is the enforcement half of RF-08. Waiting for the token to expire
     /// would leave someone watching a screen they lost the right to see for up
     /// to an hour, and a screen share session routinely lasts longer than that.
+    /// Both of them: someone who is sharing is in the room twice, and throwing
+    /// out only the viewer would leave their screen on everyone else's display
+    /// (ADR-0027).
+    ///
+    /// The publishing identity is usually absent — most people are not sharing —
+    /// so its removal failing is expected and only logged. The viewer's is not:
+    /// that one is the revocation, and it has to be reported if it fails.
     pub async fn remove_participant(
         &self,
         discord_channel_id: i64,
         user_id: Uuid,
     ) -> Result<(), AppError> {
+        let room = room_name(discord_channel_id);
+
+        if let Err(e) = self
+            .client
+            .remove_participant(&room, &publisher_identity(user_id))
+            .await
+        {
+            tracing::debug!(error = %e, %user_id, "no publishing connection to remove");
+        }
+
         self.client
-            .remove_participant(&room_name(discord_channel_id), &user_id.to_string())
+            .remove_participant(&room, &user_id.to_string())
             .await
             .map(|_| ())
             .map_err(|e| {
@@ -201,8 +235,14 @@ impl Rooms {
             ..Default::default()
         };
 
+        let identity = if publish {
+            publisher_identity(user_id)
+        } else {
+            user_id.to_string()
+        };
+
         AccessToken::with_api_key(&self.config.api_key, &self.config.api_secret)
-            .with_identity(&user_id.to_string())
+            .with_identity(&identity)
             .with_name(display_name)
             .with_ttl(Duration::from_secs(
                 self.config.token_ttl_seconds.min(MAX_TOKEN_TTL_SECONDS),
@@ -269,10 +309,29 @@ impl WebhookEvent {
     }
 
     /// The local user id carried in the participant identity.
+    ///
+    /// Both connections of one person answer with the same id: the suffix is a
+    /// transport detail, and everything downstream — presence, sessions, the
+    /// publisher ledger — is keyed by the person.
     pub fn user(&self) -> Option<Uuid> {
+        let identity = self.participant_identity.as_deref()?;
+        identity
+            .strip_suffix(PUBLISHER_SUFFIX)
+            .unwrap_or(identity)
+            .parse()
+            .ok()
+    }
+
+    /// Whether the event came from the publishing connection rather than the
+    /// person.
+    ///
+    /// It decides whether a join or a leave touches presence. A publishing
+    /// connection appearing is not someone entering the room, and it going away
+    /// is not someone leaving — it is a screen starting and stopping.
+    pub fn is_publisher_connection(&self) -> bool {
         self.participant_identity
             .as_deref()
-            .and_then(|id| id.parse().ok())
+            .is_some_and(|id| id.ends_with(PUBLISHER_SUFFIX))
     }
 
     /// Whether this event is about the screen video track.
@@ -470,6 +529,69 @@ mod tests {
         let rooms = Rooms::new(config());
         assert!(rooms.verify_webhook("{}", "").is_none());
         assert!(rooms.verify_webhook("{}", "Bearer nao-e-um-jwt").is_none());
+    }
+
+    /// Uma pessoa que compartilha esta na sala duas vezes (ADR-0027), e o resto
+    /// do sistema — presenca, sessoes, o ledger de publicadores — e indexado
+    /// pela pessoa. Se o sufixo vazasse, cada metade viraria um usuario.
+    #[test]
+    fn both_connections_of_one_person_resolve_to_the_same_user() {
+        let user = Uuid::now_v7();
+        let viewer = WebhookEvent {
+            event: "participant_joined".into(),
+            room: Some(room_name(CHANNEL)),
+            participant_identity: Some(user.to_string()),
+            track_source: None,
+        };
+        let publisher = WebhookEvent {
+            participant_identity: Some(publisher_identity(user)),
+            ..viewer.clone()
+        };
+
+        assert_eq!(viewer.user(), Some(user));
+        assert_eq!(publisher.user(), Some(user));
+        assert!(!viewer.is_publisher_connection());
+        assert!(publisher.is_publisher_connection());
+    }
+
+    #[test]
+    fn a_publish_token_carries_the_suffixed_identity_and_a_viewer_token_does_not() {
+        // Quem decide a identidade e o servidor, dentro do JWT assinado: se o
+        // cliente escolhesse, poderia assumir a de outra pessoa.
+        let rooms = Rooms::new(config());
+        let user = Uuid::now_v7();
+
+        let publish = rooms
+            .issue_token(CHANNEL, user, "pessoa", true)
+            .expect("token de publicacao");
+        let view = rooms
+            .issue_token(CHANNEL, user, "pessoa", false)
+            .expect("token de espectador");
+
+        assert_eq!(identity_of(&publish), publisher_identity(user));
+        assert_eq!(identity_of(&view), user.to_string());
+    }
+
+    /// The `sub` claim of a token, which is what LiveKit uses as the identity.
+    fn identity_of(token: &str) -> String {
+        let payload = token.split('.').nth(1).expect("payload");
+        let claims: serde_json::Value =
+            serde_json::from_str(&base64_decode(payload)).expect("payload é JSON");
+        claims["sub"].as_str().unwrap_or_default().to_owned()
+    }
+
+    #[test]
+    fn an_identity_that_is_not_ours_is_not_mistaken_for_a_publisher() {
+        // Um agente ou uma ferramenta de inspecao pode entrar na sala; nada
+        // disso pode virar presenca nem sessao de tela.
+        let stranger = WebhookEvent {
+            event: "participant_joined".into(),
+            room: Some(room_name(CHANNEL)),
+            participant_identity: Some("gravador-do-suporte".into()),
+            track_source: None,
+        };
+        assert_eq!(stranger.user(), None);
+        assert!(!stranger.is_publisher_connection());
     }
 
     #[test]

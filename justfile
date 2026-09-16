@@ -11,7 +11,7 @@ default:
 # ---------------------------------------------------------------------------
 # Verificacao. E o oraculo de correcao do projeto: se falha, nada esta pronto.
 # ---------------------------------------------------------------------------
-check: fmt-check lint sqlx-check test-rs types-check test-ts
+check: fmt-check lint sqlx-check test-rs test-tauri types-check test-ts
     @echo "OK — tudo verde"
 
 fmt:
@@ -24,9 +24,12 @@ fmt-check:
     cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --all -- --check
     cd desktop && npm run format:check
 
+# O `cd` nao e estilo: o cargo le .cargo/config.toml pelo diretorio ATUAL, e nao
+# pelo --manifest-path. De fora, o crt-static que o libwebrtc exige nao seria
+# aplicado e o link falharia com centenas de LNK2038. Ver ADR-0026.
 lint:
     cargo clippy --workspace --all-targets -- -D warnings
-    cargo clippy --manifest-path desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+    cd desktop/src-tauri && cargo clippy --all-targets -- -D warnings
     cd desktop && npm run lint
 
 # Falha se .sqlx/ estiver desatualizado em relacao as queries do codigo
@@ -38,6 +41,12 @@ types-check:
 
 test-rs:
     cargo test --workspace
+
+# O core do cliente esta fora do workspace, entao `cargo test --workspace` nao o
+# alcanca: sem esta receita, a captura de tela e o audio ficariam sem teste
+# nenhum rodando.
+test-tauri:
+    cd desktop/src-tauri && cargo test
 
 test-ts:
     cd desktop && npx vitest run

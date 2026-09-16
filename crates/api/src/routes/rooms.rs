@@ -139,9 +139,19 @@ async fn webhook(
     };
 
     match event.event.as_str() {
-        "participant_joined" => {
+        // A conexao que publica nao e uma pessoa entrando na sala (ADR-0027):
+        // a pessoa ja esta la, pelo WebView. Escrever presenca aqui faria o par
+        // entrar/sair da publicacao mexer em quem esta no canal.
+        "participant_joined" if !event.is_publisher_connection() => {
             if let Some(user) = event.user() {
                 on_join(&state, channel, user).await?;
+            }
+        }
+        // Sair sem despublicar e como o core caindo aparece daqui. Encerra a
+        // transmissao, mas nao tira a pessoa da sala.
+        "participant_left" if event.is_publisher_connection() => {
+            if let Some(user) = event.user() {
+                on_share_stop(&state, channel, user).await?;
             }
         }
         "participant_left" => {

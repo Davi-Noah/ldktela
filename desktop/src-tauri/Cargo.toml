@@ -15,6 +15,10 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
+# Publicacao de midia no core (ADR-0026). Versao exata: e a terceira ponta do par
+# do ADR-0019, junto do livekit-client e da imagem do servidor.
+livekit = { version = "=0.9.1", default-features = false, features = ["native", "rustls-tls-native-roots"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -24,6 +28,20 @@ thiserror = "2"
 # keyring cai no store mock, em memoria, e o token some a cada execucao.
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }
+# WASAPI process loopback (ADR-0025) e o HWND das nossas janelas, para tira-las
+# do seletor. A versao acompanha a que o Tauri ja resolve: divergir daria dois
+# tipos `HWND` incompativeis.
+# A macro `#[implement]` gera caminhos `windows_core::...` na raiz do crate, entao
+# ele precisa ser dependencia direta e nao so reexport de `windows::core`.
+windows-core = "0.61"
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Win32_System_Diagnostics_ToolHelp",
+] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["sync-secret-service"] }
