@@ -24,6 +24,8 @@ const SIGN_OUT_EVENT: &str = "session://sign-out";
 pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(share::Sharing::default())
         .invoke_handler(tauri::generate_handler![
             vault::vault_get_refresh_token,

@@ -23,6 +23,10 @@ tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+tauri-plugin-updater = "2.11.0"
+# So para reiniciar o processo depois de instalar uma atualizacao (RF-28): sem
+# isto o binario novo so entra em uso na proxima vez que o usuario abrir o app.
+tauri-plugin-process = "2"
 
 # O backend do cofre e por plataforma: com `windows-native` sozinho, em Linux o
 # keyring cai no store mock, em memoria, e o token some a cada execucao.

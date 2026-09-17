@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { start } from './app/runtime';
 import { PairingScreen } from './features/pairing/PairingScreen';
 import { RoomScreen } from './features/room/RoomScreen';
+import { UpdateBanner } from './features/update/UpdateBanner';
 import { useSessionStore } from './store/session';
 
 export function App() {
@@ -11,6 +12,15 @@ export function App() {
     void start();
   }, []);
 
+  return (
+    <>
+      {renderPhase(phase)}
+      <UpdateBanner />
+    </>
+  );
+}
+
+function renderPhase(phase: ReturnType<typeof useSessionStore.getState>['phase']) {
   switch (phase) {
     case 'booting':
       return <Message text="Abrindo…" />;

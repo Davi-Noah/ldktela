@@ -453,3 +453,20 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   comportamento normal de uma publicação pausada (`dynacast`), e é indistinguível de uma
   captura morta se só se contar quadro aceito. Por isso a captura conta os dois: `produced`
   (convertidos e oferecidos) e `delivered` (aceitos pelo encoder).
+- **[S7] Chave pública do atualizador embutida em `tauri.conf.json`, sem esconder** — o
+  `pubkey` gerado por `tauri signer generate` não é segredo: o atualizador o usa para
+  **recusar** um pacote sem a assinatura correspondente, então publicá-lo é o ponto — quem
+  precisa ficar fora do repositório é a chave privada e a senha, guardadas como segredos do
+  GitHub (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) e usadas só em
+  `release.yml`.
+- **[S7] A checagem de atualização é silenciosa quando falha, e nunca bloqueia** — sem rede,
+  ou com o `latest.json` fora do ar, o log registra e a tentativa seguinte cobre o caso; um
+  aviso na tela por uma falha que o usuário não pode resolver seria ruído. Primeira checagem
+  10 s após o arranque (não compete com o boot), depois a cada 6 h — o aplicativo passa dias
+  na bandeja (RNF-03) e uma versão publicada no meio disso precisa ser oferecida sem exigir
+  reinício manual para notar.
+- **[S7] Atualização é barra fina com botão, nunca instalação silenciosa** — o critério de
+  aceite do S7 diz "automática", mas instalar e reiniciar sem perguntar interromperia uma
+  transmissão em andamento sem aviso nenhum. A barra fica no rodapé, do tamanho de uma linha,
+  e "Agora não" a esconde até a próxima checagem — nunca modal, porque a tela da sala existe
+  para sair da frente do vídeo (`CLAUDE.md` §8).

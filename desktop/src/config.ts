@@ -28,3 +28,8 @@ export const STATS_SAMPLE_INTERVAL_MS = 2000;
 
 /** Idle time before the chrome over a live video hides itself. */
 export const CHROME_IDLE_MS = 2500;
+
+/** RF-28. First check waits for the window to settle; later ones are spaced out
+    because the app is meant to live in the tray for days at a time (RNF-03). */
+export const UPDATE_CHECK_DELAY_MS = 10_000;
+export const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;

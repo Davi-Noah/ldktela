@@ -1,14 +1,22 @@
 import { ApiClient, ApiError, NetworkError } from '../api/client';
 import type { AuthResponse } from '../api/types/AuthResponse';
-import { API_BASE_URL, CLIENT_INFO, GATEWAY_URL } from '../config';
+import {
+  API_BASE_URL,
+  CLIENT_INFO,
+  GATEWAY_URL,
+  UPDATE_CHECK_DELAY_MS,
+  UPDATE_CHECK_INTERVAL_MS,
+} from '../config';
 import { listen } from '@tauri-apps/api/event';
 import { notifyShareStarted, shouldNotify } from '../platform/notify';
 import { GatewayClient } from '../gateway/client';
 import { log } from '../log';
 import { MediaSession } from '../media/session';
+import { checkForUpdate } from '../platform/updater';
 import { clearRefreshToken, readRefreshToken, writeRefreshToken } from '../platform/vault';
 import { useRoomStore } from '../store/room';
 import { useSessionStore } from '../store/session';
+import { useUpdaterStore } from '../store/updater';
 
 /** Same wording for a wrong code and an expired one: the server does not tell them apart. */
 export const PAIRING_FAILED_MESSAGE =
@@ -73,6 +81,8 @@ export async function start(): Promise<void> {
     log.info('sessão: troca de conta pedida pela bandeja');
     void signOut();
   });
+
+  scheduleUpdateChecks();
 
   useRoomStore.subscribe((state, previous) => {
     if (state.channelId !== previous.channelId) {
@@ -160,6 +170,28 @@ async function recoverFromAuthFailure(): Promise<void> {
   } catch {
     await signOut();
   }
+}
+
+/**
+ * RF-28. First check waits for the window to settle rather than racing the
+ * app's own startup; later ones repeat because the app is meant to sit in the
+ * tray for days between restarts (RNF-03), and a version released on day two
+ * would otherwise never be offered.
+ *
+ * A failed check is silent by design (`checkForUpdate` already logs it): the
+ * next scheduled attempt is the retry, and a banner for "couldn't reach the
+ * update server" would be noise nobody can act on.
+ */
+function scheduleUpdateChecks(): void {
+  const run = () => {
+    void checkForUpdate().then((found) => {
+      if (found !== null) {
+        useUpdaterStore.getState().available(found.update, found.info);
+      }
+    });
+  };
+  setTimeout(run, UPDATE_CHECK_DELAY_MS);
+  setInterval(run, UPDATE_CHECK_INTERVAL_MS);
 }
 
 /**

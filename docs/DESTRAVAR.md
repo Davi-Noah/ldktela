@@ -215,6 +215,11 @@ just app           # abre o aplicativo Tauri
    servidor (Ctrl+C) e suba de novo.
    → Espere: no arranque, `limpando tags [LIVE] de uma queda`, e o apelido volta
    ao que era **antes** — inclusive voltando a não ter apelido, se não tinha.
+3f. **Notificação nativa** (RF-27) — com o aplicativo minimizado na bandeja
+   (não em foco), peça para outra pessoa compartilhar no seu canal.
+   → Espere: uma notificação do Windows dizendo quem começou a transmitir. Se
+   você mesmo compartilhar, ou se a janela estiver em foco, não deve aparecer
+   nenhuma — é silêncio deliberado, não bug.
 4. **Revogação ao vivo** — pelo Discord, tire seu próprio acesso ao canal de voz
    (um overwrite negando `Ver canal` para você, ou saia do servidor num usuário
    de teste).
@@ -434,15 +439,49 @@ Coisas que estão faltando de propósito ou que eu não consegui fechar:
    `GUILD_CREATE` vem truncado, o bot busca a lista completa pela API REST,
    paginando. O `large_threshold` deixou de importar.
 3. **Sem testes de integração HTTP no `api`.** A suíte antiga testava rotas que
-   não existem mais e foi removida; os repositórios têm 19 testes contra Postgres
+   não existem mais e foi removida; os repositórios têm testes contra Postgres
    real, mas as rotas novas (`/auth/pair`, `/rooms/*`, webhook) só têm cobertura
    por unidade.
 4. **`docs/rest-api.md` e `docs/websocket.md` descrevem o contrato antigo**, com
    aviso no topo dizendo o que sobrevive. A reescrita não foi feita.
-5. **Atualização automática (RF-28), anúncio no Discord (S8) e áudio por
-   aplicativo (S9)** não existem.
-6. **Notificação nativa (RF-27)** — o plugin está registrado, mas nada dispara
-   notificação ainda.
+5. **Link profundo no anúncio do Discord não existe** — o Discord não torna
+   esquema próprio clicável, então falta a página https de redirecionamento que
+   o destrava. Ver [ADR-0029](adr/0029-link-profundo-espera-uma-pagina-https.md).
+6. ~~Atualização automática (RF-28), anúncio no Discord (S8) e áudio por
+   aplicativo (S9)~~ — **feitos**. Ver a seção seguinte para publicar a primeira
+   versão assinada.
+
+## Publicar uma versão (RF-28)
+
+O aplicativo verifica atualização sozinho — 10 s depois de abrir e depois a
+cada 6 h — contra as Releases do repositório, e só instala um pacote cuja
+assinatura bate com a chave pública embutida em `tauri.conf.json`. Faltam dois
+segredos, que só existem depois de alguém gerar o par de chaves:
+
+```bash
+cd desktop && npm run tauri signer generate -- -w $HOME/.tauri/ldkcord.key
+```
+
+Isso imprime a chave pública (já foi colada em `tauri.conf.json`) e grava a
+privada em `~/.tauri/ldkcord.key`. Nos **segredos do repositório** no GitHub
+(Settings → Secrets and variables → Actions), cadastre:
+
+- `TAURI_SIGNING_PRIVATE_KEY` — o conteúdo do arquivo `ldkcord.key`.
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — a senha escolhida ao gerar.
+
+**A chave privada nunca deve existir fora desses dois lugares** (o arquivo
+local e o segredo do GitHub): quem a tiver pode publicar uma atualização para
+todo mundo que usa o aplicativo.
+
+Com os segredos cadastrados, publicar é criar uma tag:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+O workflow `.github/workflows/release.yml` compila, assina e sobe o `.msi` e o
+`latest.json` como um **rascunho** de release — publique-o manualmente na aba
+Releases quando estiver pronto para que os clientes existentes o vejam.
 
 ---
 

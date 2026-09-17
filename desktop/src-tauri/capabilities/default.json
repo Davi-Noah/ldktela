@@ -1,12 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "O WebView ouve eventos do core (fim de compartilhamento, troca de conta) e envia notificacao nativa quando alguem comeca a transmitir (RF-27). Comandos proprios do aplicativo nao passam por aqui; comandos de plugin, incluindo os do nucleo, passam.",
+  "description": "O WebView ouve eventos do core (fim de compartilhamento, troca de conta), envia notificacao nativa quando alguem comeca a transmitir (RF-27), e verifica/instala atualizacao assinada (RF-28). Comandos proprios do aplicativo nao passam por aqui; comandos de plugin, incluindo os do nucleo, passam.",
   "windows": [
     "main"
   ],
   "permissions": [
     "core:event:default",
-    "notification:default"
+    "notification:default",
+    "updater:default",
+    "process:allow-restart"
   ]
 }
