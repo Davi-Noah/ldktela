@@ -1160,6 +1160,22 @@ mod tests {
         );
     }
 
+    /// The preset the panel tells a CPU-bound publisher to fall back to.
+    ///
+    /// Worth its own measurement: recommending a way out that nobody checked is
+    /// how a workaround becomes a second bug report.
+    #[tokio::test]
+    #[ignore]
+    async fn measure_720p60_end_to_end() {
+        let (got, _, _, _) = measure(Preset::P720p60, 10).await;
+        assert_eq!((got.width, got.height), (1280, 720));
+        assert!(
+            got.frames >= 450,
+            "o espectador recebeu {} quadros em 10 s",
+            got.frames
+        );
+    }
+
     /// The third leg of the version pair (ADR-0019).
     ///
     /// The other two are guarded already: `livekit-client` in

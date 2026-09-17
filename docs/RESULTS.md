@@ -228,3 +228,96 @@ conclui nada. Repetir a Fase B com:
 Objetivo: descobrir se os 139 s de congelamento eram contenção de CPU, como a
 assinatura sugere, ou defeito do produto. Enquanto não for refeito, a linha
 "Qualidade" do veredito continua ⚠️.
+
+---
+
+## 2026-09-17 — contando quadros **no espectador**
+
+A medição que faltava, e a que muda a conclusão das outras.
+
+Todas as anteriores olharam o publicador: quadros capturados, bitrate enviado,
+`getStats()` local. Nenhuma respondia à única pergunta que importa — quantos
+quadros chegam do outro lado. E acontece que as duas coisas podem discordar
+completamente sem que nada acuse: com a publicação como estava, uma captura de
+60 quadros por segundo chegava ao espectador como **11**, enquanto o publicador
+relatava 60 capturados, 60 aceitos pelo encoder, `quality_limitation_reason:
+none` e 1,7 Mb/s de banda sobrando.
+
+### Arranjo
+
+| | |
+|---|---|
+| Publicador | Core Rust, i5-10400 (6 núcleos / 12 threads), tela 1920×1080 |
+| Espectador | Segunda conexão do SDK Rust, contando quadros decodificados |
+| SFU | `livekit-server:v1.13.6` em Docker, loopback (RTT 1–2 ms) |
+| Instrumento | `measure_*_end_to_end` e `sweep_publish_options_against_a_real_subscriber`, em `desktop/src-tauri/src/publisher.rs` |
+
+Loopback **de propósito**: o objetivo era isolar o codec, não a rede. O caminho
+de rede real já foi medido e está saudável (`udp`, 71 ms contra a VM da Oracle).
+
+### A varredura que achou o defeito
+
+Mesma tela real, 12 s por variante depois de 4 s de aquecimento. `cpu %` é
+percentual de **um** núcleo, do processo inteiro.
+
+| variante | fps no espectador | resolução recebida | cpu % |
+|---|---|---|---|
+| vp9 + escada padrão (**o que estava no ar**) | **10,8** | 1920×1080 | 54 |
+| vp9 + escada personalizada de 720p30 | 10,9 | 1920×1080 | 53 |
+| vp9 SVC `L2T3_KEY` | **0,0** | — | 40 |
+| vp9 SVC `L3T3_KEY` | **0,0** | — | 34 |
+| vp9 sem escada | 59,7 | 1920×1080 | 114 |
+| **vp9 SVC `L1T3`** (escolhido) | **59,2** | 1920×1080 | 133 |
+| vp8 + escada padrão | 59,3 | 1920×1080 | 157 |
+| vp8 + escada de 960×540@30 | 42,3 | 960×540 | 258 |
+| h264 + escada padrão | 53,3 | 1920×1080 | 176 |
+| h264, pedindo encoder de hardware | 45,6 | 1920×1080 | 190 |
+
+Dois achados que não são sobre a nossa configuração:
+
+1. **As duas formas de pedir escada espacial ao VP9 estão quebradas nesta pilha,
+   e as duas falham em silêncio.** Ver [ADR-0032](adr/0032-a-escada-do-vp9-e-temporal.md).
+2. **Não existe encoder de hardware neste build.** `VideoEncoderBackend::list_available()`
+   responde `[Auto, Software, PreEncoded]`; pedir `Hardware` cai no software e
+   mede pior. O `hardware_encoder: false` do painel é estrutural.
+
+### Depois da correção
+
+| preset | capturados | recebidos pelo espectador | resolução recebida | limite |
+|---|---|---|---|---|
+| 1080p60 | 60,0 /s | **59,5 /s** | 1920×1080 | nenhum |
+| 1080p30 | 30,1 /s | 29,7 /s | 1920×1080 | nenhum |
+| 720p60 | 59,9 /s | 58,3 /s | 1280×720 | nenhum |
+
+Bitrate entre 130 e 600 kb/s com a tela quase parada, com teto de 6 Mb/s. O
+número de egress continua sendo o da Fase B, que mediu conteúdo em movimento.
+
+### Custo do preview local (ADR-0030)
+
+Tela real de 1920×1080, `preview_costs_what_it_is_worth`:
+
+| | redução (thread de captura) | JPEG (thread própria) | quadro | IPC |
+|---|---|---|---|---|
+| grade, 480×270 @ 3 fps | 0,4–1,0 ms | 1,5–2,7 ms | 13–17 KB | ~50 KB/s |
+| foco, 1600×900 @ 12 fps | 4,2–6,5 ms | 16,8–23,5 ms | 123–169 KB | ~2 MB/s |
+
+A faixa é máquina ociosa contra máquina ocupada. O que fixa o teto é a primeira
+coluna: a redução roda **dentro** do laço de captura, que a 60 fps tem 16,6 ms
+por quadro para tudo.
+
+---
+
+## Revisão: os 139 s de congelamento da Fase 2
+
+A Fase 2 registrou 139 s de congelamento como **inconclusivo**, com a suspeita
+de contenção de CPU — as três pontas rodavam na mesma máquina.
+
+A suspeita provavelmente estava errada. Aquela medição rodou com a publicação em
+VP9 + escada padrão, que é exatamente a combinação que esta página acaba de medir
+entregando **10,8 quadros por segundo** ao espectador. Um stream a 11 fps é lido
+como travando, e nada no painel do publicador teria acusado: `limitado por` dizia
+`none`.
+
+Fica como hipótese forte, e não como fato, porque a Fase 2 não separou as duas
+causas. Repeti-la agora custa pouco e decide: se o congelamento sumir com o
+mesmo arranjo de máquina única, era o codec.
