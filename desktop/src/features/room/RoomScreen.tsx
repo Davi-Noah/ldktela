@@ -112,8 +112,9 @@ export function RoomScreen() {
    */
   useEffect(() => {
     const enabled = publishing && showSelfPreview;
-    const fps = focused === SELF_ID ? PREVIEW_FOCUS_FPS : PREVIEW_GRID_FPS;
-    void media.setPreview(enabled, fps);
+    const isFocused = focused === SELF_ID;
+    const fps = isFocused ? PREVIEW_FOCUS_FPS : PREVIEW_GRID_FPS;
+    void media.setPreview(enabled, fps, isFocused);
   }, [publishing, showSelfPreview, focused]);
 
   /**

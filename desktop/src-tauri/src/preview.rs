@@ -11,7 +11,7 @@
 //! thread de captura, e codificacao numa thread separada que **descarta** quadro
 //! quando fica para tras. Nada aqui pode atrasar o caminho do encoder.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -24,13 +24,25 @@ use crate::capture::{fit, Size};
 /// Emitido a cada quadro de preview, como data URL pronta para `img.src`.
 const PREVIEW_EVENT: &str = "share://preview";
 
-/// Teto do preview. 480 px de largura chegam para responder "e esta a janela
-/// certa?" e "continua indo?", que sao as duas perguntas que ele existe para
-/// responder. Em JPEG q70 isso da cerca de 20 KB por quadro, contra 518 KB do
-/// mesmo quadro em RGBA cru.
-pub const PREVIEW_MAX: Size = Size {
+/// Teto do preview **na grade**, onde ele e um ladrilho entre outros. 480 px
+/// chegam para responder "e esta a janela certa?" e "continua indo?". Em JPEG
+/// q70 isso da cerca de 20 KB por quadro, contra 518 KB do mesmo quadro em RGBA
+/// cru.
+pub const GRID_MAX: Size = Size {
     width: 480,
     height: 270,
+};
+
+/// Teto do preview **em foco**, onde ele ocupa a janela inteira.
+///
+/// O ADR-0030 usava 480 px nos dois casos e variava so o relogio. Errado: em
+/// foco, 480 px esticados para 1280 sao tres vezes o tamanho original, e o
+/// resultado e borrado a ponto de o usuario concluir que a transmissao esta
+/// quebrada — foi exatamente o que aconteceu. A resolucao acompanha o contexto
+/// pelo mesmo motivo que o relogio ja acompanhava.
+pub const FOCUS_MAX: Size = Size {
+    width: 1280,
+    height: 720,
 };
 
 /// Miniatura do seletor. Menor que o preview, e suficiente: ela existe para
@@ -58,6 +70,9 @@ pub struct Raw {
 pub struct Control {
     enabled: AtomicBool,
     period_ms: AtomicU64,
+    /// Largura maxima do quadro. Anda junto com o relogio: em foco o preview
+    /// enche a janela, e uma imagem pensada para ladrilho fica borrada ali.
+    max_width: AtomicU32,
 }
 
 impl Control {
@@ -65,14 +80,17 @@ impl Control {
         Self {
             enabled: AtomicBool::new(true),
             period_ms: AtomicU64::new(period_ms(GRID_FPS)),
+            max_width: AtomicU32::new(GRID_MAX.width),
         }
     }
 
     /// `enabled: false` para o ramo **na origem**: a thread de captura deixa de
     /// subamostrar. Esconder o elemento no WebView nao economizaria nada.
-    pub fn set(&self, enabled: bool, fps: u32) {
+    pub fn set(&self, enabled: bool, fps: u32, focused: bool) {
         self.enabled.store(enabled, Ordering::Relaxed);
         self.period_ms.store(period_ms(fps), Ordering::Relaxed);
+        let max = if focused { FOCUS_MAX } else { GRID_MAX };
+        self.max_width.store(max.width, Ordering::Relaxed);
     }
 
     fn enabled(&self) -> bool {
@@ -81,6 +99,17 @@ impl Control {
 
     fn period(&self) -> Duration {
         Duration::from_millis(self.period_ms.load(Ordering::Relaxed))
+    }
+
+    /// O teto de agora. A altura acompanha a largura pela proporcao de 16:9, e o
+    /// `fit` corta para o que a fonte realmente tem — uma tela 4:3 nao vira
+    /// 16:9 por causa disto.
+    fn ceiling(&self) -> Size {
+        let width = self.max_width.load(Ordering::Relaxed);
+        Size {
+            width,
+            height: width * 9 / 16,
+        }
     }
 }
 
@@ -108,7 +137,7 @@ impl Tap {
         }
         self.next = now + self.control.period();
 
-        let target = fit(source, PREVIEW_MAX);
+        let target = fit(source, self.control.ceiling());
         let Some(pixels) = subsample(data, stride, source, target) else {
             return;
         };
@@ -318,7 +347,7 @@ mod tests {
             width: 64,
             height: 32,
         };
-        assert!(subsample(&[0u8; 16], 64 * 4, source, PREVIEW_MAX).is_none());
+        assert!(subsample(&[0u8; 16], 64 * 4, source, GRID_MAX).is_none());
     }
 
     #[test]
@@ -336,9 +365,45 @@ mod tests {
     #[test]
     fn the_preview_clock_never_divides_by_zero_nor_runs_wild() {
         let control = Control::new();
-        control.set(true, 0);
+        control.set(true, 0, false);
         assert_eq!(control.period(), Duration::from_millis(1000));
-        control.set(true, 1000);
+        control.set(true, 1000, false);
         assert_eq!(control.period(), Duration::from_millis(33));
+    }
+
+    /// Em foco o preview enche a janela, e o teto de ladrilho deixava a imagem
+    /// borrada a ponto de parecer defeito da transmissão — o que de fato foi
+    /// relatado como defeito da transmissão.
+    #[test]
+    fn focusing_the_preview_raises_the_resolution_and_not_only_the_clock() {
+        let control = Control::new();
+
+        control.set(true, GRID_FPS, false);
+        assert_eq!(control.ceiling().width, GRID_MAX.width);
+
+        control.set(true, 12, true);
+        assert_eq!(control.ceiling().width, FOCUS_MAX.width);
+        assert!(
+            control.ceiling().width > GRID_MAX.width * 2,
+            "em foco o preview cresce de verdade, e não por um punhado de pixels"
+        );
+    }
+
+    #[test]
+    fn a_four_by_three_screen_does_not_come_out_stretched() {
+        // O teto é 16:9, mas quem decide o formato é a fonte: `fit` preserva a
+        // proporção, então uma tela 4:3 continua 4:3.
+        let control = Control::new();
+        control.set(true, 12, true);
+        let source = Size {
+            width: 1600,
+            height: 1200,
+        };
+        let target = fit(source, control.ceiling());
+        assert_eq!(
+            target.width * 3,
+            target.height * 4,
+            "proporção 4:3 preservada, veio {target:?}"
+        );
     }
 }

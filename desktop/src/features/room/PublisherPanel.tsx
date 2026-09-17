@@ -56,6 +56,16 @@ export function PublisherPanel() {
           </Notice>
         )}
 
+        {viewerIds.length === 0 && stats !== null && stats.encodedFrames > 0 && (
+          // Os números abaixo leem como defeito e não são: sem ninguém inscrito,
+          // o dynacast segura o encoder de propósito (ADR-0030). Dizer isso aqui
+          // custou uma investigação inteira de "a qualidade caiu no servidor".
+          <Notice>
+            Com ninguém assistindo, a transmissão fica em marcha lenta de propósito — os números
+            abaixo só medem a qualidade real quando alguém estiver vendo.
+          </Notice>
+        )}
+
         <dl className="grid grid-cols-2 gap-x-2 gap-y-row font-mono">
           <Stat label="Bitrate" value={stats === null ? '—' : kbps(stats.bitrateKbps)} />
           <Stat label="FPS" value={stats === null ? '—' : String(stats.fps)} />
@@ -67,7 +77,39 @@ export function PublisherPanel() {
             label="Encoder"
             value={stats === null ? '—' : stats.hardwareEncoder ? 'hardware' : 'software'}
           />
+          {/* Os três de baixo só existem para responder "por que caiu a
+              qualidade". Rede congestionada, encoder sem CPU e mídia que caiu
+              para TCP dão exatamente o mesmo fps baixo, e só o terceiro se
+              resolve abrindo uma porta. */}
+          <Stat label="Limitado por" value={limitLabel(stats?.limitedBy)} />
+          <Stat
+            label="Transporte"
+            value={
+              stats === null || stats.transport === ''
+                ? '—'
+                : `${stats.transport} · ${stats.rttMs} ms`
+            }
+          />
+          <Stat
+            label="Banda estimada"
+            value={stats === null || stats.availableKbps === 0 ? '—' : kbps(stats.availableKbps)}
+          />
         </dl>
+
+        {stats !== null && stats.transport.includes('tcp') && (
+          // Mídia em TCP é o sintoma clássico de porta UDP fechada. O WebRTC
+          // conecta assim mesmo, então nada falha — só fica ruim.
+          <Notice>
+            A mídia está indo por <strong>TCP</strong>, não UDP. Isso sozinho derruba a qualidade: é
+            quase sempre a faixa UDP 50000–50019 fechada no firewall do servidor.
+          </Notice>
+        )}
+        {stats !== null && stats.limitedBy === 'cpu' && (
+          <Notice>
+            O gargalo é a <strong>CPU desta máquina</strong>, não a rede. Baixar o preset para 720p
+            ou 30 fps devolve a fluidez.
+          </Notice>
+        )}
 
         <p className="mt-group text-text-faint">
           {viewerIds.length === 0
@@ -107,6 +149,22 @@ function Notice({ children }: { children: React.ReactNode }) {
       <span className="text-text-muted">{children}</span>
     </p>
   );
+}
+
+/** `none` é o caso bom, e "nada" comunica isso melhor do que a palavra crua. */
+function limitLabel(reason: string | undefined): string {
+  switch (reason) {
+    case 'none':
+      return 'nada';
+    case 'cpu':
+      return 'CPU';
+    case 'bandwidth':
+      return 'banda';
+    case 'other':
+      return 'outro';
+    default:
+      return '—';
+  }
 }
 
 function audioLabel(mode: AudioMode | null): string {

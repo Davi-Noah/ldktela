@@ -137,10 +137,11 @@ pub async fn share_preview(
     state: State<'_, Sharing>,
     enabled: bool,
     fps: u32,
+    focused: bool,
 ) -> Result<(), ShareFailure> {
     let active = state.active.lock().await;
     if let Some(active) = active.as_ref() {
-        active.preview_control.set(enabled, fps);
+        active.preview_control.set(enabled, fps, focused);
     }
     Ok(())
 }
@@ -176,7 +177,7 @@ pub async fn share_start(
 
     let (preview, tap) = preview::start(app.clone());
     let preview_control = preview.control();
-    preview_control.set(true, GRID_FPS);
+    preview_control.set(true, GRID_FPS, false);
 
     let lost = app.clone();
     let capture = match capture::start(

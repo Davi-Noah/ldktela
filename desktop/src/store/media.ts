@@ -23,6 +23,14 @@ export interface PublisherStats {
   /** Whether libwebrtc picked a hardware encoder. Only observable since
       publishing moved to the core (ADR-0026). */
   hardwareEncoder: boolean;
+  /** `none`, `cpu`, `bandwidth` ou `other`: o encoder dizendo por que se segura.
+      Sem isso, rede congestionada e CPU insuficiente são indistinguíveis. */
+  limitedBy: string;
+  /** `udp`, `tcp`, `relay/udp`… Cair para TCP derruba a qualidade sozinho, e é
+      sintoma de porta fechada, não de rede ruim. */
+  transport: string;
+  rttMs: number;
+  availableKbps: number;
   /** Frames taken from the screen, and of those how many the encoder accepted.
       A wide gap means the stream is paused for want of a subscriber, which looks
       exactly like a dead capture from outside. */

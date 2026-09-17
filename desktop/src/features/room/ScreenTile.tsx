@@ -135,8 +135,15 @@ export function ScreenTile({
     return null;
   }
 
-  const name = isSelf ? 'Sua tela' : (owner?.user.display_name ?? owner?.user.username ?? 'Alguém');
-  const subtitle = isSelf ? sharingTitle : null;
+  // "prévia" e não "sua tela": o preview é JPEG de 480 px a 3–12 fps
+  // (ADR-0030), e quem julga a qualidade da transmissão por ele conclui que o
+  // produto está quebrado. Já aconteceu.
+  const name = isSelf
+    ? 'Prévia da sua tela'
+    : (owner?.user.display_name ?? owner?.user.username ?? 'Alguém');
+  const subtitle = isSelf
+    ? [sharingTitle, 'imagem reduzida, só para conferir'].filter(Boolean).join(' · ')
+    : null;
 
   return (
     <section

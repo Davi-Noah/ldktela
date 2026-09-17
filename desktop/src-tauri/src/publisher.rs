@@ -18,7 +18,9 @@ use livekit::webrtc::audio_source::native::NativeAudioSource;
 use livekit::webrtc::audio_source::AudioSourceOptions;
 use livekit::webrtc::prelude::{RtcAudioSource, RtcVideoSource};
 use livekit::webrtc::rtp_parameters::DegradationPreference;
-use livekit::webrtc::stats::{OutboundRtpStats, RtcStats};
+use livekit::webrtc::stats::{
+    IceCandidateType, OutboundRtpStats, QualityLimitationReason, RtcStats,
+};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::VideoResolution;
 use livekit::{Room, RoomEvent, RoomOptions};
@@ -92,7 +94,7 @@ pub enum PublishError {
 
 /// Sampled on an interval by the interface, never in the media path (RF-21,
 /// RF-22, `CLAUDE.md` §7).
-#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct PublisherStats {
     pub bitrate_kbps: u32,
     pub fps: u32,
@@ -102,6 +104,17 @@ pub struct PublisherStats {
     /// difference between a core of CPU and almost none, and until the move to
     /// the core it was not even observable.
     pub hardware_encoder: bool,
+    /// `none`, `cpu`, `bandwidth` or `other` — the encoder itself saying why it
+    /// is holding back. It is the difference between "the network cannot" and
+    /// "this machine cannot", which produce the same low frame rate on screen.
+    pub limited_by: &'static str,
+    /// `udp`, `tcp`, `relay/udp`… — where the media is actually going. Falling
+    /// back to TCP wrecks quality on its own, and it is a symptom of a blocked
+    /// UDP port rather than of a bad network.
+    pub transport: String,
+    pub rtt_ms: u32,
+    /// What the congestion controller believes the uplink has.
+    pub available_kbps: u32,
     /// Frames converted from the screen and offered to the encoder.
     ///
     /// Together with a zero bitrate it separates the two failures that look the
@@ -120,11 +133,82 @@ pub struct PublisherStats {
     pub audio_samples: Option<u64>,
 }
 
+/// Which path the media is actually taking, read from the nominated ICE pair.
+///
+/// Exists because "the quality dropped" has three unrelated causes that look
+/// identical from the outside — a congested uplink, a starved encoder, and media
+/// that fell back to TCP because UDP is blocked — and only the third one is
+/// fixed by opening a port.
+#[derive(Debug, Default)]
+struct NetworkPath {
+    transport: String,
+    rtt_ms: u32,
+    available_kbps: u32,
+}
+
+impl NetworkPath {
+    fn from(report: &[RtcStats]) -> Self {
+        // O transporte aponta o par escolhido pelo nome; `nominated` e o plano B,
+        // porque mais de um par pode estar nomeado durante uma renegociacao e
+        // ler o errado descreveria um caminho que ninguem esta usando.
+        let selected = report.iter().find_map(|entry| match entry {
+            RtcStats::Transport(transport)
+                if !transport.transport.selected_candidate_pair_id.is_empty() =>
+            {
+                Some(transport.transport.selected_candidate_pair_id.clone())
+            }
+            _ => None,
+        });
+
+        let Some(pair) = report.iter().find_map(|entry| match entry {
+            RtcStats::CandidatePair(pair) => match &selected {
+                Some(id) => (pair.rtc.id == *id).then_some(pair),
+                None => pair.candidate_pair.nominated.then_some(pair),
+            },
+            _ => None,
+        }) else {
+            return Self {
+                transport: "—".to_owned(),
+                ..Default::default()
+            };
+        };
+
+        let local = report.iter().find_map(|entry| match entry {
+            RtcStats::LocalCandidate(candidate)
+                if candidate.rtc.id == pair.candidate_pair.local_candidate_id =>
+            {
+                Some(&candidate.local_candidate)
+            }
+            _ => None,
+        });
+
+        let transport = match local {
+            Some(candidate) => {
+                let protocol = candidate.protocol.to_ascii_lowercase();
+                match candidate.candidate_type {
+                    // Relay significa TURN: a midia passa por um intermediario,
+                    // o que custa latencia e banda mas atravessa CGNAT.
+                    Some(IceCandidateType::Relay) => format!("relay/{protocol}"),
+                    _ => protocol,
+                }
+            }
+            None => "?".to_owned(),
+        };
+
+        Self {
+            transport,
+            // O RTT vem em segundos.
+            rtt_ms: (pair.candidate_pair.current_round_trip_time * 1000.0).round() as u32,
+            available_kbps: (pair.candidate_pair.available_outgoing_bitrate / 1000.0).round()
+                as u32,
+        }
+    }
+}
+
 pub struct Publisher {
     room: Arc<Room>,
     video: NativeVideoSource,
     audio: Option<NativeAudioSource>,
-    track: LocalVideoTrack,
     /// Last (bytes_sent, instant) seen, so bitrate is a delta and not a total.
     last_sample: StdMutex<Option<(u64, Instant)>>,
 }
@@ -265,7 +349,6 @@ impl Publisher {
             room,
             video,
             audio,
-            track,
             last_sample: StdMutex::new(None),
         })
     }
@@ -277,9 +360,15 @@ impl Publisher {
     /// resolution reported is the widest layer, which is what the top viewer
     /// sees.
     pub async fn stats(&self) -> PublisherStats {
-        let Ok(report) = self.track.get_stats().await else {
+        // As estatisticas da conexao inteira, e nao so as da track: e no par de
+        // candidatos que mora a resposta para "por que a qualidade caiu" — se a
+        // midia esta em UDP ou caiu para TCP, qual o RTT, e quanto de banda o
+        // controle de congestionamento acha que tem. Sem isso, banda ruim e CPU
+        // insuficiente produzem exatamente o mesmo numero na tela.
+        let Ok(report) = self.room.get_stats().await else {
             return PublisherStats::default();
         };
+        let report = report.publisher_stats;
 
         let mut bytes_sent = 0u64;
         let mut widest: Option<&OutboundRtpStats> = None;
@@ -292,6 +381,8 @@ impl Publisher {
                 widest = Some(outbound);
             }
         }
+
+        let path = NetworkPath::from(&report);
 
         let now = Instant::now();
         let bitrate_kbps = match self.last_sample.lock() {
@@ -313,6 +404,9 @@ impl Publisher {
         let Some(widest) = widest else {
             return PublisherStats {
                 bitrate_kbps,
+                transport: path.transport,
+                rtt_ms: path.rtt_ms,
+                available_kbps: path.available_kbps,
                 ..Default::default()
             };
         };
@@ -322,6 +416,15 @@ impl Publisher {
             width: widest.outbound.frame_width,
             height: widest.outbound.frame_height,
             hardware_encoder: widest.outbound.power_efficient_encoder,
+            limited_by: match widest.outbound.quality_limitation_reason {
+                QualityLimitationReason::None => "none",
+                QualityLimitationReason::Cpu => "cpu",
+                QualityLimitationReason::Bandwidth => "bandwidth",
+                QualityLimitationReason::Other => "other",
+            },
+            transport: path.transport,
+            rtt_ms: path.rtt_ms,
+            available_kbps: path.available_kbps,
             // Preenchidos por quem tem a captura em maos.
             captured_frames: 0,
             encoded_frames: 0,

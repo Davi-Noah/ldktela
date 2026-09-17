@@ -60,8 +60,10 @@ export function shareThumbnail(kind: SourceKind, sourceId: string): Promise<stri
  * Off stops the branch **inside the capture thread**. It is not the element
  * that disappears — it is the sub-sampling that stops happening.
  */
-export function setSharePreview(enabled: boolean, fps: number): Promise<void> {
-  return invoke<void>('share_preview', { enabled, fps });
+export function setSharePreview(enabled: boolean, fps: number, focused: boolean): Promise<void> {
+  // `focused` escolhe a resolução, não só o relógio: em foco o preview enche a
+  // janela, e a imagem pensada para ladrilho fica borrada ali (ADR-0030).
+  return invoke<void>('share_preview', { enabled, fps, focused });
 }
 
 /**

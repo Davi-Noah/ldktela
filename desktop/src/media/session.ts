@@ -123,9 +123,9 @@ export class MediaSession {
    * do `adaptiveStream` para as telas dos outros: o que não está sendo olhado
    * não é produzido.
    */
-  async setPreview(enabled: boolean, fps: number): Promise<void> {
+  async setPreview(enabled: boolean, fps: number, focused: boolean): Promise<void> {
     try {
-      await setSharePreview(enabled, fps);
+      await setSharePreview(enabled, fps, focused);
     } catch (error) {
       log.debug('preview: o core recusou o ajuste', { error });
     }
@@ -558,6 +558,10 @@ export class MediaSession {
               width: stats.width,
               height: stats.height,
               hardwareEncoder: stats.hardware_encoder,
+              limitedBy: stats.limited_by,
+              transport: stats.transport,
+              rttMs: stats.rtt_ms,
+              availableKbps: stats.available_kbps,
               capturedFrames: stats.captured_frames,
               encodedFrames: stats.encoded_frames,
               audioSamples: stats.audio_samples,
@@ -613,6 +617,10 @@ interface NativeStats {
   width: number;
   height: number;
   hardware_encoder: boolean;
+  limited_by: string;
+  transport: string;
+  rtt_ms: number;
+  available_kbps: number;
   captured_frames: number;
   encoded_frames: number;
   audio_samples: number | null;

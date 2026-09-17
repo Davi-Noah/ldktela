@@ -32,11 +32,20 @@ O `return` em `MediaSession.adoptPublication` que ignora a identidade `~pub` pr�
 carga estrutural. Não remova.
 
 A derivação acontece em `capture.rs`, depois de o quadro ser entregue ao encoder: um
-ramo opcional subamostra o BGRA para no máximo 480 px de largura, uma thread separada
-codifica em JPEG e emite `share://preview` para o WebView, que troca o `src` de um
-`<img>` criado imperativamente. O ramo tem relógio próprio (3 fps na grade, 12 fps no
-foco), descarta quadro quando a codificação fica para trás, e **para na origem** quando o
-usuário desliga o preview — não é `display:none`.
+ramo opcional subamostra o BGRA, uma thread separada codifica em JPEG e emite
+`share://preview` para o WebView, que troca o `src` de um `<img>` criado
+imperativamente. O ramo descarta quadro quando a codificação fica para trás, e **para na
+origem** quando o usuário desliga o preview — não é `display:none`.
+
+**Resolução e relógio acompanham o contexto**, os dois: 480 px a 3 fps enquanto o preview
+é um ladrilho da grade, 1280 px a 12 fps quando ele está em foco.
+
+> **Corrigido em 2026-09-17.** A primeira versão variava só o relógio e fixava 480 px nos
+> dois casos. Em foco o preview ocupa a janela inteira, então 480 px viravam um aumento de
+> quase três vezes, e o resultado era borrado o bastante para o dono do projeto concluir
+> que **a transmissão** estava com qualidade "comicamente baixa" — e abrir uma investigação
+> de rede por causa disso. O erro não foi o número: foi variar uma dimensão do problema
+> (fps) e esquecer a outra (pixels), quando as duas mudam pelo mesmo motivo.
 
 ## Consequências
 
