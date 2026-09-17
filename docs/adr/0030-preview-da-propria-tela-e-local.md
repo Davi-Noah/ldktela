@@ -37,15 +37,38 @@ ramo opcional subamostra o BGRA, uma thread separada codifica em JPEG e emite
 imperativamente. O ramo descarta quadro quando a codificação fica para trás, e **para na
 origem** quando o usuário desliga o preview — não é `display:none`.
 
-**Resolução e relógio acompanham o contexto**, os dois: 480 px a 3 fps enquanto o preview
-é um ladrilho da grade, 1280 px a 12 fps quando ele está em foco.
+**Resolução, relógio e qualidade do JPEG acompanham o contexto**, os três: 480 px a 3 fps e
+q70 enquanto o preview é um ladrilho da grade, 1600 px a 12 fps e q80 quando ele está em
+foco.
 
-> **Corrigido em 2026-09-17.** A primeira versão variava só o relógio e fixava 480 px nos
-> dois casos. Em foco o preview ocupa a janela inteira, então 480 px viravam um aumento de
-> quase três vezes, e o resultado era borrado o bastante para o dono do projeto concluir
-> que **a transmissão** estava com qualidade "comicamente baixa" — e abrir uma investigação
-> de rede por causa disso. O erro não foi o número: foi variar uma dimensão do problema
-> (fps) e esquecer a outra (pixels), quando as duas mudam pelo mesmo motivo.
+**A redução é filtrada, pelo libyuv, e parte do NV12 que a captura já converteu para o
+encoder** — não do BGRA cru. Sai mais barato, porque a conversão já está paga, e sai melhor:
+a versão anterior escolhia o pixel mais próximo, o que de 1920 para 1600 descarta uma coluna
+a cada seis. Numa tela de código ou de planilha isso não reduz, desmancha.
+
+> **Corrigido em 2026-09-17, em duas rodadas.** A primeira versão variava só o relógio e
+> fixava 480 px nos dois casos. Em foco o preview ocupa a janela inteira, então 480 px
+> viravam um aumento de quase três vezes, e o resultado era borrado o bastante para o dono
+> do projeto concluir que **a transmissão** estava com qualidade "comicamente baixa" — e
+> abrir uma investigação de rede por causa disso. O erro não foi o número: foi variar uma
+> dimensão do problema (fps) e esquecer a outra (pixels), quando as duas mudam pelo mesmo
+> motivo.
+>
+> Subir para 1280 px não resolveu, e a segunda rodada mostrou por quê: **o redutor era
+> vizinho mais próximo**. Aumentar a resolução de saída de um redutor que joga colunas fora
+> só produz mais pixels serrilhados. Com filtro, e com o teto em 1600 px, o preview em foco
+> passa a ser legível.
+>
+> Medido, numa tela real de 1920×1080 (`preview_costs_what_it_is_worth`):
+>
+> | | redução (thread de captura) | JPEG (thread própria) | quadro | IPC |
+> |---|---|---|---|---|
+> | grade, 480×270 @ 3 fps | 0,42 ms | 1,59 ms | 13 KB | 42 KB/s |
+> | foco, 1600×900 @ 12 fps | 4,17 ms | 16,8 ms | 139 KB | 1,7 MB/s |
+>
+> O que fixa o teto é a primeira coluna: a redução roda **dentro** do laço de captura, que a
+> 60 fps tem 16 ms por quadro para tudo. 4,17 ms é o limite do que cabe ali sem tirar quadro
+> da transmissão, e há um `assert` no teste dizendo isso.
 
 ## Consequências
 

@@ -412,8 +412,10 @@ impl Scratch {
 
         // Por ultimo, e nunca antes: o encoder ja recebeu o quadro dele. O
         // preview tem relogio proprio e descarta o que nao couber (ADR-0030).
+        // Recebe o NV12 e nao o BGRA cru: a conversao ja esta paga, e reduzir a
+        // partir dela usa o redimensionador filtrado do libyuv.
         if let Some(preview) = self.preview.as_mut() {
-            preview.offer(data, stride, captured);
+            preview.offer(nv12, captured);
         }
     }
 }
@@ -454,7 +456,7 @@ pub fn thumbnail(kind: SourceKind, source_id: u64, max: Size) -> Option<crate::p
         };
         let target = fit(captured, max);
         let Some(pixels) =
-            crate::preview::subsample(frame.data(), frame.stride(), captured, target)
+            crate::preview::downscale(frame.data(), frame.stride(), captured, target)
         else {
             return;
         };
@@ -463,6 +465,7 @@ pub fn thumbnail(kind: SourceKind, source_id: u64, max: Size) -> Option<crate::p
                 width: target.width,
                 height: target.height,
                 pixels,
+                quality: crate::preview::THUMBNAIL_QUALITY,
             });
         }
     });

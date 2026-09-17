@@ -761,7 +761,11 @@ mod tests {
             stats.fps,
             stats.width,
             stats.height,
-            if stats.hardware_encoder { "hardware" } else { "software" },
+            if stats.hardware_encoder {
+                "hardware"
+            } else {
+                "software"
+            },
             stats.limited_by
         );
         println!(
@@ -795,17 +799,26 @@ mod tests {
             video_codec: codec,
             simulcast: true,
             scalability_mode: None,
-            video_encoding: Some(VideoEncoding { max_bitrate: 6_000_000, max_framerate: 60.0 }),
+            video_encoding: Some(VideoEncoding {
+                max_bitrate: 6_000_000,
+                max_framerate: 60.0,
+            }),
             degradation_preference: Some(DegradationPreference::MaintainFramerate),
             stream: "screen".to_owned(),
             ..Default::default()
         };
 
         let variants: Vec<(&str, TrackPublishOptions)> = vec![
-            ("vp9 + escada padrao (produto de hoje)", base(VideoCodec::VP9)),
+            (
+                "vp9 + escada padrao (produto de hoje)",
+                base(VideoCodec::VP9),
+            ),
             (
                 "vp9 sem simulcast",
-                TrackPublishOptions { simulcast: false, ..base(VideoCodec::VP9) },
+                TrackPublishOptions {
+                    simulcast: false,
+                    ..base(VideoCodec::VP9)
+                },
             ),
             (
                 "vp9 + escada de 720p30",
@@ -817,11 +830,17 @@ mod tests {
             ("vp8 + escada padrao", base(VideoCodec::VP8)),
             (
                 "vp8 sem simulcast",
-                TrackPublishOptions { simulcast: false, ..base(VideoCodec::VP8) },
+                TrackPublishOptions {
+                    simulcast: false,
+                    ..base(VideoCodec::VP8)
+                },
             ),
             (
                 "h264 sem simulcast",
-                TrackPublishOptions { simulcast: false, ..base(VideoCodec::H264) },
+                TrackPublishOptions {
+                    simulcast: false,
+                    ..base(VideoCodec::H264)
+                },
             ),
             (
                 "vp9 sem simulcast, mantendo resolucao",
@@ -878,7 +897,9 @@ mod tests {
             ),
             (
                 "h264 + escada padrao",
-                TrackPublishOptions { ..base(VideoCodec::H264) },
+                TrackPublishOptions {
+                    ..base(VideoCodec::H264)
+                },
             ),
             (
                 "h264 sem simulcast, encoder de hardware",
@@ -911,7 +932,9 @@ mod tests {
         println!();
         println!(
             "encoders disponiveis: {:?}",
-            livekit::options::VideoEncoderBackend::list_available().into_iter().collect::<Vec<_>>()
+            livekit::options::VideoEncoderBackend::list_available()
+                .into_iter()
+                .collect::<Vec<_>>()
         );
         println!(
             "{:<42} {:>10} {:>12} {:>10} {:>8}",
@@ -975,13 +998,21 @@ mod tests {
             o.dynacast = true;
             o
         };
-        let (room, _events) =
-            Room::connect(DEV_URL, &dev_token(&room_name, "medidor~pub", true), room_options)
-                .await
-                .expect("o publicador deve conectar");
+        let (room, _events) = Room::connect(
+            DEV_URL,
+            &dev_token(&room_name, "medidor~pub", true),
+            room_options,
+        )
+        .await
+        .expect("o publicador deve conectar");
 
-        let source =
-            NativeVideoSource::new(VideoResolution { width: 1920, height: 1080 }, true);
+        let source = NativeVideoSource::new(
+            VideoResolution {
+                width: 1920,
+                height: 1080,
+            },
+            true,
+        );
         let track =
             LocalVideoTrack::create_video_track("screen", RtcVideoSource::Native(source.clone()));
         room.local_participant()
@@ -996,7 +1027,10 @@ mod tests {
         let capture = capture::start(
             SourceKind::Screen,
             screen.id.parse().expect("id numerico"),
-            Size { width: 1920, height: 1080 },
+            Size {
+                width: 1920,
+                height: 1080,
+            },
             60,
             source,
             None,
@@ -1016,7 +1050,10 @@ mod tests {
         let cpu = (process_cpu_seconds() - cpu_before) / elapsed * 100.0;
 
         let got = frames.load(Ordering::Relaxed);
-        let (w, h) = (width.load(Ordering::Relaxed), height.load(Ordering::Relaxed));
+        let (w, h) = (
+            width.load(Ordering::Relaxed),
+            height.load(Ordering::Relaxed),
+        );
         let mut bytes = 0u64;
         if let Ok(report) = room.get_stats().await {
             for entry in &report.publisher_stats {
@@ -1101,7 +1138,11 @@ mod tests {
     async fn measure_1080p30_end_to_end() {
         let (got, _, _, _) = measure(Preset::P1080p30, 10).await;
         assert_eq!((got.width, got.height), (1920, 1080));
-        assert!(got.frames >= 240, "o espectador recebeu {} quadros", got.frames);
+        assert!(
+            got.frames >= 240,
+            "o espectador recebeu {} quadros",
+            got.frames
+        );
     }
 
     /// The third leg of the version pair (ADR-0019).

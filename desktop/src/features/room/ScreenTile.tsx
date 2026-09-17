@@ -135,14 +135,18 @@ export function ScreenTile({
     return null;
   }
 
-  // "prévia" e não "sua tela": o preview é JPEG de 480 px a 3–12 fps
+  // "prévia" e não "sua tela": o preview é um JPEG local com relógio próprio
   // (ADR-0030), e quem julga a qualidade da transmissão por ele conclui que o
-  // produto está quebrado. Já aconteceu.
+  // produto está quebrado. Já aconteceu. Na grade ele é deliberadamente uma
+  // miniatura, e o rótulo diz isso e diz o que fazer a respeito; em foco ele é
+  // nítido e o aviso sairia sobrando.
   const name = isSelf
     ? 'Prévia da sua tela'
     : (owner?.user.display_name ?? owner?.user.username ?? 'Alguém');
   const subtitle = isSelf
-    ? [sharingTitle, 'imagem reduzida, só para conferir'].filter(Boolean).join(' · ')
+    ? [sharingTitle, focused ? null : 'miniatura · abra para ver nítido']
+        .filter(Boolean)
+        .join(' · ')
     : null;
 
   return (
