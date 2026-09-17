@@ -21,6 +21,7 @@ documentos antigos.
 | S7 — Cliente completo | **Feita.** Várias telas, grade e foco, destacar, volume e tempo no ar; seletor próprio e publicação nativa ([ADR-0026](adr/0026-publicacao-no-rust-nativo.md)); notificação nativa; atualização automática assinada por `.msi` via GitHub Releases |
 | S8 — Presença no Discord | Anúncio (uma mensagem por sessão, editada) e tag `[LIVE]` com as quatro guardas, feitos. Link profundo adiado: o Discord não torna esquema próprio clicável ([ADR-0029](adr/0029-link-profundo-espera-uma-pagina-https.md)) |
 | S9 — Áudio por aplicativo | Feita e medida: modo `ExcludingDiscord`, 143.520 amostras/canal em 3 s. Falta ouvir numa sessão real entre duas máquinas |
+| Revisão de interface | Feita em 2026-09-16, sobre o S7. Seletor com miniaturas, preview da própria tela ([ADR-0030](adr/0030-preview-da-propria-tela-e-local.md)), cromo flutuante, teclado, bandeja e atalho de parada |
 
 ### O que mudou em 2026-09-14
 

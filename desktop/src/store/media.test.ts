@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   ownerOf,
+  SELF_ID,
   shouldSilenceOtherScreens,
   useMediaStore,
+  visibleTiles,
   withoutTrack,
   withTrack,
 } from './media';
@@ -143,5 +145,51 @@ describe('silenciar as telas alheias ao transmitir áudio (ADR-0028)', () => {
     expect(useMediaStore.getState().audioMode).toBe('whole_system');
     store.setPublishing(false, false);
     expect(useMediaStore.getState().audioMode).toBeNull();
+  });
+});
+
+describe('ladrilho da própria tela (ADR-0030)', () => {
+  it('entra por último, para não empurrar as telas dos outros de lugar', () => {
+    expect(visibleTiles(['ana', 'bruno'], true, true)).toEqual(['ana', 'bruno', SELF_ID]);
+  });
+
+  it('não aparece quando não se está transmitindo', () => {
+    expect(visibleTiles(['ana'], false, true)).toEqual(['ana']);
+  });
+
+  it('some quando o usuário escolhe não se ver', () => {
+    expect(visibleTiles(['ana'], true, false)).toEqual(['ana']);
+  });
+
+  it('pode ser o único ladrilho da grade', () => {
+    // Transmitindo sozinho, a sala deixa de ser uma lista de participantes e
+    // passa a ser a própria tela — que é o que o Discord mostra.
+    expect(visibleTiles([], true, true)).toEqual([SELF_ID]);
+  });
+
+  it('nunca colide com um id do Discord, que é só dígitos', () => {
+    expect(SELF_ID).not.toMatch(/^\d+$/);
+  });
+});
+
+describe('parar de transmitir', () => {
+  it('solta o foco, para não sobrar cromo em cima de nada', () => {
+    const store = useMediaStore.getState();
+    store.reset();
+    store.setPublishing(true, false, null, 'Tela 1');
+    store.focus(SELF_ID);
+    expect(useMediaStore.getState().focused).toBe(SELF_ID);
+
+    store.setPublishing(false, false);
+    expect(useMediaStore.getState().focused).toBeNull();
+  });
+
+  it('esquece o que estava sendo compartilhado', () => {
+    const store = useMediaStore.getState();
+    store.reset();
+    store.setPublishing(true, false, null, 'Elden Ring');
+    expect(useMediaStore.getState().sharingTitle).toBe('Elden Ring');
+    store.setPublishing(false, false);
+    expect(useMediaStore.getState().sharingTitle).toBeNull();
   });
 });

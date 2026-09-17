@@ -56,11 +56,20 @@ export async function detach(
   }
 
   copyStyles(target);
-  target.document.body.style.margin = '0';
-  target.document.body.style.background = '#000';
-  target.document.body.append(element);
+  const { documentElement, body } = target.document;
+  documentElement.style.height = '100%';
+  body.style.height = '100%';
+  body.style.margin = '0';
+  body.style.background = '#000';
+  // O elemento chega de um ladrilho que lhe dava altura; aqui não há grade
+  // nenhuma, e sem isto ele colapsaria para zero e a janela abriria preta.
+  element.style.height = '100%';
+  element.style.width = '100%';
+  body.append(element);
 
   const handleUnload = () => {
+    element.style.removeProperty('height');
+    element.style.removeProperty('width');
     onClose();
   };
   target.addEventListener('pagehide', handleUnload, { once: true });
@@ -69,6 +78,8 @@ export async function detach(
   return {
     close: () => {
       target.removeEventListener('pagehide', handleUnload);
+      element.style.removeProperty('height');
+      element.style.removeProperty('width');
       target.close();
       onClose();
     },

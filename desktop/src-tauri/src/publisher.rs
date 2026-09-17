@@ -452,6 +452,7 @@ mod tests {
             preset.ceiling(),
             preset.fps(),
             publisher.video_sink(),
+            None,
             || eprintln!("fonte perdida"),
         )
         .expect("a captura deve iniciar");

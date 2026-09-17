@@ -4,6 +4,7 @@ import { PairingScreen } from './features/pairing/PairingScreen';
 import { RoomScreen } from './features/room/RoomScreen';
 import { UpdateBanner } from './features/update/UpdateBanner';
 import { useSessionStore } from './store/session';
+import { Toasts } from './ui/Toasts';
 
 export function App() {
   const phase = useSessionStore((state) => state.phase);
@@ -15,6 +16,7 @@ export function App() {
   return (
     <>
       {renderPhase(phase)}
+      <Toasts />
       <UpdateBanner />
     </>
   );

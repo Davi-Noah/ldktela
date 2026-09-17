@@ -81,3 +81,5 @@ certas.
 | [0027](0027-publicador-e-um-segundo-participante.md) | Quem publica entra na sala como um segundo participante | Aceito |
 | [0028](0028-silenciar-telas-alheias-ao-transmitir-audio.md) | Quem transmite áudio não ouve o áudio das outras telas | Aceito |
 | [0029](0029-link-profundo-espera-uma-pagina-https.md) | O link profundo espera uma página https; o esquema não basta | Aceito |
+| [0030](0030-preview-da-propria-tela-e-local.md) | O preview da própria tela é local, nunca pelo SFU | Aceito |
+| [0031](0031-navegacao-nao-assina-video.md) | Nenhum elemento de navegação assina vídeo | Aceito |

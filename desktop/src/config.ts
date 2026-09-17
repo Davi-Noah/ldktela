@@ -33,3 +33,11 @@ export const CHROME_IDLE_MS = 2500;
     because the app is meant to live in the tray for days at a time (RNF-03). */
 export const UPDATE_CHECK_DELAY_MS = 10_000;
 export const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Preview da própria tela (ADR-0030). Na grade ele é uma confirmação — três
+ * quadros por segundo já mostram que a imagem está viva. Em foco ele vira algo
+ * que se olha, e aí precisa se mexer como vídeo.
+ */
+export const PREVIEW_GRID_FPS = 3;
+export const PREVIEW_FOCUS_FPS = 12;

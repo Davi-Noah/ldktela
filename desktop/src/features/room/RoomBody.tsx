@@ -1,8 +1,10 @@
 import { useMediaStore } from '../../store/media';
 import { useRoomStore } from '../../store/room';
 import { useSessionStore } from '../../store/session';
+import { useUiStore } from '../../store/ui';
 import { Avatar } from '../../ui/Avatar';
 import { Button } from '../../ui/Button';
+import { Icon } from '../../ui/Icon';
 import { PublisherPanel } from './PublisherPanel';
 
 interface RoomBodyProps {
@@ -49,7 +51,8 @@ function InRoom({ onShare, onStop }: RoomBodyProps) {
   const participants = useRoomStore((state) => state.participants);
   const publishing = useMediaStore((state) => state.publishing);
   const starting = useMediaStore((state) => state.starting);
-  const error = useMediaStore((state) => state.error);
+  const showSelfPreview = useUiStore((state) => state.showSelfPreview);
+  const setShowSelfPreview = useUiStore((state) => state.setShowSelfPreview);
 
   return (
     <div className="mx-auto flex h-full w-full max-w-md flex-col justify-center px-8">
@@ -69,7 +72,10 @@ function InRoom({ onShare, onStop }: RoomBodyProps) {
                 {participant.user.display_name ?? participant.user.username}
               </span>
               {participant.publishing && (
-                <span className="ml-auto text-accent">compartilhando</span>
+                <span className="ml-auto flex items-center gap-1 text-danger">
+                  <Icon name="dot" size={12} />
+                  compartilhando
+                </span>
               )}
             </li>
           );
@@ -79,25 +85,34 @@ function InRoom({ onShare, onStop }: RoomBodyProps) {
       {publishing ? (
         <div className="mt-group">
           <PublisherPanel />
-          <Button variant="danger" onClick={onStop} className="mt-group w-full py-2">
+          {/* Este corpo só aparece quando a própria tela está oculta — com ela
+              visível, a sala está no modo grade e quem manda é o cromo. Por isso
+              o caminho de volta mora aqui. */}
+          {!showSelfPreview && (
+            <Button
+              icon="eye"
+              onClick={() => {
+                setShowSelfPreview(true);
+              }}
+              className="mt-group w-full py-2"
+            >
+              Ver a minha própria tela
+            </Button>
+          )}
+          <Button variant="danger" icon="stop" onClick={onStop} className="mt-row w-full py-2">
             Parar de compartilhar
           </Button>
         </div>
       ) : (
         <Button
           variant="primary"
+          icon="monitor"
           onClick={onShare}
           disabled={starting}
           className="mt-group w-full py-2"
         >
-          {starting ? 'Escolhendo a tela…' : 'Compartilhar tela'}
+          {starting ? 'Conectando…' : 'Compartilhar tela'}
         </Button>
-      )}
-
-      {error !== null && (
-        <p role="alert" className="mt-group text-danger">
-          {error}
-        </p>
       )}
     </div>
   );

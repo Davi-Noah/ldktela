@@ -41,6 +41,43 @@ export function listShareSources(): Promise<ShareSource[]> {
   return invoke<ShareSource[]>('share_sources');
 }
 
+/**
+ * One source's thumbnail, as a data URL (RF-37).
+ *
+ * Asked for one at a time rather than with the list: capturing fifteen windows
+ * costs close to a second, and the picker has to open now. `null` means the
+ * source gave no frame — minimised, or closed between listing and capturing —
+ * and the card falls back to its title, which still works.
+ */
+export function shareThumbnail(kind: SourceKind, sourceId: string): Promise<string | null> {
+  return invoke<string | null>('share_thumbnail', { kind, sourceId });
+}
+
+/**
+ * Turns the local preview of our own screen on and off, and sets its rate
+ * (ADR-0030).
+ *
+ * Off stops the branch **inside the capture thread**. It is not the element
+ * that disappears — it is the sub-sampling that stops happening.
+ */
+export function setSharePreview(enabled: boolean, fps: number): Promise<void> {
+  return invoke<void>('share_preview', { enabled, fps });
+}
+
+/**
+ * Mirrors the sharing state onto the tray: the stop item, the tooltip and the
+ * red dot on the icon.
+ *
+ * Swallows its own failure. The tray is a mirror of state that already exists
+ * in the window, and a rejected promise here would be an unhandled rejection
+ * over something purely cosmetic.
+ */
+export function setTraySharing(sharing: boolean, what: string | null): void {
+  void invoke<void>('tray_set_sharing', { sharing, what }).catch(() => {
+    // Sem bandeja, o aplicativo continua inteiro.
+  });
+}
+
 export function startNativeShare(request: StartShareRequest): Promise<StartedShare> {
   // O core e um motor de midia burro: recebe URL, token, fonte e preset. Quem
   // fala com a nossa API e resolve autenticacao continua sendo este lado.
@@ -67,6 +104,25 @@ export function stopNativeShare(): Promise<void> {
  */
 export function onShareEnded(handler: (reason: string) => void): Promise<() => void> {
   return listen<string>('share://ended', (event) => {
+    handler(event.payload);
+  });
+}
+
+/**
+ * The tray item and the global hotkey (Ctrl+Shift+E) ask; this side decides.
+ *
+ * The core never stops a share on its own here because only this side knows
+ * whether there is one, and it is this side that has to tell the server.
+ */
+export function onStopRequested(handler: () => void): Promise<() => void> {
+  return listen('share://stop-requested', () => {
+    handler();
+  });
+}
+
+/** One preview frame, already a data URL an `<img>` can take (ADR-0030). */
+export function onPreviewFrame(handler: (dataUrl: string) => void): Promise<() => void> {
+  return listen<string>('share://preview', (event) => {
     handler(event.payload);
   });
 }

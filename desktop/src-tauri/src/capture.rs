@@ -189,6 +189,7 @@ pub fn start(
     max: Size,
     fps: u32,
     sink: NativeVideoSource,
+    preview: Option<crate::preview::Tap>,
     on_lost: impl Fn() + Send + 'static,
 ) -> Result<Capture, CaptureError> {
     // A fonte e procurada aqui, na thread de quem chamou, para que "essa janela
@@ -219,6 +220,7 @@ pub fn start(
                     period,
                     delivered: counted,
                     produced: counted_produced,
+                    preview,
                 },
                 sink,
                 &thread_stop,
@@ -243,6 +245,8 @@ struct Job {
     period: Duration,
     delivered: Arc<AtomicU64>,
     produced: Arc<AtomicU64>,
+    /// ADR-0030. `None` quando nada quer ver esta captura de perto.
+    preview: Option<crate::preview::Tap>,
 }
 
 fn run(job: Job, sink: NativeVideoSource, stop: &AtomicBool, on_lost: impl Fn() + Send + 'static) {
@@ -253,6 +257,7 @@ fn run(job: Job, sink: NativeVideoSource, stop: &AtomicBool, on_lost: impl Fn() 
         period,
         delivered,
         produced,
+        preview,
     } = job;
 
     let Some(mut capturer) = open(kind) else {
@@ -272,7 +277,7 @@ fn run(job: Job, sink: NativeVideoSource, stop: &AtomicBool, on_lost: impl Fn() 
 
     let lost = Arc::new(AtomicBool::new(false));
     let callback_lost = Arc::clone(&lost);
-    let mut scratch = Scratch::new(max, sink, delivered, produced);
+    let mut scratch = Scratch::new(max, sink, delivered, produced, preview);
     capturer.start_capture(Some(source), move |result| match result {
         Ok(frame) => scratch.push(&frame),
         Err(CaptureFailure::Temporary) => {
@@ -312,6 +317,7 @@ struct Scratch {
     buffer: Option<(Size, NV12Buffer)>,
     delivered: Arc<AtomicU64>,
     produced: Arc<AtomicU64>,
+    preview: Option<crate::preview::Tap>,
 }
 
 impl Scratch {
@@ -320,6 +326,7 @@ impl Scratch {
         sink: NativeVideoSource,
         delivered: Arc<AtomicU64>,
         produced: Arc<AtomicU64>,
+        preview: Option<crate::preview::Tap>,
     ) -> Self {
         Self {
             max,
@@ -327,6 +334,7 @@ impl Scratch {
             buffer: None,
             delivered,
             produced,
+            preview,
         }
     }
 
@@ -401,7 +409,73 @@ impl Scratch {
         if accepted {
             self.delivered.fetch_add(1, Ordering::Relaxed);
         }
+
+        // Por ultimo, e nunca antes: o encoder ja recebeu o quadro dele. O
+        // preview tem relogio proprio e descarta o que nao couber (ADR-0030).
+        if let Some(preview) = self.preview.as_mut() {
+            preview.offer(data, stride, captured);
+        }
     }
+}
+
+/// Um unico quadro de uma fonte, para a miniatura do seletor (RF-37).
+///
+/// Abre um capturador so para isto e o fecha ao sair. Nao e barato, e nao
+/// precisa ser: roda uma vez por fonte, enquanto o seletor esta aberto, e nunca
+/// durante uma transmissao.
+///
+/// O primeiro `capture_frame` costuma voltar vazio — o DXGI ainda esta
+/// acordando —, por isso a insistencia com teto. Sem o teto, uma fonte que
+/// nunca entrega quadro prenderia a thread para sempre.
+pub fn thumbnail(kind: SourceKind, source_id: u64, max: Size) -> Option<crate::preview::Raw> {
+    const ATTEMPTS: u32 = 12;
+    const WAIT: Duration = Duration::from_millis(25);
+
+    let mut capturer = open(kind)?;
+    let source = capturer
+        .get_source_list()
+        .into_iter()
+        .find(|candidate| candidate.id() == source_id)?;
+
+    let slot: Arc<std::sync::Mutex<Option<crate::preview::Raw>>> =
+        Arc::new(std::sync::Mutex::new(None));
+    let sink = Arc::clone(&slot);
+    capturer.start_capture(Some(source), move |result| {
+        let Ok(frame) = result else {
+            return;
+        };
+        let (Ok(width), Ok(height)) = (u32::try_from(frame.width()), u32::try_from(frame.height()))
+        else {
+            return;
+        };
+        let captured = Size {
+            width: even(width),
+            height: even(height),
+        };
+        let target = fit(captured, max);
+        let Some(pixels) =
+            crate::preview::subsample(frame.data(), frame.stride(), captured, target)
+        else {
+            return;
+        };
+        if let Ok(mut guard) = sink.lock() {
+            *guard = Some(crate::preview::Raw {
+                width: target.width,
+                height: target.height,
+                pixels,
+            });
+        }
+    });
+
+    for _ in 0..ATTEMPTS {
+        capturer.capture_frame();
+        if slot.lock().is_ok_and(|guard| guard.is_some()) {
+            break;
+        }
+        std::thread::sleep(WAIT);
+    }
+
+    slot.lock().ok().and_then(|mut guard| guard.take())
 }
 
 #[cfg(test)]
@@ -452,6 +526,7 @@ mod tests {
             },
             30,
             sink,
+            None,
             || eprintln!("fonte perdida"),
         )
         .expect("a captura deve iniciar");
@@ -469,6 +544,40 @@ mod tests {
             produced > 10,
             "a captura abriu mas nao produziu quadro nenhum"
         );
+    }
+
+    /// Toca a tela de verdade, como o teste acima. Rode a mao:
+    ///
+    /// ```text
+    /// cargo test -- --ignored --nocapture
+    /// ```
+    ///
+    /// Responde a unica pergunta que um teste de unidade nao alcanca: se o
+    /// `DesktopCapturer` entrega quadro para uma fonte escolhida a frio, sem
+    /// laco de captura rodando — que e exatamente o que o seletor faz ao abrir.
+    #[test]
+    #[ignore]
+    fn a_real_screen_produces_a_thumbnail() {
+        let sources = list_sources(&[]);
+        let screen = sources
+            .iter()
+            .find(|s| s.kind == SourceKind::Screen)
+            .expect("deve existir pelo menos uma tela");
+        let id: u64 = screen.id.parse().expect("id numerico");
+
+        let frame = thumbnail(SourceKind::Screen, id, crate::preview::THUMBNAIL_MAX)
+            .expect("a tela deve entregar um quadro");
+        println!("miniatura: {}x{}", frame.width, frame.height);
+        assert!(frame.width <= crate::preview::THUMBNAIL_MAX.width);
+        assert!(frame.height <= crate::preview::THUMBNAIL_MAX.height);
+        assert_eq!(
+            frame.pixels.len(),
+            (frame.width as usize) * (frame.height as usize) * 4
+        );
+
+        let url = crate::preview::encode_data_url(&frame).expect("deve virar data URL");
+        println!("data URL de {} bytes", url.len());
+        assert!(url.starts_with("data:image/jpeg;base64,"));
     }
 
     fn size(width: u32, height: u32) -> Size {

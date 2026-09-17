@@ -50,6 +50,14 @@ interface MediaState {
   connection: MediaConnection;
   /** True from the moment our screen track is published until it is dropped. */
   publishing: boolean;
+  /**
+   * What we are sharing, in the words of the picker ("Tela 1", "Elden Ring").
+   *
+   * Kept because the app could not answer the question a publisher asks every
+   * few minutes — "am I still showing the right thing?" — and a panel that says
+   * "you are sharing" with no object is not an answer.
+   */
+  sharingTitle: string | null;
   /** True while the OS picker is open, so the button can say so. */
   starting: boolean;
   sharingAudio: boolean;
@@ -72,12 +80,16 @@ interface MediaState {
   /** Identities connected to the media room, minus ourselves: the viewers. */
   viewerIds: string[];
   stats: PublisherStats | null;
-  error: string | null;
 }
 
 interface MediaStore extends MediaState {
   setConnection: (connection: MediaConnection) => void;
-  setPublishing: (publishing: boolean, sharingAudio: boolean, audioMode?: AudioMode | null) => void;
+  setPublishing: (
+    publishing: boolean,
+    sharingAudio: boolean,
+    audioMode?: AudioMode | null,
+    title?: string | null,
+  ) => void;
   setStarting: (starting: boolean) => void;
   setPublishPreset: (preset: PublishPreset) => void;
   addScreen: (identity: string, kind: 'video' | 'audio') => void;
@@ -88,13 +100,13 @@ interface MediaStore extends MediaState {
   setDetached: (identity: string | null) => void;
   setViewerIds: (ids: string[]) => void;
   setStats: (stats: PublisherStats | null) => void;
-  setError: (error: string | null) => void;
   reset: () => void;
 }
 
 const INITIAL: MediaState = {
   connection: 'idle',
   publishing: false,
+  sharingTitle: null,
   starting: false,
   sharingAudio: false,
   audioMode: null,
@@ -105,7 +117,6 @@ const INITIAL: MediaState = {
   detached: null,
   viewerIds: [],
   stats: null,
-  error: null,
 };
 
 function blank(identity: string): ScreenState {
@@ -184,11 +195,21 @@ export const useMediaStore = create<MediaStore>()((set) => ({
   setConnection: (connection) => {
     set({ connection });
   },
-  setPublishing: (publishing, sharingAudio, audioMode = null) => {
+  setPublishing: (publishing, sharingAudio, audioMode = null, title = null) => {
     set(
       publishing
-        ? { publishing, sharingAudio, audioMode, starting: false }
-        : { publishing, sharingAudio, audioMode: null, starting: false, stats: null },
+        ? { publishing, sharingAudio, audioMode, starting: false, sharingTitle: title }
+        : {
+            publishing,
+            sharingAudio,
+            audioMode: null,
+            starting: false,
+            stats: null,
+            sharingTitle: null,
+            // O ladrilho do preview some junto: deixar o foco apontando para ele
+            // deixaria a tela preta com um cromo em cima de nada.
+            focused: null,
+          },
     );
   },
   setStarting: (starting) => {
@@ -234,9 +255,6 @@ export const useMediaStore = create<MediaStore>()((set) => ({
   setStats: (stats) => {
     set({ stats });
   },
-  setError: (error) => {
-    set({ error });
-  },
   reset: () => {
     set(INITIAL);
   },
@@ -268,4 +286,29 @@ export function ownerOf(identity: string): string {
  */
 export function shouldSilenceOtherScreens(state: MediaState): boolean {
   return state.publishing && state.sharingAudio;
+}
+
+/**
+ * A identidade do ladrilho da própria tela (ADR-0030).
+ *
+ * Não é uma identidade do LiveKit e nunca chega ao servidor: a própria
+ * publicação não é assinada, e o preview sai da captura local. O prefixo `~`
+ * segue o mesmo formato do sufixo do publicador e garante que ela jamais colida
+ * com um id de usuário do Discord, que é só dígitos.
+ */
+export const SELF_ID = '~self';
+
+/**
+ * A ordem dos ladrilhos na grade, incluindo o da própria tela.
+ *
+ * A própria tela entra **por último**: entrando na frente, começar a transmitir
+ * empurraria as telas dos outros de lugar no meio de uma sessão, e mudança de
+ * posição sem motivo é a coisa que mais parece defeito numa grade de vídeo.
+ */
+export function visibleTiles(
+  screenOrder: readonly string[],
+  publishing: boolean,
+  showSelfPreview: boolean,
+): string[] {
+  return publishing && showSelfPreview ? [...screenOrder, SELF_ID] : [...screenOrder];
 }

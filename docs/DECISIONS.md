@@ -470,3 +470,71 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   transmissão em andamento sem aviso nenhum. A barra fica no rodapé, do tamanho de uma linha,
   e "Agora não" a esconde até a próxima checagem — nunca modal, porque a tela da sala existe
   para sair da frente do vídeo (`CLAUDE.md` §8).
+
+### Revisão de interface (2026-09-16)
+
+- **[UI] `border-line` era uma classe morta, usada em seis lugares** — `tokens.css` definia
+  `--color-border`, nunca `--color-line`, e o Tailwind 4 gera utilitário a partir do token: sem
+  token, a classe não existe e nenhuma borda é desenhada. O efeito era invisível na leitura do
+  código e enorme na tela: ladrilhos sem contorno sobre o fundo escuro, rodapé de ladrilho sem
+  divisória, e as pílulas de preset não selecionadas viradas em texto solto — que era metade da
+  queixa de "visual seco". Uma linha em `tokens.css` consertou os seis.
+- **[UI] `--color-text-faint` reprovava em contraste** — `#6b7482` sobre `surface-1` dá 3,49:1,
+  contra os 4,5:1 que o WCAG AA pede para texto normal, e o token carrega instrução (rótulo de
+  estatística, título de grupo do seletor, o aviso de validade do código de pareamento), não
+  decoração. Passou a `#858e9c`, ~4,6:1. `--color-text-muted` já passava, com 6,47:1.
+- **[UI] O cromo da sala ficava atrás do ladrilho em foco** — o ladrilho focado usa `z-10` e
+  nenhum ancestral dele criava contexto de empilhamento, então ele competia na raiz; z-index
+  positivo pinta acima de `z-auto` independentemente da ordem no DOM. Com o vídeo em foco cobrindo
+  a borda inferior, "Parar de compartilhar" e "Tela cheia" ficavam inalcançáveis. O cromo virou
+  uma camada única em `z-30`, e a camada precisa ser `pointer-events-none` — ela cobre a área
+  inteira do vídeo, e sem isso nenhum clique chegaria ao ladrilho.
+- **[UI] Erro de compartilhamento era invisível com vídeo na tela** — `error` só era renderizado
+  dentro de `RoomBody`, que só monta quando **não** há vídeo. Falhar ao compartilhar enquanto se
+  assistia a tela de alguém produzia um erro que ninguém via. O campo saiu do store de mídia e
+  virou a camada de avisos (`store/ui.ts`), que é global e não depende de qual tela está montada.
+- **[UI] O cromo sumia debaixo do ponteiro** — o temporizador só era rearmado em `pointermove`,
+  então mirar num botão e parar de mexer o mouse escondia a barra sob o cursor, e um menu aberto
+  ficava órfão sobre o vídeo. Agora há um contador de travamentos (`chromeHolds`): ponteiro sobre
+  os controles e menu aberto são motivos que se sobrepõem, e por isso é contador e não booleano.
+- **[UI] Transição de opacidade é permitida apesar do §8** — a regra proíbe "animação que rode
+  enquanto há vídeo na tela". 120 ms de `opacity`, disparados por gesto e que terminam, são a
+  alternativa ao pisca-pisca do `hidden`; só `opacity`, que o compositor resolve sem relayout e
+  sem repintar o quadro. Respeita `prefers-reduced-motion`.
+- **[UI] Esconder cromo é `opacity` mais `inert`, nunca só `opacity`** — com transparência
+  sozinha, quem navega por teclado tabularia para dentro de uma barra invisível. `inert` é
+  aplicado por `ref` em vez de atributo JSX, o que dispensa depender da tipagem de `inert` no
+  React.
+- **[UI] Colunas da grade por container query, não por `ResizeObserver`** — a contagem depende da
+  forma da janela, e observar tamanho perto do caminho de render do vídeo é o que o CLAUDE.md §7
+  manda evitar. `.screen-stage` declara `container-type: size` e as regras leem `data-count`; duas
+  telas só ficam lado a lado acima de 1:1, porque numa janela alta e estreita empilhar dá mais
+  pixel a cada uma.
+- **[UI] Clique simples foca, duplo vai a tela cheia, com 220 ms de espera** — são os dois gestos
+  do Discord, e o par de cliques do duplo dispararia o foco no caminho. O temporizador por
+  ladrilho resolve; é o mesmo custo de um `setTimeout`, nunca por quadro.
+- **[UI] Estado de UI em memória × preferência do usuário** — `store/ui.ts` guarda avisos,
+  travamento do cromo e "ver a própria tela" em memória, conforme o §2.8. Uma preferência como a
+  última **deveria** sobreviver ao fechamento, mas `localStorage` está proibido e não existe cofre
+  de preferências no core. Fica em memória, ligada por padrão, até que exista.
+- **[S7] Miniatura do seletor sai do `DesktopCapturer`, uma por vez** — capturar quinze janelas
+  custa perto de um segundo, e o seletor precisa abrir na hora; a lista aparece imediata e as
+  figuras entram conforme chegam. O primeiro `capture_frame` costuma voltar vazio porque o DXGI
+  ainda está acordando, daí a insistência com teto de doze tentativas — sem o teto, uma fonte que
+  nunca entrega quadro prenderia a thread.
+- **[S7] `jpeg-encoder` em vez de RGBA cru pelo IPC** — 480×270 em RGBA são 518 KB por quadro,
+  contra ~20 KB em JPEG q70. A 12 fps, é a diferença entre 6 MB/s e 240 KB/s de tráfego de IPC
+  para uma imagem que vai ser desenhada e descartada. O base64 é próprio, vinte linhas, para não
+  trazer mais uma dependência.
+- **[S7] Preview entregue como data URL para uma `<img>`, não como bytes para um canvas** — o
+  WebView decodifica cada quadro fora da thread principal e desenha sozinho; trocar `img.src` é a
+  operação inteira, sem `createImageBitmap`, sem canvas e sem uma linha de JavaScript por quadro.
+- **[S7] O atalho global é registrado no Rust** — `tauri-plugin-global-shortcut` do lado do core
+  dispensa entrada em `capabilities/` e no `package.json`. Um atalho já tomado por outro programa
+  não impede o aplicativo de subir: perde-se o atalho, e o botão e a bandeja continuam parando a
+  transmissão.
+- **[S7] PiP nativo é a segunda janela flutuante, e não contraria o ADR-0022** — Document PiP e
+  `requestPictureInPicture` são APIs distintas, com janelas distintas, sobre a mesma conexão do
+  LiveKit: o elemento é o mesmo, o decodificador é o mesmo, e não há assinatura nova. O limite de
+  **uma** janela destacada do ADR-0022 continua valendo para o Document PiP, e a troca agora é
+  anunciada em vez de fechar a anterior em silêncio.

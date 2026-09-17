@@ -64,7 +64,8 @@ Violar qualquer uma destas invalida o trabalho, mesmo que compile e passe nos te
 │   └── server/                 # binario unico que compoe api + bot.
 ├── desktop/
 │   ├── src-tauri/              # core Rust: cofre, bandeja, IPC
-│   │   ├── capture.rs          # enumeracao de fontes e laco de captura de tela
+│   │   ├── capture.rs          # enumeracao de fontes, laco de captura e miniatura
+│   │   ├── preview.rs          # preview local da propria tela e do seletor (ADR-0030)
 │   │   ├── publisher.rs        # conexao LiveKit que publica (identidade `~pub`)
 │   │   ├── audio.rs            # WASAPI process loopback, excluindo o Discord
 │   │   └── share.rs            # comandos Tauri de compartilhamento
@@ -190,7 +191,7 @@ Não altere sem confirmação explícita:
 
 - `migrations/` — qualquer migration destrutiva (drop, alteração de tipo, remoção de coluna). Inclui a poda proposta em [ADR-0016](docs/adr/0016-poda-por-reescrita-de-migrations.md), que está **Proposto** e não deve ser executada sem aval.
 - Configuração de rede e infraestrutura da VM (firewall, portas do LiveKit, TLS, o IP dedicado do TURN).
-- Código de captura de mídia e permissões de sistema operacional em `desktop/src-tauri/` — inclui `capture.rs`, `audio.rs` e `publisher.rs` ([ADR-0025](docs/adr/0025-audio-exclui-o-discord.md), [ADR-0026](docs/adr/0026-publicacao-no-rust-nativo.md)).
+- Código de captura de mídia e permissões de sistema operacional em `desktop/src-tauri/` — inclui `capture.rs`, `audio.rs`, `publisher.rs` e `preview.rs` ([ADR-0025](docs/adr/0025-audio-exclui-o-discord.md), [ADR-0026](docs/adr/0026-publicacao-no-rust-nativo.md), [ADR-0030](docs/adr/0030-preview-da-propria-tela-e-local.md)).
 - Qualquer coisa que toque em credencial, token do bot ou chave de assinatura.
 - O modelo de autorização derivado do Discord. Se parecer errado, pergunte; não "corrija".
 

@@ -15,9 +15,134 @@ body {
   font-size: var(--text-base);
   line-height: var(--text-base--line-height);
   -webkit-font-smoothing: antialiased;
+  /* O aplicativo e uma janela, nao uma pagina: selecionar o cromo com o mouse e
+     arrastar o layout sao gestos de navegador que so atrapalham aqui. */
+  user-select: none;
+  overscroll-behavior: none;
+}
+
+/* Onde ler o texto e o ponto — codigo de pareamento, titulo de fonte, numeros. */
+input,
+code,
+.selectable {
+  user-select: text;
 }
 
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
+}
+
+/* ---------------------------------------------------------------------------
+   Grade de telas.
+   Container query em vez de ResizeObserver: a contagem de colunas depende da
+   forma da janela, e observar tamanho perto do caminho de render do video e
+   justamente o que o CLAUDE.md 7 manda evitar. Aqui o navegador resolve sozinho,
+   sem uma linha de JavaScript e sem re-render do React.
+   --------------------------------------------------------------------------- */
+.screen-stage {
+  container-type: size;
+}
+
+.screen-grid {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  height: 100%;
+  align-content: stretch;
+  grid-template-columns: 1fr;
+  grid-auto-rows: 1fr;
+}
+
+/* Duas telas: lado a lado so quando ha largura para isso. Numa janela alta e
+   estreita, empilhar da mais pixel a cada uma do que espremer as duas. */
+@container (min-aspect-ratio: 1/1) {
+  .screen-grid[data-count='2'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.screen-grid[data-count='3'],
+.screen-grid[data-count='4'] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.screen-grid[data-count='5'],
+.screen-grid[data-count='6'] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* Uma tela ocupa a linha inteira quando a contagem e impar e ela e a ultima. */
+.screen-grid[data-count='3'] > *:last-child {
+  grid-column: span 2;
+}
+
+/* ---------------------------------------------------------------------------
+   Controle de intervalo (volume). Nativo, mas inteiramente nosso: o
+   `accent-color` sozinho deixa o trilho com a cara do Windows.
+   --------------------------------------------------------------------------- */
+input[type='range'].slider {
+  appearance: none;
+  height: 1rem;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='range'].slider::-webkit-slider-runnable-track {
+  height: 0.25rem;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--color-text) 0%,
+    var(--color-text) var(--fill, 100%),
+    var(--color-line-soft) var(--fill, 100%),
+    var(--color-line-soft) 100%
+  );
+}
+
+input[type='range'].slider::-webkit-slider-thumb {
+  appearance: none;
+  margin-top: -0.25rem;
+  height: 0.75rem;
+  width: 0.75rem;
+  border-radius: 999px;
+  background: var(--color-text);
+}
+
+input[type='range'].slider:disabled {
+  cursor: not-allowed;
+}
+
+input[type='range'].slider:disabled::-webkit-slider-thumb {
+  background: var(--color-text-faint);
+}
+
+/* ---------------------------------------------------------------------------
+   Cromo sobre video.
+   Transicao curta de opacidade, disparada por gesto e que termina. Nao e
+   "animacao rodando enquanto ha video" (CLAUDE.md 8) — e a alternativa ao
+   pisca-pisca de aparecer e sumir sem transicao nenhuma. So `opacity`, que o
+   compositor resolve sem relayout e sem repintar o quadro.
+   --------------------------------------------------------------------------- */
+.chrome-fade {
+  transition: opacity 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chrome-fade {
+    transition: none;
+  }
+}
+
+/* Em tela cheia o ponteiro some junto com os controles: ele e a unica coisa que
+   sobra em cima do video depois que o cromo sai. */
+.cursor-gone {
+  cursor: none;
+}
+
+/* Barras de rolagem no tema, e finas: a unica lista longa do aplicativo e a de
+   janelas do seletor. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-surface-3) transparent;
 }

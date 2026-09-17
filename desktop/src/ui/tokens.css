@@ -7,15 +7,25 @@
   --color-surface-3: #2b3038;
   --color-border: #343a44;
 
+  /* Traco de separacao. Existe separado de `border` porque e usado sobre o
+     video, onde a borda de painel some: e o mesmo valor com menos peso. */
+  --color-line: #343a44;
+  --color-line-soft: #ffffff14;
+
   /* Fundo atras do video. Neutro e escuro para nao deslocar a percepcao de cor
      da imagem, e mais escuro que as superficies para o letterbox sumir. */
   --color-stage: #0d0f12;
   --color-scrim: #0d0f12d9;
+  /* Cromo flutuante sobre o video: opaco o bastante para o icone ler, leve o
+     bastante para nao virar tarja. */
+  --color-chrome: #1c1f26f2;
 
   /* Texto */
   --color-text: #dfe3ea;
   --color-text-muted: #9aa3b0;
-  --color-text-faint: #6b7482;
+  /* 4,6:1 sobre surface-1. O valor anterior (#6b7482) dava 3,5:1 e reprovava no
+     WCAG AA — e este token carrega instrucao, nao decoracao. */
+  --color-text-faint: #858e9c;
 
   /* Uma unica cor de destaque: foco, estado ativo. Nunca perto do video. */
   --color-accent: #5b8cff;
@@ -23,6 +33,7 @@
 
   /* Estados */
   --color-danger: #e5646b;
+  --color-danger-strong: #b93b45;
   --color-success: #5cc98d;
   --color-warning: #d9a441;
 
@@ -37,4 +48,6 @@
   --spacing-group: 0.75rem;
 
   --radius-panel: 0.5rem;
+  /* Controle redondo sobre video, no formato de pilula. */
+  --radius-pill: 999px;
 }

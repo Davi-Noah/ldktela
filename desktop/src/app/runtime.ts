@@ -12,8 +12,11 @@ import { notifyShareStarted, shouldNotify } from '../platform/notify';
 import { GatewayClient } from '../gateway/client';
 import { log } from '../log';
 import { MediaSession } from '../media/session';
+import { startPreviewBridge } from '../media/preview';
+import { onStopRequested } from '../media/native';
 import { checkForUpdate } from '../platform/updater';
 import { clearRefreshToken, readRefreshToken, writeRefreshToken } from '../platform/vault';
+import { useMediaStore } from '../store/media';
 import { useRoomStore } from '../store/room';
 import { useSessionStore } from '../store/session';
 import { useUpdaterStore } from '../store/updater';
@@ -80,6 +83,22 @@ export async function start(): Promise<void> {
   void listen('session://sign-out', () => {
     log.info('sessão: troca de conta pedida pela bandeja');
     void signOut();
+  });
+
+  // ADR-0030: um ouvinte só, pela vida do processo. O elemento que recebe os
+  // quadros entra e sai; a assinatura não.
+  startPreviewBridge();
+
+  // A bandeja e o atalho global (Ctrl+Shift+E) pedem a parada; quem sabe se há
+  // algo para parar é este lado. Vale com a janela escondida, que é o estado
+  // normal do aplicativo (RF-26) e justamente quando descobrir a tela errada no
+  // ar é mais caro.
+  void onStopRequested(() => {
+    if (!useMediaStore.getState().publishing) {
+      return;
+    }
+    log.info('compartilhamento: parada pedida de fora da janela');
+    void media.stopShare();
   });
 
   scheduleUpdateChecks();

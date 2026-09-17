@@ -14,14 +14,19 @@ import {
   useMediaStore,
 } from '../store/media';
 import { useSessionStore } from '../store/session';
+import { useUiStore } from '../store/ui';
 import {
   listShareSources,
   onShareEnded,
+  setSharePreview,
+  setTraySharing,
   type ShareSource,
+  shareThumbnail,
   type SourceKind,
   startNativeShare,
   stopNativeShare,
 } from './native';
+import { clearPreview } from './preview';
 import { invoke } from '@tauri-apps/api/core';
 import { applyQuality, DUPLICATE_IDENTITY_MESSAGE, shouldRejoin } from './tracks';
 
@@ -49,6 +54,12 @@ export interface ShareChoice {
   sourceId: string;
   kind: SourceKind;
   audio: boolean;
+  /**
+   * What the picker called it. Never reaches the core — it exists so the
+   * interface can say *what* is being shared, in the tray tooltip and over the
+   * preview.
+   */
+  title: string;
 }
 
 /**
@@ -84,9 +95,13 @@ export class MediaSession {
       log.warn('compartilhamento: encerrado pelo sistema', { motivo: reason });
       this.sharing = null;
       this.stopStatsSampling();
-      const store = useMediaStore.getState();
-      store.setPublishing(false, false);
-      store.setError('O compartilhamento foi encerrado.');
+      useMediaStore.getState().setPublishing(false, false);
+      // Aviso e não erro: fechar a janela que estava sendo compartilhada é um
+      // fim normal, e pintar isso de vermelho ensina o usuário a ignorar
+      // vermelho.
+      useUiStore.getState().toast('warning', 'O compartilhamento foi encerrado.');
+      clearPreview();
+      setTraySharing(false, null);
       this.applyAudioPolicy();
     });
   }
@@ -94,6 +109,26 @@ export class MediaSession {
   /** The list the picker shows (RF-37). Enumerated by the core, not by Chromium. */
   listSources(): Promise<ShareSource[]> {
     return listShareSources();
+  }
+
+  /** One card's picture (RF-37). Asked for per source, as the picker draws them. */
+  thumbnail(kind: SourceKind, sourceId: string): Promise<string | null> {
+    return shareThumbnail(kind, sourceId);
+  }
+
+  /**
+   * Liga, desliga e acelera o preview da própria tela (ADR-0030).
+   *
+   * Desligado, o ramo para dentro da thread de captura — é a mesma disciplina
+   * do `adaptiveStream` para as telas dos outros: o que não está sendo olhado
+   * não é produzido.
+   */
+  async setPreview(enabled: boolean, fps: number): Promise<void> {
+    try {
+      await setSharePreview(enabled, fps);
+    } catch (error) {
+      log.debug('preview: o core recusou o ajuste', { error });
+    }
   }
 
   private screen(owner: string): RemoteScreen {
@@ -156,6 +191,8 @@ export class MediaSession {
     this.detachAll();
     if (this.sharing !== null) {
       this.sharing = null;
+      clearPreview();
+      setTraySharing(false, null);
       await stopNativeShare().catch((error: unknown) => {
         log.error('compartilhamento: falha ao parar', error);
       });
@@ -182,7 +219,6 @@ export class MediaSession {
     if (channelId === null || this.sharing !== null) {
       return;
     }
-    store.setError(null);
     store.setStarting(true);
     log.info('compartilhamento: iniciando', { ...choice, preset });
 
@@ -192,7 +228,7 @@ export class MediaSession {
     } catch (error) {
       log.error('compartilhamento: o servidor recusou o token', error);
       store.setStarting(false);
-      store.setError(publishMessage(error));
+      useUiStore.getState().toast('danger', publishMessage(error));
       return;
     }
 
@@ -206,8 +242,9 @@ export class MediaSession {
         audio: choice.audio,
       });
       this.sharing = choice;
-      store.setPublishing(true, started.audio !== null, started.audio);
-      log.info('compartilhamento: no ar', { audio: started.audio });
+      store.setPublishing(true, started.audio !== null, started.audio, choice.title);
+      setTraySharing(true, choice.title);
+      log.info('compartilhamento: no ar', { audio: started.audio, fonte: choice.title });
       if (started.audio === 'whole_system') {
         log.warn('compartilhamento: sem Discord para excluir, indo o sistema inteiro');
       }
@@ -216,7 +253,7 @@ export class MediaSession {
     } catch (error) {
       log.error('compartilhamento: o core recusou', error);
       store.setStarting(false);
-      store.setError(publishMessage(error));
+      useUiStore.getState().toast('danger', publishMessage(error));
     }
   }
 
@@ -227,6 +264,8 @@ export class MediaSession {
     this.sharing = null;
     this.stopStatsSampling();
     useMediaStore.getState().setPublishing(false, false);
+    clearPreview();
+    setTraySharing(false, null);
     this.applyAudioPolicy();
     try {
       await stopNativeShare();
@@ -360,9 +399,8 @@ export class MediaSession {
         // Reconectar aqui expulsaria a outra ponta, que reconectaria e nos
         // expulsaria: as duas trocariam a sala para sempre.
         log.error('sala: a mesma conta entrou de outro lugar', undefined, { reason });
-        const store = useMediaStore.getState();
-        store.setConnection('failed');
-        store.setError(DUPLICATE_IDENTITY_MESSAGE);
+        useMediaStore.getState().setConnection('failed');
+        useUiStore.getState().toast('danger', DUPLICATE_IDENTITY_MESSAGE);
         return;
       }
       this.scheduleRejoin();
