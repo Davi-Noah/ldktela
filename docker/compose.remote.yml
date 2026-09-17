@@ -1,0 +1,64 @@
+name: ldkcord
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ldkcord-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: comms
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-comms}
+      POSTGRES_DB: comms
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    command:
+      - postgres
+      - -c
+      - max_connections=150
+      - -c
+      - shared_buffers=128MB
+    # Não mapeia a porta 5432 para o host: a comunicação é 100% interna
+    # pela rede do Docker, evitando qualquer conflito de portas na VM.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U comms -d comms"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  livekit:
+    image: livekit/livekit-server:v1.13.6
+    container_name: ldkcord-livekit
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./livekit.remote.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50019:50000-50019/udp"
+    healthcheck:
+      test: ["CMD", "/livekit-server", "--version"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.server
+    container_name: ldkcord-server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      livekit:
+        condition: service_healthy
+    env_file:
+      - ../.env.remote
+    ports:
+      - "${API_PORT:-8090}:8080"
+
+volumes:
+  pgdata:
+

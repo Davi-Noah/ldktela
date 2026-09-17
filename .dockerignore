@@ -1,0 +1,9 @@
+target/
+desktop/
+.git/
+.cargo/
+rust-toolchain.toml
+spike/
+*.msi
+.env*
+!docker/.env.remote.example

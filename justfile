@@ -73,6 +73,17 @@ infra-up:
 infra-down:
     docker compose -f docker/compose.dev.yml down
 
+# Sobe o backend completo em Docker para teste remoto (Postgres + LiveKit + Server)
+remote-up:
+    docker compose -f docker/compose.remote.yml up -d --build
+
+remote-down:
+    docker compose -f docker/compose.remote.yml down
+
+remote-logs:
+    docker compose -f docker/compose.remote.yml logs -f
+
+
 # Aguarda o Postgres aceitar conexoes. Usa o cliente de dentro do container:
 # a maquina de desenvolvimento nao precisa de psql instalado.
 wait-db:

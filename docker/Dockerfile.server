@@ -1,0 +1,36 @@
+# Etapa 1: Compilação com Rust
+FROM rust:bookworm AS builder
+
+WORKDIR /app
+
+# Copia manifestos e código fonte do backend
+COPY Cargo.toml Cargo.lock ./
+COPY .sqlx .sqlx/
+COPY migrations migrations/
+COPY crates crates/
+
+# Usa o cache de queries offline já versionado em .sqlx/
+ENV SQLX_OFFLINE=true
+
+# Compila o binário unificado do servidor em modo release
+RUN cargo build --release -p server
+
+# Etapa 2: Imagem final mínima
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+# ca-certificates é obrigatório para comunicação TLS com a API do Discord e LiveKit
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copia o binário final
+COPY --from=builder /app/target/release/server /usr/local/bin/server
+
+# Porta interna padrão da API
+EXPOSE 8080
+
+CMD ["server"]
+
