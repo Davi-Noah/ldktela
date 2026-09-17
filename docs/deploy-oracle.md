@@ -95,6 +95,16 @@ just remote-ports     # confere o que o servidor vai realmente usar
 
 **c) Só depois de confirmar que funciona, remova a regra de ingresso de 50000-50019.**
 
+### O risco de errar esse passo é menor do que parece
+
+Se 7882 ficar fechada, a mídia **não morre**: o ICE cai para TCP em 7881, que continua aberta e
+mapeada, e a transmissão funciona — pior, mas funciona. E o painel do publicador passa a mostrar
+`Transporte: tcp` com um aviso dizendo exatamente isso. Ou seja: o pior caso desta troca é
+qualidade degradada e diagnosticável, não tela preta.
+
+Detalhe que reforça a escolha: `7882` é o **padrão do próprio LiveKit** quando nada é
+configurado (`rtc.portUDP {Start: 7882, End: 0}`). A faixa é que era o desvio.
+
 ### Se 7882 não puder ser aberta
 
 Reverter é trocar duas linhas: em `docker/livekit.remote.yaml`, `udp_port: 7882` volta a ser
