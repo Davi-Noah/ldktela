@@ -33,10 +33,19 @@ services:
     command: --config /etc/livekit.yaml
     volumes:
       - ./livekit.remote.yaml:/etc/livekit.yaml:ro
+    environment:
+      # A chave nao mora no arquivo versionado. O `:?` faz o compose parar com
+      # esta mensagem em vez de subir um servidor sem chave — ou, pior, com a
+      # chave de exemplo que esteve publicada no repositorio.
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?defina LIVEKIT_API_KEY em .env.remote}: ${LIVEKIT_API_SECRET:?defina LIVEKIT_API_SECRET em .env.remote}"
+      LIVEKIT_WEBHOOK_API_KEY: "${LIVEKIT_API_KEY}"
     ports:
       - "7880:7880"
       - "7881:7881"
-      - "50000-50019:50000-50019/udp"
+      # Uma porta UDP multiplexada, no lugar da faixa (ver livekit.remote.yaml).
+      # Trocar exige abrir 7882/udp na security list da VCN **e** no iptables da
+      # VM — os comandos estao em docs/deploy-oracle.md.
+      - "7882:7882/udp"
     healthcheck:
       test: ["CMD", "/livekit-server", "--version"]
       interval: 5s

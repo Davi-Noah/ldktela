@@ -43,6 +43,12 @@ jobs:
       - run: npm ci
         working-directory: desktop
 
+      # O endereco do servidor vem de `desktop/.env.production`, versionado, e
+      # nao de uma variavel do repositorio. Nao e economia: uma variavel nao
+      # definida chega aqui como string vazia, sobrepoe o arquivo e faz a build
+      # parar — e, pior, trocar o endereco por variavel deixaria o CSP em
+      # `tauri.conf.json` para tras, que e um aplicativo que abre e nao fala com
+      # ninguem. Os dois mudam no mesmo commit, e `vite.config.ts` confere.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -193,3 +193,34 @@ describe('parar de transmitir', () => {
     expect(useMediaStore.getState().sharingTitle).toBeNull();
   });
 });
+
+/**
+ * O motivo da falha existe para virar texto na tela, e some com ela.
+ *
+ * Sem isto, `failed` produzia uma sala de aparência normal sobre uma conexão que
+ * não existe — nome do canal, lista de participantes, botão de compartilhar — e
+ * a única pista era uma torrada que já tinha sumido.
+ */
+describe('o motivo pelo qual a conexão de mídia desistiu', () => {
+  it('acompanha o estado de falha e é limpo quando a sala volta', () => {
+    const store = useMediaStore.getState();
+
+    store.setConnection('failed', 'duplicate_identity');
+    expect(useMediaStore.getState().fault).toBe('duplicate_identity');
+
+    store.setConnection('connecting');
+    expect(useMediaStore.getState().fault).toBeNull();
+
+    store.setConnection('failed', 'unreachable');
+    expect(useMediaStore.getState().fault).toBe('unreachable');
+
+    store.setConnection('connected');
+    expect(useMediaStore.getState().fault).toBeNull();
+  });
+
+  it('não sobrevive a um motivo que ninguém informou', () => {
+    useMediaStore.getState().setConnection('failed', 'duplicate_identity');
+    useMediaStore.getState().setConnection('failed');
+    expect(useMediaStore.getState().fault).toBeNull();
+  });
+});

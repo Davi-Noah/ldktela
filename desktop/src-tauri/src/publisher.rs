@@ -471,13 +471,28 @@ mod tests {
     use crate::capture::{self, SourceKind};
     use std::time::Duration;
 
-    const DEV_URL: &str = "ws://127.0.0.1:7880";
-    const DEV_KEY: &str = "devkey";
-    const DEV_SECRET: &str = "dev-only-not-a-real-key-0123456789abcdef";
+    /// O SFU de desenvolvimento, e o padrao de todos os testes daqui.
+    ///
+    /// `LK_URL`, `LK_KEY` e `LK_SECRET` apontam a medicao para outro servidor —
+    /// e o que permite rodar `measure_1080p60_end_to_end` contra a VM de
+    /// producao, que e a unica forma de saber se a implantacao aguenta o que o
+    /// aplicativo promete. Em loopback, o caminho de rede e um caminho que
+    /// nenhum usuario percorre.
+    ///
+    /// ```text
+    /// LK_URL=ws://IP:7880 LK_KEY=<chave> LK_SECRET=<segredo> \
+    ///   cargo test --release -- --ignored --nocapture measure_1080p60
+    /// ```
+    fn sfu_url() -> String {
+        std::env::var("LK_URL").unwrap_or_else(|_| "ws://127.0.0.1:7880".to_owned())
+    }
 
     fn dev_token(room: &str, identity: &str, publish: bool) -> String {
         use livekit_api::access_token::{AccessToken, VideoGrants};
-        AccessToken::with_api_key(DEV_KEY, DEV_SECRET)
+        let key = std::env::var("LK_KEY").unwrap_or_else(|_| "devkey".to_owned());
+        let secret = std::env::var("LK_SECRET")
+            .unwrap_or_else(|_| "dev-only-not-a-real-key-0123456789abcdef".to_owned());
+        AccessToken::with_api_key(&key, &secret)
             .with_identity(identity)
             .with_name(identity)
             .with_grants(VideoGrants {
@@ -516,7 +531,7 @@ mod tests {
         // o encoder pausado e a medicao seria de um caminho que o produto nunca
         // usa.
         let (_viewer, mut viewer_events) = Room::connect(
-            DEV_URL,
+            &sfu_url(),
             &dev_token(&room_name, "espectador", false),
             RoomOptions::default(),
         )
@@ -549,7 +564,7 @@ mod tests {
 
         let preset = Preset::P720p30;
         let publisher = Publisher::start(
-            DEV_URL,
+            &sfu_url(),
             &dev_token(&room_name, "tester~pub", true),
             preset,
             false,
@@ -632,7 +647,7 @@ mod tests {
         // teto do caminho, e a escolha de camada do espectador de verdade tem o
         // seu proprio teste, do lado do WebView.
         let (_viewer, mut viewer_events) = Room::connect(
-            DEV_URL,
+            &sfu_url(),
             &dev_token(&room_name, "espectador", false),
             RoomOptions::default(),
         )
@@ -668,7 +683,7 @@ mod tests {
         });
 
         let publisher = Publisher::start(
-            DEV_URL,
+            &sfu_url(),
             &dev_token(&room_name, "medidor~pub", true),
             preset,
             false,
@@ -956,7 +971,7 @@ mod tests {
 
         let room_name = format!("dvc-sweep-{}-{}", std::process::id(), label.len());
         let (_viewer, mut viewer_events) = Room::connect(
-            DEV_URL,
+            &sfu_url(),
             &dev_token(&room_name, "espectador", false),
             RoomOptions::default(),
         )
@@ -999,7 +1014,7 @@ mod tests {
             o
         };
         let (room, _events) = Room::connect(
-            DEV_URL,
+            &sfu_url(),
             &dev_token(&room_name, "medidor~pub", true),
             room_options,
         )

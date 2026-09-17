@@ -3,6 +3,19 @@ import type { AudioMode } from '../media/native';
 
 export type MediaConnection = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed';
 
+/**
+ * Por que a conexão de mídia desistiu. `null` enquanto não desistiu.
+ *
+ * Existe porque `failed` sozinho vira uma sala de aparência normal — lista de
+ * participantes, botão de compartilhar — sobre uma conexão que não existe. Quem
+ * viu isso concluiu que o produto simplesmente não mostra a tela dos outros.
+ *
+ * `duplicate_identity` é o caso que todo mundo encontra na primeira semana: o
+ * aplicativo instalado em duas máquinas na mesma conta do Discord. A segunda a
+ * entrar expulsa a primeira, e a primeira fica numa sala que parece vazia.
+ */
+export type MediaFault = 'duplicate_identity' | 'unreachable';
+
 /** Automatic follows the element size; the other two pin a simulcast layer. */
 export type QualityChoice = 'auto' | 'high' | 'low';
 
@@ -56,6 +69,8 @@ const DEFAULT_VOLUME = 1;
 
 interface MediaState {
   connection: MediaConnection;
+  /** Preenchido junto com `connection: 'failed'`, e limpo em qualquer outra. */
+  fault: MediaFault | null;
   /** True from the moment our screen track is published until it is dropped. */
   publishing: boolean;
   /**
@@ -91,7 +106,7 @@ interface MediaState {
 }
 
 interface MediaStore extends MediaState {
-  setConnection: (connection: MediaConnection) => void;
+  setConnection: (connection: MediaConnection, fault?: MediaFault | null) => void;
   setPublishing: (
     publishing: boolean,
     sharingAudio: boolean,
@@ -113,6 +128,7 @@ interface MediaStore extends MediaState {
 
 const INITIAL: MediaState = {
   connection: 'idle',
+  fault: null,
   publishing: false,
   sharingTitle: null,
   starting: false,
@@ -200,8 +216,11 @@ export function withoutTrack(
 
 export const useMediaStore = create<MediaStore>()((set) => ({
   ...INITIAL,
-  setConnection: (connection) => {
-    set({ connection });
+  setConnection: (connection, fault = null) => {
+    // A falha morre com o estado: qualquer transição que não seja `failed`
+    // significa que a sala voltou, e um aviso que sobrevive ao próprio motivo é
+    // pior do que aviso nenhum.
+    set({ connection, fault: connection === 'failed' ? fault : null });
   },
   setPublishing: (publishing, sharingAudio, audioMode = null, title = null) => {
     set(

@@ -1,30 +1,47 @@
-# Configuração do LiveKit para ambiente.
+# LiveKit do ambiente remoto (VM da Oracle Cloud).
+#
+# NAO HA CHAVE AQUI, e isso e deliberado: este arquivo e versionado, e a chave
+# que estava nele valia para o servidor que esta no ar — qualquer um com acesso
+# ao repositorio podia cunhar um token e entrar em qualquer sala. As chaves
+# entram por LIVEKIT_KEYS e LIVEKIT_WEBHOOK_API_KEY, que o compose monta a
+# partir do .env.remote. Sem elas o servidor recusa subir ("one of key-file or
+# keys must be provided"), que e o modo certo de falhar: barulhento.
 port: 7880
 prometheus_port: 6789
 
 rtc:
   tcp_port: 7881
-  port_range_start: 50000
-  port_range_end: 50019
-  # Na nuvem com NAT 1:1, use_external_ip faz o LiveKit descobrir o IP público
-  # da VM via STUN para os candidatos ICE de WebRTC.
+
+  # UMA porta UDP, multiplexada, em vez de uma faixa.
+  #
+  # A faixa anterior tinha vinte portas. Cada participante gasta uma (o core
+  # Rust, conexao unica) ou duas (o WebView), entao quem compartilha custa tres:
+  # um canal de voz com sete pessoas estoura o teto. E o modo de falhar e o pior
+  # que existe — o ICE simplesmente nao conecta, a sinalizacao continua de pe, e
+  # na tela isso aparece como "nao apareceu nada", indistinguivel de uma captura
+  # morta.
+  #
+  # Multiplexada, uma porta atende todas as sessoes; e o arranjo que o LiveKit
+  # recomenda para Docker, e tira vinte processos docker-proxy do caminho.
+  # Verificado com `livekit-server ports`: rtc.portUDP {Start: 7882, End: 0}.
+  udp_port: 7882
+
+  # NAT 1:1 da nuvem: o LiveKit descobre o IP publico da VM por STUN e o anuncia
+  # nos candidatos ICE, em vez do 172.x do container, que ninguem alcanca.
   use_external_ip: true
 
-keys:
-  remotekey: dev-only-remote-secret-change-in-production-12345
-
+# RNF-10: o ciclo de vida da sala e do LiveKit, nao de um varredor no backend.
 room:
   empty_timeout: 900
   departure_timeout: 900
 
-# Comunicação interna entre containers na mesma rede Docker.
-# O container 'server' escuta na porta interna 8080.
+# Comunicacao interna entre containers na mesma rede Docker. O container 'server'
+# escuta na porta interna 8080. `api_key` (o NOME da chave, nao o segredo) vem de
+# LIVEKIT_WEBHOOK_API_KEY e precisa ser o mesmo nome declarado em LIVEKIT_KEYS.
 webhook:
-  api_key: remotekey
   urls:
     - http://server:8080/api/v1/internal/livekit/webhook
 
 logging:
   level: info
   json: false
-

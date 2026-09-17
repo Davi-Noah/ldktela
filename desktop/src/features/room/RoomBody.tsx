@@ -1,4 +1,4 @@
-import { useMediaStore } from '../../store/media';
+import { type MediaFault, useMediaStore } from '../../store/media';
 import { useRoomStore } from '../../store/room';
 import { useSessionStore } from '../../store/session';
 import { useUiStore } from '../../store/ui';
@@ -51,6 +51,7 @@ function InRoom({ onShare, onStop }: RoomBodyProps) {
   const participants = useRoomStore((state) => state.participants);
   const publishing = useMediaStore((state) => state.publishing);
   const starting = useMediaStore((state) => state.starting);
+  const fault = useMediaStore((state) => state.fault);
   const showSelfPreview = useUiStore((state) => state.showSelfPreview);
   const setShowSelfPreview = useUiStore((state) => state.setShowSelfPreview);
 
@@ -58,6 +59,8 @@ function InRoom({ onShare, onStop }: RoomBodyProps) {
     <div className="mx-auto flex h-full w-full max-w-md flex-col justify-center px-8">
       <p className="text-text-faint">Na sala</p>
       <h1 className="text-lg font-semibold text-text">{channelName ?? 'Canal de voz'}</h1>
+
+      {fault !== null && <Fault fault={fault} />}
 
       <ul className="mt-group space-y-row">
         {participantIds.map((id) => {
@@ -82,7 +85,7 @@ function InRoom({ onShare, onStop }: RoomBodyProps) {
         })}
       </ul>
 
-      {publishing ? (
+      {fault !== null ? null : publishing ? (
         <div className="mt-group">
           <PublisherPanel />
           {/* Este corpo só aparece quando a própria tela está oculta — com ela
@@ -114,6 +117,45 @@ function InRoom({ onShare, onStop }: RoomBodyProps) {
           {starting ? 'Conectando…' : 'Compartilhar tela'}
         </Button>
       )}
+    </div>
+  );
+}
+
+/**
+ * A sala existe e a conexão de mídia não.
+ *
+ * Fica no lugar, e não numa torrada: a torrada some em segundos e o que sobra é
+ * uma sala de aparência normal — nome do canal, lista de gente, botão de
+ * compartilhar — sobre uma conexão que não existe. Quem passou por isso concluiu
+ * que o produto não mostra a tela dos outros, e foi procurar o defeito na rede.
+ *
+ * O botão de compartilhar sai junto, de propósito: sem conexão de espectador,
+ * transmitir daqui manda a tela para uma sala que este aplicativo não está
+ * vendo, e o usuário não teria como saber disso.
+ */
+function Fault({ fault }: { fault: MediaFault }) {
+  return (
+    <div className="mt-group rounded-panel border border-danger/40 bg-surface-2 p-3">
+      <p className="flex items-center gap-2 font-medium text-danger">
+        <Icon name="alert" size={15} />
+        {fault === 'duplicate_identity'
+          ? 'Sua conta entrou de outro lugar'
+          : 'Sem conexão de mídia'}
+      </p>
+      <p className="mt-1 text-text-muted">
+        {fault === 'duplicate_identity' ? (
+          <>
+            O ldkcord funciona em um computador por vez. Outro aparelho entrou com esta mesma conta
+            do Discord e assumiu a sala — por isso nada aparece aqui. Feche o outro e saia e entre
+            de novo no canal de voz.
+          </>
+        ) : (
+          <>
+            O servidor de mídia não respondeu. O aplicativo continua tentando; se não voltar, saia e
+            entre de novo no canal de voz.
+          </>
+        )}
+      </p>
     </div>
   );
 }

@@ -74,14 +74,24 @@ infra-down:
     docker compose -f docker/compose.dev.yml down
 
 # Sobe o backend completo em Docker para teste remoto (Postgres + LiveKit + Server)
+#
+# O `--env-file` nao e opcional: e por ele que o compose interpola
+# ${LIVEKIT_API_KEY} e ${LIVEKIT_API_SECRET} na chave do LiveKit. Sem ele o
+# compose para dizendo qual variavel falta — e nao sobe um servidor sem chave.
 remote-up:
-    docker compose -f docker/compose.remote.yml up -d --build
+    docker compose --env-file .env.remote -f docker/compose.remote.yml up -d --build
 
 remote-down:
-    docker compose -f docker/compose.remote.yml down
+    docker compose --env-file .env.remote -f docker/compose.remote.yml down
 
 remote-logs:
-    docker compose -f docker/compose.remote.yml logs -f
+    docker compose --env-file .env.remote -f docker/compose.remote.yml logs -f
+
+# Portas que o LiveKit vai realmente usar, lidas da configuracao de verdade.
+# Confere o que abrir no firewall sem depender de ler o YAML com o olho.
+remote-ports:
+    docker compose --env-file .env.remote -f docker/compose.remote.yml run --rm --no-deps \
+        --entrypoint /livekit-server livekit ports --config /etc/livekit.yaml
 
 
 # Aguarda o Postgres aceitar conexoes. Usa o cliente de dentro do container:

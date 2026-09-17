@@ -9,3 +9,4 @@ desktop/src-tauri/target/
 desktop/src-tauri/gen/
 *.pdb
 .DS_Store
+.env.remote

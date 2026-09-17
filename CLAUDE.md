@@ -18,6 +18,7 @@ O Discord continua sendo a camada social: identidade, texto, voz, comunidade, pe
 | Formato de evento em tempo real, resume, fan-out | `docs/websocket.md` |
 | Endpoints, erros, paginação, autenticação | `docs/rest-api.md` |
 | Notas de implementação por estágio | `docs/DECISIONS.md` |
+| Subir o backend na VM, portas, chaves e como verificar | `docs/deploy-oracle.md` |
 
 **Não carregue o SRS inteiro para tarefas pontuais.** Abra a seção relevante. Antes de propor qualquer recurso, leia o índice de ADRs: a rejeição pode já estar escrita.
 

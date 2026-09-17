@@ -343,7 +343,7 @@ export class MediaSession {
       credentials = await this.api.roomToken(channelId, false);
     } catch (error) {
       log.error('sala: o servidor recusou o token', error, { canal: channelId });
-      store.setConnection('failed');
+      store.setConnection('failed', 'unreachable');
       throw error;
     }
 
@@ -361,7 +361,7 @@ export class MediaSession {
     } catch (error) {
       log.error('sala: LiveKit recusou a conexão', error, { url: credentials.url });
       this.room = null;
-      store.setConnection('failed');
+      store.setConnection('failed', 'unreachable');
       throw error;
     }
     log.info('sala: conectado ao LiveKit', { sala: credentials.room });
@@ -399,7 +399,7 @@ export class MediaSession {
         // Reconectar aqui expulsaria a outra ponta, que reconectaria e nos
         // expulsaria: as duas trocariam a sala para sempre.
         log.error('sala: a mesma conta entrou de outro lugar', undefined, { reason });
-        useMediaStore.getState().setConnection('failed');
+        useMediaStore.getState().setConnection('failed', 'duplicate_identity');
         useUiStore.getState().toast('danger', DUPLICATE_IDENTITY_MESSAGE);
         return;
       }
