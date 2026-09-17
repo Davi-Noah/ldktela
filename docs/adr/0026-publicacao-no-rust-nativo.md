@@ -30,6 +30,17 @@ mostrou que **a estimativa do ADR-0021 estava errada**, e vale registrar em que:
 - `VideoEncoderBackend` aceita `Hardware` e `Nvenc`. O encoder por hardware deixa de ser
   algo que o Chromium escolhe por nós e passa a ser algo que podemos pedir.
 
+> **Corrigido em 2026-09-17, nos dois pontos acima.**
+>
+> A paridade de `TrackPublishOptions` é de assinatura, não de comportamento: das três
+> formas de pedir uma escada de qualidade ao VP9, duas entregam vídeo quebrado sem dizer
+> nada — simulcast degrada a captura de 60 fps para 11, e `L2T3_KEY`/`L3T3_KEY` entregam
+> zero quadro ao espectador. Só `L1T3` funciona. Ver [ADR-0032](0032-a-escada-do-vp9-e-temporal.md).
+>
+> E `VideoEncoderBackend` *aceita* `Hardware`, mas neste build não existe nenhum:
+> `list_available()` responde `[Auto, Software, PreEncoded]`, e pedir `Hardware` cai de
+> volta no software sem erro. Pedir não é o mesmo que ter.
+
 Foi feito um spike de build antes de qualquer decisão. O SDK compila e linka no Windows
 MSVC com a toolchain do projeto.
 

@@ -83,3 +83,4 @@ certas.
 | [0029](0029-link-profundo-espera-uma-pagina-https.md) | O link profundo espera uma página https; o esquema não basta | Aceito |
 | [0030](0030-preview-da-propria-tela-e-local.md) | O preview da própria tela é local, nunca pelo SFU | Aceito |
 | [0031](0031-navegacao-nao-assina-video.md) | Nenhum elemento de navegação assina vídeo | Aceito |
+| [0032](0032-a-escada-do-vp9-e-temporal.md) | A escada do VP9 é temporal (`L1T3`), não espacial | Aceito |
