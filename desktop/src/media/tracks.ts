@@ -14,15 +14,15 @@ import type { QualityChoice } from '../store/media';
 /**
  * RF-19, and the viewer half of ADR-0023.
  *
- * `auto` leaves `adaptiveStream` in charge, which is what keeps a grid of N
- * screens from costing N full streams (RF-32): a video rendered small gets the
- * small layer on its own. `high` overrides that heuristic by asking for the
- * published dimensions, which is the only way to get the top layer into a
- * thumbnail-sized element. `low` caps at the bottom layer.
+ * **A escada é temporal, e não espacial** (ADR-0032): o VP9 nesta pilha entrega
+ * uma camada de resolução e três de relógio. Então `low` não corta pixels, corta
+ * quadros — e é assim que o menu precisa falar, porque prometer "menos dados sem
+ * perder nitidez" e entregar outra coisa é pior do que não oferecer a opção.
  *
- * There is no frame-rate choice here on purpose: frame rate belongs to the
- * publisher, and a selector offering one would be offering something nobody is
- * sending.
+ * `auto` deixa o `adaptiveStream` no comando. O que ele ainda economiza é o que
+ * mais importa do RF-32: um ladrilho **escondido** deixa de ser assinado por
+ * inteiro. O que ele deixou de economizar é o ladrilho pequeno e visível, que
+ * agora recebe a resolução cheia porque não existe outra para receber.
  */
 export function applyQuality(publication: RemoteTrackPublication, choice: QualityChoice): void {
   switch (choice) {

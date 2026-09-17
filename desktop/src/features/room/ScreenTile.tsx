@@ -279,10 +279,13 @@ export function ScreenTile({
   );
 }
 
+// O que "baixa" faz mudou com o ADR-0032: a escada do VP9 é temporal, então ela
+// corta quadros e não pixels. A dica diz isso, porque quem escolhe "baixa"
+// esperando uma imagem menor e recebe a mesma imagem travada acha que quebrou.
 const QUALITIES: { value: QualityChoice; label: string; hint?: string }[] = [
   { value: 'auto', label: 'Automático', hint: 'segue o tamanho' },
   { value: 'high', label: 'Alta' },
-  { value: 'low', label: 'Baixa', hint: 'menos dados' },
+  { value: 'low', label: 'Baixa', hint: 'menos quadros' },
 ];
 
 /**

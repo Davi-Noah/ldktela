@@ -170,7 +170,23 @@ de 6 Mb/s sustentados de upload. O painel do publicador diz qual dos dois está 
 
 ---
 
-## 6. O que fica pendente, de propósito
+## 6. Antes de publicar a primeira versão
+
+**Os dois segredos de assinatura precisam existir no GitHub** — `TAURI_SIGNING_PRIVATE_KEY` e
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, em *Settings → Secrets and variables → Actions*.
+
+Isto não é opcional e falha mal: sem eles a build **continua**, o `.msi` sai, e o que não sai é
+a assinatura. O aplicativo instala normalmente e nunca mais consegue se atualizar, porque o
+atualizador só aceita um pacote assinado pela chave que está no `tauri.conf.json`. Verificado
+localmente: a build imprime `A public key has been found, but no private key` e **termina com
+código 0**.
+
+A chave privada foi gerada com `npm run tauri signer generate` e só deve existir na sua máquina
+e nesses dois segredos. A pública já está versionada, que é o lugar dela.
+
+---
+
+## 7. O que fica pendente, de propósito
 
 - **Sem TLS.** `ws://` e `http://` na porta pública. Para uma primeira versão entre conhecidos
   passa; para distribuir, um domínio e um certificado entram antes. O [ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)

@@ -73,9 +73,11 @@ export interface ShareChoice {
  * swap the token, dropping every subscription and decoder on the way.
  *
  * Holds **N** remote screens, not one (RF-31). Layer selection is left to
- * `adaptiveStream` by default: a video rendered small in the grid gets the low
- * layer on its own, and that is what keeps the egress of N screens from
- * multiplying by N (RF-32). Do not replace it with a fixed layer.
+ * `adaptiveStream` by default. Desde o ADR-0032 a escada é temporal, não
+ * espacial, então o que ele economiza é o ladrilho **escondido**, que deixa de
+ * ser assinado — e não mais o ladrilho pequeno, que passou a receber a resolução
+ * cheia por não haver outra. Mesmo assim, não troque por uma camada fixa: é a
+ * metade do RF-32 que sobrou.
  */
 export class MediaSession {
   private readonly api: ApiClient;

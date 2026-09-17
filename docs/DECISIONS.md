@@ -538,3 +538,38 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   LiveKit: o elemento é o mesmo, o decodificador é o mesmo, e não há assinatura nova. O limite de
   **uma** janela destacada do ADR-0022 continua valendo para o Document PiP, e a troca agora é
   anunciada em vez de fechar a anterior em silêncio.
+
+- **[Lançamento] O endereço do servidor é de build, e a build para sem ele** — `VITE_SERVER_ORIGIN`
+  vivia só num `.env.local` fora do git, então o `.msi` que o CI publicava apontava para
+  `http://127.0.0.1:8080`: a máquina de quem instalasse. Passou para `desktop/.env.production`,
+  versionado, e o `vite.config.ts` recusa empacotar sem ele — e recusa também quando o endereço
+  não está no `connect-src` do CSP, que é a mesma falha pelo outro lado (o aplicativo abre, a
+  interface pinta, e cada requisição é bloqueada sem erro nenhum). Não há variável de repositório
+  como escapatória de propósito: uma variável não definida chega como string vazia e sobrepõe o
+  arquivo, e trocar o endereço sem trocar o CSP é exatamente o estado que a verificação existe
+  para impedir.
+
+- **[Lançamento] A chave do LiveKit saiu do arquivo versionado** — `docker/livekit.remote.yaml`
+  carregava o segredo com que o servidor implantado estava rodando. Agora vem de `LIVEKIT_KEYS`,
+  montado pelo compose a partir do `.env.remote`, com `${...:?}` para a pilha parar em vez de
+  subir sem chave. Rotacionar a chave da VM é passo de operação, em `docs/deploy-oracle.md`.
+
+- **[Lançamento] Uma porta UDP multiplexada, não uma faixa de vinte** — cada participante gasta
+  uma porta (o core Rust) ou duas (o WebView), então quem compartilha custa três, e vinte portas
+  acabam num canal de voz de sete pessoas. O modo de falha é mudo: o ICE não conecta, a
+  sinalização continua de pé e simplesmente não aparece vídeo. `rtc.udp_port: 7882`, conferido
+  com `livekit-server ports`. Exige abrir a porta na VM antes de subir.
+
+- **[Diagnóstico] A conexão de mídia que desistiu passou a ocupar espaço na tela** — `failed`
+  produzia uma sala de aparência normal (nome do canal, lista de gente, botão de compartilhar)
+  sobre uma conexão que não existia, e a única pista era uma torrada já desaparecida. O motivo
+  agora fica no corpo da sala, e o botão de compartilhar sai junto: sem conexão de espectador,
+  transmitir dali manda a tela para uma sala que este aplicativo não está vendo. O caso comum é
+  o mesmo usuário instalado em duas máquinas — inclusive PC e Windows Sandbox, que é como o
+  defeito foi encontrado.
+
+- **[Diagnóstico] Zero quadro capturado ganhou aviso próprio** — o painel sabia dizer "capturada
+  mas não codificada", que é transmissão pausada por falta de espectador, e não sabia dizer
+  "nada saiu da tela". São coisas diferentes: a segunda acontece onde não há GPU acessível
+  (máquina virtual, Windows Sandbox, sessão remota), o compartilhamento sobe e publica
+  normalmente, e todo mundo vê tela preta sem um número no painel que explique.

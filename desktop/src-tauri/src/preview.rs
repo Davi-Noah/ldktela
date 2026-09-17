@@ -562,11 +562,15 @@ mod tests {
                 url.len() as f64 * fps / 1024.0,
             );
 
-            // Metade do orcamento de um quadro a 60 fps. Acima disso o preview
-            // deixa de ser um ramo frio e passa a tirar quadros da transmissao,
-            // que e exatamente o que o ADR-0030 proibiu.
+            // O orcamento de um quadro a 60 fps e 16,6 ms, e a reducao roda
+            // dentro dele. O teto aqui e 10 ms e nao a metade exata porque a
+            // medicao numa maquina ocupada ja deu 6,5 ms contra 4,2 numa ociosa:
+            // apertar mais transformaria uma guarda de regressao numa que falha
+            // por causa do que mais estiver rodando. Dez milissegundos ainda
+            // pegam o que importa — voltar ao teto sem filtro, ou subir a
+            // resolucao de saida sem medir.
             assert!(
-                reduce_ms < 8.0,
+                reduce_ms < 10.0,
                 "a reducao do preview {label} custa {reduce_ms:.2} ms dentro da thread de captura"
             );
         }

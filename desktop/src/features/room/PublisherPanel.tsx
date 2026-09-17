@@ -32,6 +32,22 @@ export function PublisherPanel() {
       </div>
 
       <div className="px-3 py-2">
+        {stats !== null && stats.capturedFrames === 0 && (
+          // O contador é nosso e é um fato: o capturador abriu e nunca entregou
+          // quadro. O palpite sobre a causa está escrito como palpite.
+          //
+          // Sem esta linha o sintoma é uma transmissão que sobe, publica, marca
+          // tempo no ar e mostra tela preta para todo mundo — sem número nenhum
+          // no painel que explique. O aviso logo abaixo não cobre este caso: ele
+          // fala da captura que funciona e do encoder que recusa, que é outra
+          // coisa e tem outra causa.
+          <Notice>
+            <strong>Nenhum quadro está saindo da tela.</strong> O capturador abriu e não entregou
+            imagem nenhuma. Costuma acontecer em máquina virtual, Windows Sandbox ou sessão remota.
+            Vale tentar compartilhar uma janela em vez da tela inteira, ou parar e escolher outra
+            fonte.
+          </Notice>
+        )}
         {stats !== null && stats.capturedFrames > 30 && stats.encodedFrames === 0 && (
           // A tela está sendo capturada e o encoder recusa tudo: é o estado de uma
           // transmissão pausada por falta de quem assista, e por fora é idêntico a
@@ -101,7 +117,7 @@ export function PublisherPanel() {
           // conecta assim mesmo, então nada falha — só fica ruim.
           <Notice>
             A mídia está indo por <strong>TCP</strong>, não UDP. Isso sozinho derruba a qualidade: é
-            quase sempre a faixa UDP 50000–50019 fechada no firewall do servidor.
+            quase sempre a porta UDP de mídia fechada no firewall do servidor.
           </Notice>
         )}
         {stats !== null && stats.limitedBy === 'cpu' && (
