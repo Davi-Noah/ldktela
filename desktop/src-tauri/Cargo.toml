@@ -1,5 +1,5 @@
 [package]
-name = "ldkcord-desktop"
+name = "ldktela-desktop"
 version = "0.1.0"
 edition = "2021"
 license = "UNLICENSED"
@@ -7,7 +7,7 @@ publish = false
 rust-version = "1.98"
 
 [lib]
-name = "ldkcord_desktop_lib"
+name = "ldktela_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

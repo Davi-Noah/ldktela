@@ -8,7 +8,7 @@
 use keyring::Entry;
 
 /// Service name under which the credential is filed.
-const SERVICE: &str = "ldkcord";
+const SERVICE: &str = "ldktela";
 /// There is one session per install, so the account name is fixed.
 const ACCOUNT: &str = "refresh-token";
 

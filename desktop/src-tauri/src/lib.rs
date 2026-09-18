@@ -57,9 +57,9 @@ struct Tray {
 fn tray_set_sharing(tray: State<'_, Tray>, sharing: bool, what: Option<String>) {
     let _ = tray.stop.set_enabled(sharing);
     let tooltip = match (sharing, what.as_deref()) {
-        (true, Some(title)) if !title.trim().is_empty() => format!("ldkcord — no ar: {title}"),
-        (true, _) => "ldkcord — no ar".to_string(),
-        (false, _) => "ldkcord".to_string(),
+        (true, Some(title)) if !title.trim().is_empty() => format!("ldktela — no ar: {title}"),
+        (true, _) => "ldktela — no ar".to_string(),
+        (false, _) => "ldktela".to_string(),
     };
     let _ = tray.icon.set_tooltip(Some(tooltip));
     let icon = if sharing { &tray.live } else { &tray.idle };
@@ -210,7 +210,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 
     let icon = TrayIconBuilder::new()
         .icon(idle.clone())
-        .tooltip("ldkcord")
+        .tooltip("ldktela")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {

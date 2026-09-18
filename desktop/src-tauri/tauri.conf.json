@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ldkcord",
+  "productName": "ldktela",
   "version": "0.1.0",
-  "identifier": "br.com.ldkcord.desktop",
+  "identifier": "br.com.ldktela.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "ldkcord",
+        "title": "ldktela",
         "width": 1280,
         "height": 800,
         "minWidth": 940,

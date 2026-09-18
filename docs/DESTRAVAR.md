@@ -241,7 +241,7 @@ just app           # abre o aplicativo Tauri
 | **"Servidor indisponível. Tente de novo." ao colar o código** | O fetch nem saiu da máquina. Era falta de CORS no servidor (corrigido). Se voltar: o WebView é sempre uma origem diferente da API, então a origem precisa estar em `ALLOWED_ORIGINS` (`crates/api/src/lib.rs`) **e** no `connect-src` do `tauri.conf.json` |
 | App em branco, nenhum erro de rede | CSP do Tauri não cobre a origem. Veja `desktop/src-tauri/tauri.conf.json` → `connect-src` |
 | Pareia, mas entrar em sala dá 404 | Réplica sem membros → **SERVER MEMBERS INTENT** desligado (0.2). O log de arranque diz `members: 1` e emite um `WARN` |
-| **Compartilha, o bitrate oscila, e ninguém vê. Tudo responde 200** | Versões do LiveKit fora do par ([ADR-0019](adr/0019-versoes-do-livekit-sao-um-par.md)). Confirme com `docker logs ldkcord-livekit \| grep "unsupported datachannel"`: se aparecer, o cliente fala um protocolo que o servidor não entende, a negociação de **publicação** expira em 15 s e o cliente reconecta em laço. Conectar e assinar continuam funcionando, e é por isso que o log fica todo verde |
+| **Compartilha, o bitrate oscila, e ninguém vê. Tudo responde 200** | Versões do LiveKit fora do par ([ADR-0019](adr/0019-versoes-do-livekit-sao-um-par.md)). Confirme com `docker logs ldktela-livekit \| grep "unsupported datachannel"`: se aparecer, o cliente fala um protocolo que o servidor não entende, a negociação de **publicação** expira em 15 s e o cliente reconecta em laço. Conectar e assinar continuam funcionando, e é por isso que o log fica todo verde |
 | Compartilha, mas ninguém vê | Webhook do LiveKit não chega ao backend. Em Linux confira `extra_hosts` no `docker/compose.dev.yml` |
 | Servidor recusa subir | Falta variável no `.env`. A mensagem nomeia qual |
 | **O app está pareado na conta errada** | Bandeja → **Trocar de conta**. Isso revoga a sessão no servidor, limpa o cofre e volta ao pareamento. O aplicativo não tem como descobrir sozinho qual conta do Discord está aberta na máquina |
@@ -265,9 +265,9 @@ Com `just dev` de pé, compartilhe a tela e observe, nesta ordem:
 
 1. No painel do app, o bitrate **sobe e permanece**. Se ele oscila entre 0 e um
    valor alto num ciclo regular, a negociação está expirando.
-2. `docker logs ldkcord-livekit | grep -c "unsupported datachannel"` responde
+2. `docker logs ldktela-livekit | grep -c "unsupported datachannel"` responde
    **0**. Qualquer número acima disso é desencontro de protocolo.
-3. `docker logs ldkcord-livekit | grep "participant closing"` **não** mostra um
+3. `docker logs ldktela-livekit | grep "participant closing"` **não** mostra um
    `CLIENT_REQUEST_LEAVE` a cada 15 s.
 
 O terceiro é o mais confiável: 15 segundos cravados e repetidos é a assinatura do
@@ -302,7 +302,7 @@ alcança. Em `docker/livekit.dev.yaml`, dentro de `rtc:`, troque **só o valor d
 > doméstico não faz hairpin NAT. O sintoma é `ConnectionError: could not
 > establish pc connection` com a sinalização funcionando normalmente — token
 > emitido, webhook `room_started` chegando, e a mídia falhando em silêncio.
-> Para confirmar, `docker logs ldkcord-livekit | head` e leia o `nodeIP` da
+> Para confirmar, `docker logs ldktela-livekit | head` e leia o `nodeIP` da
 > linha `starting LiveKit server`: tem que ser o IP da LAN.
 
 Suba de novo (`just infra-down && just infra-up`). A faixa UDP 50000–50019 já
@@ -349,8 +349,8 @@ Compartilhe 1080p60 por **30 minutos** e registre:
 |---|---|
 | **Bitrate real** | Painel de estatísticas do próprio app (RF-21), amostrado a cada 2 s. Anote a mediana e o pico |
 | **fps e resolução efetivos** | Mesmo painel. Se cair para 720p sob carga, o `degradationPreference` está trabalhando — anote quando |
-| **CPU do compartilhador** | PowerShell: `Get-Process ldkcord* \| Measure-Object WorkingSet64,CPU -Sum`. Some a árvore de processos, como manda o RNF-03 |
-| **CPU e RAM da máquina do SFU** | `docker stats ldkcord-livekit` |
+| **CPU do compartilhador** | PowerShell: `Get-Process ldktela* \| Measure-Object WorkingSet64,CPU -Sum`. Some a árvore de processos, como manda o RNF-03 |
+| **CPU e RAM da máquina do SFU** | `docker stats ldktela-livekit` |
 | **Latência glass-to-glass** | Ver 2.4 |
 | **Egress por hora** | `bitrate × nº de espectadores × 3600`. **Não** confie na coluna `share_sessions.egress_bytes`: ela existe mas ninguém a preenche ainda (ver "Lacunas") |
 
@@ -398,8 +398,8 @@ PowerShell como administrador:
 
 ```powershell
 # A regra de permissão vem primeiro: no Windows Firewall, allow vence block.
-netsh advfirewall firewall add rule name="ldkcord-teste-dns" dir=out action=allow protocol=UDP remoteport=53
-netsh advfirewall firewall add rule name="ldkcord-teste-bloqueio-udp" dir=out action=block protocol=UDP
+netsh advfirewall firewall add rule name="ldktela-teste-dns" dir=out action=allow protocol=UDP remoteport=53
+netsh advfirewall firewall add rule name="ldktela-teste-bloqueio-udp" dir=out action=block protocol=UDP
 ```
 
 Com as regras ativas, faça uma sessão 1080p e confirme que ela estabelece e se
@@ -409,8 +409,8 @@ pegou. Registre os mesmos números da 2.3 em `docs/RESULTS.md`.
 Para remover:
 
 ```powershell
-netsh advfirewall firewall delete rule name="ldkcord-teste-bloqueio-udp"
-netsh advfirewall firewall delete rule name="ldkcord-teste-dns"
+netsh advfirewall firewall delete rule name="ldktela-teste-bloqueio-udp"
+netsh advfirewall firewall delete rule name="ldktela-teste-dns"
 ```
 
 ---
@@ -459,14 +459,14 @@ assinatura bate com a chave pública embutida em `tauri.conf.json`. Faltam dois
 segredos, que só existem depois de alguém gerar o par de chaves:
 
 ```bash
-cd desktop && npm run tauri signer generate -- -w $HOME/.tauri/ldkcord.key
+cd desktop && npm run tauri signer generate -- -w $HOME/.tauri/ldktela.key
 ```
 
 Isso imprime a chave pública (já foi colada em `tauri.conf.json`) e grava a
-privada em `~/.tauri/ldkcord.key`. Nos **segredos do repositório** no GitHub
+privada em `~/.tauri/ldktela.key`. Nos **segredos do repositório** no GitHub
 (Settings → Secrets and variables → Actions), cadastre:
 
-- `TAURI_SIGNING_PRIVATE_KEY` — o conteúdo do arquivo `ldkcord.key`.
+- `TAURI_SIGNING_PRIVATE_KEY` — o conteúdo do arquivo `ldktela.key`.
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — a senha escolhida ao gerar.
 
 **A chave privada nunca deve existir fora desses dois lugares** (o arquivo

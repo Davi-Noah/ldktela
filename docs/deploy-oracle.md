@@ -83,7 +83,7 @@ lugares:
 **b) Suba de novo:**
 
 ```bash
-cd ~/ldkcord     # onde o repositório está na VM
+cd ~/ldktela     # onde o repositório está na VM
 git pull
 just remote-down
 just remote-up

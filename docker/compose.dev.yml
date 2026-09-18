@@ -1,11 +1,11 @@
 # Infraestrutura de DESENVOLVIMENTO local. Nao descreve producao.
 # Credenciais aqui sao deliberadamente triviais e nao existem fora da maquina.
-name: ldkcord-dev
+name: ldktela-dev
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: ldkcord-postgres
+    container_name: ldktela-postgres
     environment:
       POSTGRES_USER: comms
       POSTGRES_PASSWORD: comms
@@ -36,7 +36,7 @@ services:
     # e so o compartilhamento quebra — conectar e assinar continuam funcionando,
     # que e o que torna essa falha tao dificil de ver.
     image: livekit/livekit-server:v1.13.6
-    container_name: ldkcord-livekit
+    container_name: ldktela-livekit
     command: --config /etc/livekit.yaml --dev
     volumes:
       - ./livekit.dev.yaml:/etc/livekit.yaml:ro

@@ -210,7 +210,7 @@ pub fn start(app: AppHandle) -> (Preview, Tap) {
     let control = Arc::new(Control::new());
 
     let worker = std::thread::Builder::new()
-        .name("ldkcord-preview".into())
+        .name("ldktela-preview".into())
         .spawn(move || {
             while let Ok(frame) = rx.recv() {
                 if let Some(url) = encode_data_url(&frame) {

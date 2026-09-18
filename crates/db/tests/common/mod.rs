@@ -28,7 +28,7 @@ static SWEEP: OnceCell<()> = OnceCell::const_new();
 static NEXT_DB: AtomicU32 = AtomicU32::new(0);
 /// Every scratch database carries this prefix so leftovers are
 /// recognisable and can be swept.
-const TEST_DB_PREFIX: &str = "ldkcord_test_t";
+const TEST_DB_PREFIX: &str = "ldktela_test_t";
 /// `CREATE DATABASE` serialises on `template1` inside PostgreSQL anyway.
 static CREATING: Mutex<()> = Mutex::const_new(());
 

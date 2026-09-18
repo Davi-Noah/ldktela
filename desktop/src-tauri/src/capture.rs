@@ -210,7 +210,7 @@ pub fn start(
     let period = Duration::from_secs_f64(1.0 / f64::from(fps.max(1)));
 
     let thread = std::thread::Builder::new()
-        .name("ldkcord-capture".into())
+        .name("ldktela-capture".into())
         .spawn(move || {
             run(
                 Job {

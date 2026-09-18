@@ -145,7 +145,7 @@ function Fault({ fault }: { fault: MediaFault }) {
       <p className="mt-1 text-text-muted">
         {fault === 'duplicate_identity' ? (
           <>
-            O ldkcord funciona em um computador por vez. Outro aparelho entrou com esta mesma conta
+            O ldktela funciona em um computador por vez. Outro aparelho entrou com esta mesma conta
             do Discord e assumiu a sala — por isso nada aparece aqui. Feche o outro e saia e entre
             de novo no canal de voz.
           </>

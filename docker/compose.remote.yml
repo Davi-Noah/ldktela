@@ -1,9 +1,9 @@
-name: ldkcord
+name: ldktela
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: ldkcord-postgres
+    container_name: ldktela-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: comms
@@ -28,7 +28,7 @@ services:
 
   livekit:
     image: livekit/livekit-server:v1.13.6
-    container_name: ldkcord-livekit
+    container_name: ldktela-livekit
     restart: unless-stopped
     command: --config /etc/livekit.yaml
     volumes:
@@ -56,7 +56,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.server
-    container_name: ldkcord-server
+    container_name: ldktela-server
     restart: unless-stopped
     depends_on:
       postgres:

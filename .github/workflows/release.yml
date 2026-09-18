@@ -61,7 +61,7 @@ jobs:
         with:
           projectPath: desktop
           tagName: ${{ github.ref_name }}
-          releaseName: ldkcord ${{ github.ref_name }}
+          releaseName: ldktela ${{ github.ref_name }}
           releaseDraft: true
           prerelease: false
           # E este arquivo que o aplicativo consulta; sem ele a release existe e

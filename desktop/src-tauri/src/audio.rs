@@ -140,7 +140,7 @@ pub fn start(sink: NativeAudioSource) -> Result<(AudioCapture, AudioMode), Audio
     });
 
     let thread = std::thread::Builder::new()
-        .name("ldkcord-audio".into())
+        .name("ldktela-audio".into())
         .spawn(move || run(&thread_stop, &ready_tx, &frames_tx))
         .map_err(|_| AudioError::Timeout)?;
 

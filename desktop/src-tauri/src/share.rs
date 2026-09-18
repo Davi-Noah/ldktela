@@ -93,7 +93,7 @@ struct Active {
 /// What can be shared right now.
 ///
 /// Our own windows are filtered out by handle rather than by title: two windows
-/// can share a title, and a user who happens to name something "ldkcord" should
+/// can share a title, and a user who happens to name something "ldktela" should
 /// still be able to share it.
 #[tauri::command]
 pub fn share_sources(app: AppHandle) -> Vec<ShareSource> {

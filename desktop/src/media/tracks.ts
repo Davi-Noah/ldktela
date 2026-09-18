@@ -62,4 +62,4 @@ export function shouldRejoin(reason: DisconnectReason | undefined): boolean {
 
 /** Said to the user, because the loop is otherwise indistinguishable from a bug. */
 export const DUPLICATE_IDENTITY_MESSAGE =
-  'Esta conta entrou na sala de outro lugar. O ldkcord só funciona em um computador por vez — feche o outro e entre de novo no canal de voz.';
+  'Esta conta entrou na sala de outro lugar. O ldktela só funciona em um computador por vez — feche o outro e entre de novo no canal de voz.';

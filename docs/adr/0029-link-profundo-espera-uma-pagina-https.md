@@ -1,4 +1,4 @@
-# ADR-0029 — O link profundo espera uma página https; o esquema `ldkcord://` não basta
+# ADR-0029 — O link profundo espera uma página https; o esquema `ldktela://` não basta
 
 - **Status:** Aceito
 - **Data:** 2026-09-16
@@ -9,13 +9,13 @@ O critério de aceite do S8 pede que o anúncio no Discord traga um "link profun
 que abre o aplicativo direto na sala, e se não houver aplicativo, a página de
 download".
 
-O caminho óbvio é registrar o esquema `ldkcord://` e pôr `ldkcord://room/<id>` na
+O caminho óbvio é registrar o esquema `ldktela://` e pôr `ldktela://room/<id>` na
 mensagem. Foi implementado e depois revertido, por dois motivos que só aparecem
 ao testar.
 
 **O Discord não transforma esquema próprio em link clicável.** Só `http` e
 `https` viram link — em texto puro, em link mascarado `[texto](url)` e em botão
-de componente. `ldkcord://room/123` na mensagem é texto morto que o usuário teria
+de componente. `ldktela://room/123` na mensagem é texto morto que o usuário teria
 de copiar e colar em algum lugar. Entregar isso seria entregar nada e chamar de
 recurso.
 
@@ -29,13 +29,13 @@ janela para a frente — coisa que o ícone da bandeja já faz.
 Por ora o anúncio não traz link. Diz quem está transmitindo, em qual canal, e
 quantos assistem — que é o sinal que interessa e funciona para todo mundo.
 
-O esquema `ldkcord://` **não fica registrado**: um plugin, uma escrita no
+O esquema `ldktela://` **não fica registrado**: um plugin, uma escrita no
 registro do Windows e um caminho de código que nada exercita, só para um link
 que ninguém consegue clicar.
 
 O que destrava, quando alguém quiser: **uma página https de redirecionamento**.
 O repositório já existe em `github.com/gbrlevi/ldktela`, então o GitHub Pages
-serve. A página em `/room/<id>` tenta `ldkcord://room/<id>` e, se nada abrir,
+serve. A página em `/room/<id>` tenta `ldktela://room/<id>` e, se nada abrir,
 mostra o download. Aí sim o link entra na mensagem, porque aí sim ele é clicável
 e tem o que fazer nos dois casos — com o aplicativo e sem ele.
 
@@ -54,7 +54,7 @@ e tem o que fazer nos dois casos — com o aplicativo e sem ele.
 
 ## Alternativas rejeitadas
 
-- **Pôr `ldkcord://room/<id>` como texto na mensagem.** Não é clicável; vira uma
+- **Pôr `ldktela://room/<id>` como texto na mensagem.** Não é clicável; vira uma
   instrução de copiar e colar no meio de um anúncio.
 - **Registrar o esquema agora e usar depois.** Dependência e escrita no registro
   do Windows sem nada exercitando — exatamente o que o `CLAUDE.md` §2.11 e §2.12
