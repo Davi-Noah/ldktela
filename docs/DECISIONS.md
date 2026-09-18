@@ -579,3 +579,14 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   "nada saiu da tela". São coisas diferentes: a segunda acontece onde não há GPU acessível
   (máquina virtual, Windows Sandbox, sessão remota), o compartilhamento sobe e publica
   normalmente, e todo mundo vê tela preta sem um número no painel que explique.
+
+- **[P-01] `ROOM_MAX_PUBLISHERS` sobe de 2 para 10** — o teto nunca foi limite técnico do LiveKit
+  nem do WebRTC, sempre foi um contador em memória em `crates/api/src/livekit.rs::claim_publisher`,
+  comparado contra a variável de ambiente. A SRS já registrava isso como decisão em aberto ("P-01,
+  revisar quando o uso mostrar demanda"), e a demanda apareceu: o dono do produto quer usar com o
+  servidor inteiro (até 10 pessoas). Custo aceito conscientemente — a cada publicador simultâneo o
+  egress multiplica por espectador (RF-32): no pior caso, 10 publicadores e alguns espectadores por
+  hora de uso diário ainda cabem no teto de 10 TB/mês da Oracle Free Tier com folga (ver a tabela em
+  `docs/deploy-oracle.md`), mas o valor deixa de ser folgado por padrão — vale medir egress real
+  (RNF-05) se o uso crescer. Atualizado em `.env.example`, `docker/env.remote.example`,
+  `docs/DESTRAVAR.md` e no `.env.remote` da VM; a SRS (P-01) reflete o novo padrão.

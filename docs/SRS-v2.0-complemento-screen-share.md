@@ -58,7 +58,7 @@ Premissa de projeto, não estimativa. Todo dimensionamento em §7 deriva daqui.
 |---|---|
 | Comunidade por instância | 10 a 30 pessoas |
 | Uso central | Uma pessoa compartilha gameplay ou estudo em 1080p60; 4 a 10 assistem; sessões longas |
-| Publicadores simultâneos por sala | N, com teto configurável (`ROOM_MAX_PUBLISHERS`, padrão 2). Cada um multiplica o egress — ver RF-32 |
+| Publicadores simultâneos por sala | N, com teto configurável (`ROOM_MAX_PUBLISHERS`, padrão 10 desde 2026-09-17; era 2). Cada um multiplica o egress — ver RF-32 |
 | Espectadores simultâneos por sala | Até 10 |
 | Plataforma dos clientes | Windows 10/11 x86_64 (100%) |
 | Rede alvo | Comum. Não há bloqueio regional a mídia em tempo real ([ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)); o caso difícil é CGNAT, como em qualquer produto de WebRTC |
@@ -527,7 +527,7 @@ estrutural. Quando um for resolvido, vira ADR.
 
 | ID | Ponto | Padrão adotado | Revisar quando |
 |---|---|---|---|
-| P-01 | Teto de publicadores simultâneos por sala | 2 | Se o uso mostrar demanda por comparação de mais telas |
+| P-01 | Teto de publicadores simultâneos por sala | **10** (era 2, revisado em 2026-09-17) | Se o egress medido (RNF-05) se aproximar do teto do plano hospedado |
 | P-02 | Limiar de defasagem da réplica que recusa entradas | 60 s | Após medir a frequência real de queda do gateway |
 | P-03 | Validade do código de pareamento | 5 min | Se gerar atrito recorrente |
 | P-04 | Alvo de captura padrão | 1080p60 | Depende inteiramente do resultado de S0 |
