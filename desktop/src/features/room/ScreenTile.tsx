@@ -203,8 +203,12 @@ export function ScreenTile({
           `pb-16` não é respiro. A pílula de controles da sala é centralizada na
           base da janela, e o ladrilho desenhava crachá e botões exatamente por
           baixo dela: com duas telas lado a lado, a pílula caía em cima do crachá
-          de uma e dos controles da outra, e o texto ficava ilegível. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-linear-to-t from-scrim to-transparent p-2 pb-16">
+          de uma e dos controles da outra, e o texto ficava ilegível.
+
+          `px-2 pt-2` em vez de `p-2`, para não depender da ordem em que o
+          Tailwind emite `padding` e `padding-bottom` no arquivo final — quem
+          perde essa corrida devolve o crachá para baixo da pílula. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-linear-to-t from-scrim to-transparent px-2 pt-2 pb-16">
         <div className="flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-1/80 px-2 py-1">
           {isSelf ? (
             <span className="shrink-0 text-danger">
