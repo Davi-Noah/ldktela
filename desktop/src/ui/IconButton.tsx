@@ -32,7 +32,11 @@ export function IconButton({
   ...rest
 }: IconButtonProps) {
   return (
-    <span className="group relative inline-flex">
+    // `group/tip`, e nao `group`: o `group-hover:` do Tailwind casa com
+    // QUALQUER ancestral que tenha a classe `group`, e o ladrilho de tela tem
+    // uma. Sem o nome, passar o ponteiro sobre o ladrilho abria as dicas de
+    // todos os botoes dele de uma vez, empilhadas e ilegiveis sobre o video.
+    <span className="group/tip relative inline-flex">
       <button
         type="button"
         aria-label={label}
@@ -43,7 +47,7 @@ export function IconButton({
       </button>
       <span
         role="tooltip"
-        className={`chrome-fade pointer-events-none absolute left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-panel border border-border bg-surface-0 px-2 py-1 text-xs text-text opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 ${
+        className={`chrome-fade pointer-events-none absolute left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-panel border border-border bg-surface-0 px-2 py-1 text-xs text-text opacity-0 group-hover/tip:opacity-100 group-focus-within/tip:opacity-100 ${
           tipSide === 'top' ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
         }`}
       >

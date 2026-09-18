@@ -84,3 +84,4 @@ certas.
 | [0030](0030-preview-da-propria-tela-e-local.md) | O preview da própria tela é local, nunca pelo SFU | Aceito |
 | [0031](0031-navegacao-nao-assina-video.md) | Nenhum elemento de navegação assina vídeo | Aceito |
 | [0032](0032-a-escada-do-vp9-e-temporal.md) | A escada do VP9 é temporal (`L1T3`), não espacial | Aceito |
+| [0033](0033-o-pip-do-webview-sai.md) | O Picture-in-Picture do WebView sai; destacar é tudo ou nada | Aceito |

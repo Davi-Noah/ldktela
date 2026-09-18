@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { log } from '../../log';
+import { useCallback, useEffect, useRef } from 'react';
 import { detach, type DetachedWindow } from '../../media/pip';
 import { SELF_ID, useMediaStore, visibleTiles } from '../../store/media';
 import { useRoomStore } from '../../store/room';
@@ -28,7 +27,6 @@ export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
   const selfId = useSessionStore((state) => state.user?.id);
   const showSelfPreview = useUiStore((state) => state.showSelfPreview);
   const detachedWindow = useRef<DetachedWindow | null>(null);
-  const [floating, setFloating] = useState<string | null>(null);
 
   const tiles = visibleTiles(screenOrder, publishing, showSelfPreview);
 
@@ -80,43 +78,6 @@ export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
     });
   }, []);
 
-  /**
-   * A **segunda** janela flutuante (ADR-0022 continua valendo).
-   *
-   * Picture-in-Picture nativo é outra API, com outra janela, sobre a mesma
-   * conexão do LiveKit: o elemento é o mesmo, o decodificador é o mesmo e não
-   * há assinatura nova. Dá para ter uma tela destacada com controles e outra
-   * flutuando ao mesmo tempo — que é mais do que o Discord faz.
-   */
-  const onFloat = useCallback((identity: string) => {
-    const video = document.querySelector<HTMLVideoElement>(`[data-screen="${identity}"] video`);
-    if (video === null) {
-      return;
-    }
-    if (document.pictureInPictureElement === video) {
-      void document.exitPictureInPicture().catch(() => {
-        // Já saiu por conta própria; não há nada a fazer.
-      });
-      return;
-    }
-    video.addEventListener(
-      'leavepictureinpicture',
-      () => {
-        setFloating(null);
-      },
-      { once: true },
-    );
-    video.requestPictureInPicture().then(
-      () => {
-        setFloating(identity);
-      },
-      (error: unknown) => {
-        log.warn('flutuante: o WebView recusou', { error });
-        useUiStore.getState().toast('warning', 'Não consegui abrir a janela flutuante.');
-      },
-    );
-  }, []);
-
   if (tiles.length === 0) {
     return null;
   }
@@ -134,15 +95,11 @@ export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
           focused={focused === identity}
           hidden={focused !== null && focused !== identity}
           detached={detached === identity}
-          floating={floating === identity}
           onFocus={() => {
             useMediaStore.getState().focus(focused === identity ? null : identity);
           }}
           onDetach={() => {
             onDetach(identity);
-          }}
-          onFloat={() => {
-            onFloat(identity);
           }}
           onFullscreen={onFullscreen}
         />

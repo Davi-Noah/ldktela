@@ -35,6 +35,13 @@ o WebView2 desta máquina é 152.
 sempre visível — que **compartilha o contexto JavaScript da janela principal**. O
 elemento `<video>` é movido para dentro dela e devolvido ao fechar.
 
+> **Nota de 2026-09-17 ([ADR-0033](0033-o-pip-do-webview-sai.md)).** Esta decisão continua de
+> pé — quando o Document Picture-in-Picture existe. O que mudou é que ele **pode não existir**:
+> no WebView2 testado (Chromium 153) a chamada falha, e o botão passou a só aparecer onde a API
+> está presente. O Picture-in-Picture nativo do navegador, que chegou a conviver com este como
+> "segunda janela", foi removido: a janela dele é do Edge e traz controles do Edge que não temos
+> como consertar.
+
 ## Consequências
 
 - Zero conexão extra, zero egress extra, zero mudança de schema, zero mexer em

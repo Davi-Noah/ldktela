@@ -1,4 +1,3 @@
-import { useEffect, useRef } from 'react';
 import { media } from '../../app/runtime';
 import { PUBLISH_PRESETS, SELF_ID, useMediaStore, visibleTiles } from '../../store/media';
 import { useRoomStore } from '../../store/room';
@@ -45,18 +44,6 @@ export function RoomChrome({ onShare, onStop, onToggleFullscreen, fullscreen }: 
   const focused = useMediaStore((state) => state.focused);
   const showSelfPreview = useUiStore((state) => state.showSelfPreview);
   const setShowSelfPreview = useUiStore((state) => state.setShowSelfPreview);
-  const holdChrome = useUiStore((state) => state.holdChrome);
-  const release = useRef<(() => void) | null>(null);
-
-  // Enquanto o ponteiro estiver sobre os controles, o temporizador de
-  // ociosidade não pode escondê-los: mirar num botão e parar de mexer o mouse
-  // fazia a barra sumir debaixo do cursor.
-  useEffect(() => {
-    return () => {
-      release.current?.();
-      release.current = null;
-    };
-  }, []);
 
   const tiles = visibleTiles(screenOrder, publishing, showSelfPreview);
 
@@ -91,15 +78,12 @@ export function RoomChrome({ onShare, onStop, onToggleFullscreen, fullscreen }: 
 
       <footer className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center px-3 pb-3 pt-10">
         <div
+          // Enquanto o ponteiro estiver aqui, o temporizador de ociosidade não
+          // esconde o cromo: mirar num botão e parar de mexer o mouse fazia a
+          // barra sumir debaixo do cursor. Quem lê este atributo é o `:hover` em
+          // `RoomScreen`, e não um contador — ver o comentário de lá.
+          data-chrome-hold
           className="pointer-events-auto flex items-center gap-1 rounded-pill border border-line-soft bg-chrome p-1"
-          onPointerEnter={() => {
-            release.current?.();
-            release.current = holdChrome();
-          }}
-          onPointerLeave={() => {
-            release.current?.();
-            release.current = null;
-          }}
         >
           {publishing ? (
             <>

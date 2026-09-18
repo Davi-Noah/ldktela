@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { media } from '../../app/runtime';
 import type { RoomParticipant } from '../../api/types/RoomParticipant';
+import { pictureInPictureSupported } from '../../media/pip';
 import { registerPreviewElement } from '../../media/preview';
 import {
   type QualityChoice,
@@ -23,10 +24,8 @@ interface Props {
       a layer, and unmounting would tear the decoder down (RF-32, ADR-0031). */
   hidden: boolean;
   detached: boolean;
-  floating: boolean;
   onFocus: () => void;
   onDetach: () => void;
-  onFloat: () => void;
   onFullscreen: () => void;
 }
 
@@ -38,6 +37,13 @@ interface Props {
  * vezes no caminho, e a tela piscaria entre grade e foco antes de abrir.
  */
 const DOUBLE_CLICK_MS = 220;
+
+/**
+ * Se este WebView tem Document Picture-in-Picture (ADR-0033).
+ *
+ * Lido uma vez: é uma pergunta sobre o WebView, não sobre o estado da sala.
+ */
+const detachSupported = pictureInPictureSupported();
 
 /**
  * One screen: someone else's, or — when `identity` is `SELF_ID` — our own
@@ -60,10 +66,8 @@ export function ScreenTile({
   focused,
   hidden,
   detached,
-  floating,
   onFocus,
   onDetach,
-  onFloat,
   onFullscreen,
 }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -100,10 +104,11 @@ export function ScreenTile({
     video.autoplay = true;
     video.playsInline = true;
     video.muted = true;
-    // Liberado: é a segunda janela flutuante do produto. O Document PiP dá uma
-    // só (ADR-0022), e esta é uma API distinta, com janela distinta, na mesma
-    // conexão — não custa assinatura nenhuma.
-    video.disablePictureInPicture = false;
+    // O Picture-in-Picture do próprio WebView fica desligado (ADR-0033): a
+    // janela que ele abre é do Edge, com controles do Edge que não temos como
+    // estilizar nem consertar — e um deles abre `edge://settings`, que num
+    // WebView2 termina em ERR_INVALID_URL.
+    video.disablePictureInPicture = true;
     video.className = 'h-full w-full object-contain bg-stage';
     mount.append(video);
 
@@ -144,9 +149,7 @@ export function ScreenTile({
     ? 'Prévia da sua tela'
     : (owner?.user.display_name ?? owner?.user.username ?? 'Alguém');
   const subtitle = isSelf
-    ? [sharingTitle, focused ? null : 'miniatura · abra para ver nítido']
-        .filter(Boolean)
-        .join(' · ')
+    ? [sharingTitle, focused ? null : 'miniatura'].filter(Boolean).join(' · ')
     : null;
 
   return (
@@ -195,8 +198,13 @@ export function ScreenTile({
       )}
 
       {/* Crachá permanente: quem é a tela precisa ser legível sem gesto
-          nenhum (RF-34). O que some no repouso são os controles. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-linear-to-t from-scrim to-transparent p-2">
+          nenhum (RF-34). O que some no repouso são os controles.
+
+          `pb-16` não é respiro. A pílula de controles da sala é centralizada na
+          base da janela, e o ladrilho desenhava crachá e botões exatamente por
+          baixo dela: com duas telas lado a lado, a pílula caía em cima do crachá
+          de uma e dos controles da outra, e o texto ficava ilegível. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-linear-to-t from-scrim to-transparent p-2 pb-16">
         <div className="flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-1/80 px-2 py-1">
           {isSelf ? (
             <span className="shrink-0 text-danger">
@@ -251,19 +259,15 @@ export function ScreenTile({
             </Popover>
           )}
 
-          <IconButton
-            icon="detach"
-            label={detached ? 'Trazer de volta' : 'Destacar em outra janela'}
-            aria-pressed={detached}
-            onClick={onDetach}
-          />
-
-          {!isSelf && !detached && (
+          {/* Só aparece onde funciona (ADR-0033). Um botão que responde sempre
+              com "não consegui" é pior do que botão nenhum: ensina que o
+              aplicativo está quebrado, e não que o sistema não tem o recurso. */}
+          {detachSupported && (
             <IconButton
-              icon="pip"
-              label={floating ? 'Fechar a janela flutuante' : 'Janela flutuante'}
-              aria-pressed={floating}
-              onClick={onFloat}
+              icon="detach"
+              label={detached ? 'Trazer de volta' : 'Destacar em outra janela'}
+              aria-pressed={detached}
+              onClick={onDetach}
             />
           )}
 
@@ -294,29 +298,12 @@ const QUALITIES: { value: QualityChoice; label: string; hint?: string }[] = [
  * mouse.
  */
 function Controls({ children }: { children: ReactNode }) {
-  const holdChrome = useUiStore((state) => state.holdChrome);
-  const release = useRef<(() => void) | null>(null);
-
-  useEffect(() => {
-    return () => {
-      release.current?.();
-      release.current = null;
-    };
-  }, []);
-
   return (
     <div
       // Segura o cromo da sala junto: com o ponteiro parado sobre um controle,
       // esconder a barra levaria o cursor embora (`cursor-gone`) no meio do
-      // gesto.
-      onPointerEnter={() => {
-        release.current?.();
-        release.current = holdChrome();
-      }}
-      onPointerLeave={() => {
-        release.current?.();
-        release.current = null;
-      }}
+      // gesto. Quem lê este atributo é o `:hover` em `RoomScreen`.
+      data-chrome-hold
       className="chrome-fade pointer-events-auto flex shrink-0 items-center gap-1 rounded-pill bg-surface-1/80 p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
     >
       {children}

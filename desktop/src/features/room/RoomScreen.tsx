@@ -50,7 +50,16 @@ export function RoomScreen() {
         // Sem isto, mirar num botão e parar de mexer o mouse por dois segundos e
         // meio fazia a barra sumir sob o cursor — e o menu de qualidade ficava
         // órfão sobre o vídeo.
-        if (useUiStore.getState().chromeHolds > 0) {
+        //
+        // O ponteiro é consultado por `:hover`, e não por um contador que os
+        // controles incrementam ao entrar e decrementam ao sair. O contador era
+        // a razão de a barra **nunca** sumir: basta um `pointerleave` que não
+        // acontece — e ele deixa de acontecer sempre que o elemento sob o cursor
+        // é removido, desmontado ou trocado de lugar — para a conta ficar presa
+        // acima de zero para o resto da sessão. `:hover` não tem como vazar,
+        // porque não guarda estado nenhum.
+        const hovered = document.querySelector('[data-chrome-hold]:hover') !== null;
+        if (hovered || useUiStore.getState().chromeHolds > 0) {
           arm();
           return;
         }

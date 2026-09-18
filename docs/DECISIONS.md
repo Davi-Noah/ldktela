@@ -533,11 +533,17 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   dispensa entrada em `capabilities/` e no `package.json`. Um atalho já tomado por outro programa
   não impede o aplicativo de subir: perde-se o atalho, e o botão e a bandeja continuam parando a
   transmissão.
-- **[S7] PiP nativo é a segunda janela flutuante, e não contraria o ADR-0022** — Document PiP e
+- **[S7] ~~PiP nativo é a segunda janela flutuante, e não contraria o ADR-0022~~** — Document PiP e
   `requestPictureInPicture` são APIs distintas, com janelas distintas, sobre a mesma conexão do
   LiveKit: o elemento é o mesmo, o decodificador é o mesmo, e não há assinatura nova. O limite de
   **uma** janela destacada do ADR-0022 continua valendo para o Document PiP, e a troca agora é
   anunciada em vez de fechar a anterior em silêncio.
+
+  > **Revogado em 2026-09-17 pelo [ADR-0033](adr/0033-o-pip-do-webview-sai.md).** O raciocínio
+  > estava certo sobre as APIs e errado sobre o produto: a janela do PiP nativo é do Edge, com
+  > controles do Edge, e um deles abre `edge://settings` — que num WebView2 termina em
+  > `ERR_INVALID_URL` dentro do nosso aplicativo. "Segunda janela" também pressupunha que a
+  > primeira abria, e ela não abria.
 
 - **[Lançamento] O endereço do servidor é de build, e a build para sem ele** — `VITE_SERVER_ORIGIN`
   vivia só num `.env.local` fora do git, então o `.msi` que o CI publicava apontava para

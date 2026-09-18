@@ -23,7 +23,6 @@ export type IconName =
   | 'info'
   | 'monitor'
   | 'people'
-  | 'pip'
   | 'refresh'
   | 'stop'
   | 'volume'
@@ -56,16 +55,13 @@ const STROKE: Record<string, string[]> = {
     'M8 21H5a2 2 0 0 1-2-2v-3',
     'M16 21h3a2 2 0 0 0 2-2v-3',
   ],
+  // Um cubo e uma coroa de oito dentes. A versao anterior era um circulo com
+  // oito raios retos saindo dele, o que e um sol — e foi lido como um sol.
+  // A diferenca que faz a forma virar engrenagem e o dente ter largura e estar
+  // preso a um aro, e nao ser uma linha solta.
   gear: [
     'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
-    'M12 2.5v2.2',
-    'M12 19.3v2.2',
-    'M21.5 12h-2.2',
-    'M4.7 12H2.5',
-    'M18.7 5.3 17.1 6.9',
-    'M6.9 17.1 5.3 18.7',
-    'M18.7 18.7 17.1 17.1',
-    'M6.9 6.9 5.3 5.3',
+    'M10 2.61L14 2.61L14.29 4.96L15.36 5.41L17.23 3.95L20.05 6.77L18.59 8.64L19.04 9.71L21.39 10L21.39 14L19.04 14.29L18.59 15.36L20.05 17.23L17.23 20.05L15.36 18.59L14.29 19.04L14 21.39L10 21.39L9.71 19.04L8.64 18.59L6.77 20.05L3.95 17.23L5.41 15.36L4.96 14.29L2.61 14L2.61 10L4.96 9.71L5.41 8.64L3.95 6.77L6.77 3.95L8.64 5.41L9.71 4.96Z',
   ],
   grid: ['M3.5 3.5h7v7h-7z', 'M13.5 3.5h7v7h-7z', 'M3.5 13.5h7v7h-7z', 'M13.5 13.5h7v7h-7z'],
   info: ['M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z', 'M12 11v5.5'],
@@ -80,7 +76,6 @@ const STROKE: Record<string, string[]> = {
     'M16.4 6.1a3 3 0 0 1 .6 5.9',
     'M17.3 15.4A5 5 0 0 1 21 20',
   ],
-  pip: ['M3.5 5.5h17v13h-17z', 'M12.5 12.5h7v6h-7z'],
   refresh: ['M20 12a8 8 0 1 1-2.4-5.7', 'M20.5 3.5V8H16'],
   volume: ['M4 9.5h3.5L13 5v14L7.5 14.5H4z', 'M16.5 9.5a3.5 3.5 0 0 1 0 5'],
   'volume-off': ['M4 9.5h3.5L13 5v14L7.5 14.5H4z', 'M17 10l4 4', 'M21 10l-4 4'],
