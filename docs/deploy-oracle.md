@@ -113,21 +113,38 @@ acompanha. A troca de chave da seção 1 é independente e deve ficar de qualque
 
 ---
 
-## 3. O aplicativo precisa ser recompilado quando o endereço muda
+## 3. O endereço da VM não está no repositório
 
-Duas coisas dentro do pacote guardam o endereço do servidor, e as duas são de build:
+O repositório é público; o endereço é de quem hospeda. Ele entra por três variáveis, todas fora
+do git:
 
-| arquivo | o que guarda |
-|---|---|
-| `desktop/.env.production` | `VITE_SERVER_ORIGIN`, para onde o cliente faz requisição |
-| `desktop/src-tauri/tauri.conf.json` | o `connect-src` do CSP, o que o WebView **deixa** ele alcançar |
+| onde | variável | o que faz |
+|---|---|---|
+| `.env.remote` (VM) | `LIVEKIT_NODE_IP` | o IP que o LiveKit anuncia nos candidatos ICE; o compose o passa como `NODE_IP` e recusa subir sem ele |
+| `desktop/.env.production` (máquina de build) | `VITE_SERVER_ORIGIN` | para onde o cliente faz requisição |
+| idem | `LIVEKIT_PUBLIC_URL` | o `ws://` do LiveKit, só para o CSP |
 
-Mudam juntos, no mesmo commit. `vite.config.ts` recusa a build se discordarem, e recusa a build
-se nenhum dos dois disser nada — porque o silêncio ali já produziu um `.msi` apontando para
-`http://127.0.0.1:8080`, a máquina de quem instalasse. O valor vivia só num `.env.local` fora
-do git, que o CI nunca viu.
+Copie `desktop/.env.production.example` para `desktop/.env.production` e preencha. No CI, os
+mesmos dois nomes são **variáveis do repositório** (Settings → Secrets and variables → Actions →
+Variables), não segredos: o endereço vai dentro do `.msi` de qualquer jeito.
 
-Se a porta da API mudar (`API_PORT` no `.env.remote`), os dois arquivos mudam também.
+O IP é fixo, e não descoberto por STUN (`use_external_ip: false`): a descoberta resolve
+`stun1.l.google.com` no boot, e numa recriação o container recebeu o `127.0.0.53` do host como
+DNS e entrou em loop de reinício.
+
+### O aplicativo precisa ser recompilado quando o endereço muda
+
+O CSP versionado em `desktop/src-tauri/tauri.conf.json` só conhece servidores de
+desenvolvimento. `desktop/scripts/release-config.mjs` acrescenta o servidor público ao
+`connect-src` e entrega o resultado em `TAURI_CONFIG`, que o `tauri-codegen` mescla sobre o
+arquivo e embute no binário. `just build-app` e o fluxo de release já fazem isso.
+
+`vite.config.ts` recusa a build se `VITE_SERVER_ORIGIN` faltar, e recusa se o CSP efetivo não o
+permitir — porque o silêncio ali já produziu um `.msi` apontando para `http://127.0.0.1:8080`, a
+máquina de quem instalasse, e porque um CSP que não alcança o servidor faz o aplicativo abrir,
+pintar a interface e ter toda requisição bloqueada sem erro nenhum.
+
+Se a porta da API mudar (`API_PORT` no `.env.remote`), as variáveis de build mudam também.
 
 ---
 

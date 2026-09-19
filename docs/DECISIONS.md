@@ -555,6 +555,13 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   arquivo, e trocar o endereço sem trocar o CSP é exatamente o estado que a verificação existe
   para impedir.
 
+  > **Revisto em 2026-09-19.** O repositório vai ser público, e o endereço é de quem hospeda: saiu
+  > de `desktop/.env.production` (agora fora do git, com um `.example`) e do CSP versionado. O CSP
+  > do pacote é montado na build por `scripts/release-config.mjs` e entregue em `TAURI_CONFIG`; no
+  > CI, os valores vêm de variáveis do repositório, e o script para o job se faltarem — o que
+  > fecha a string vazia que antes justificava não usá-las. O `vite.config.ts` confere o CSP
+  > efetivo, não o do arquivo. Do lado da VM, o `node_ip` do LiveKit virou `LIVEKIT_NODE_IP`.
+
 - **[Lançamento] A chave do LiveKit saiu do arquivo versionado** — `docker/livekit.remote.yaml`
   carregava o segredo com que o servidor implantado estava rodando. Agora vem de `LIVEKIT_KEYS`,
   montado pelo compose a partir do `.env.remote`, com `${...:?}` para a pilha parar em vez de
@@ -598,4 +605,4 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   `VOICE_STATE_UPDATE` o mantém, e o READY usa o canal de voz — com a mesma checagem de
   `can_join_room` da transição — antes de cair na presença.
 
-- **LiveKit remoto com `node_ip` fixo (2026-09-19).** `use_external_ip: true` fazia o LiveKit descobrir o IP público por STUN ao iniciar; num redeploy o container não resolveu `stun1.l.google.com` (resolv.conf com o `127.0.0.53` do host) e ficou em loop de reinício. O IP da VM é fixo, então vai escrito em `docker/livekit.remote.yaml`, e subir não depende mais de DNS nem de terceiro.
+- **LiveKit remoto com `node_ip` fixo (2026-09-19).** `use_external_ip: true` fazia o LiveKit descobrir o IP público por STUN ao iniciar; num redeploy o container não resolveu `stun1.l.google.com` (resolv.conf com o `127.0.0.53` do host) e ficou em loop de reinício. O IP da VM é fixo, então é informado (hoje por `LIVEKIT_NODE_IP` no `.env.remote`), e subir não depende mais de DNS nem de terceiro.

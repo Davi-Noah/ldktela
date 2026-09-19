@@ -43,12 +43,22 @@ jobs:
       - run: npm ci
         working-directory: desktop
 
-      # O endereco do servidor vem de `desktop/.env.production`, versionado, e
-      # nao de uma variavel do repositorio. Nao e economia: uma variavel nao
-      # definida chega aqui como string vazia, sobrepoe o arquivo e faz a build
-      # parar — e, pior, trocar o endereco por variavel deixaria o CSP em
-      # `tauri.conf.json` para tras, que e um aplicativo que abre e nao fala com
-      # ninguem. Os dois mudam no mesmo commit, e `vite.config.ts` confere.
+      # O endereco do servidor e de quem hospeda, nao do repositorio: vem das
+      # variaveis VITE_SERVER_ORIGIN e LIVEKIT_PUBLIC_URL (Settings -> Secrets
+      # and variables -> Actions -> Variables). O script monta com elas o CSP do
+      # pacote, em TAURI_CONFIG, e para o job se faltar alguma — um pacote que
+      # nao alcanca o servidor nao e um pacote. `vite.config.ts` confere de novo.
+      - name: Endereco do servidor
+        shell: bash
+        working-directory: desktop
+        env:
+          VITE_SERVER_ORIGIN: ${{ vars.VITE_SERVER_ORIGIN }}
+          LIVEKIT_PUBLIC_URL: ${{ vars.LIVEKIT_PUBLIC_URL }}
+        run: |
+          config="$(node scripts/release-config.mjs)"
+          echo "VITE_SERVER_ORIGIN=$VITE_SERVER_ORIGIN" >> "$GITHUB_ENV"
+          echo "TAURI_CONFIG=$config" >> "$GITHUB_ENV"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

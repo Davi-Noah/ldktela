@@ -3,6 +3,8 @@
 .env
 # Aponta o cliente para um servidor especifico; e config de maquina, nao do projeto.
 .env.local
+# O endereco do servidor de producao e de quem hospeda (ver .env.production.example).
+desktop/.env.production
 node_modules/
 desktop/dist/
 desktop/src-tauri/target/

@@ -160,4 +160,4 @@ build-server:
     cargo build --release -p server
 
 build-app:
-    cd desktop && npm run tauri build
+    cd desktop && config="$(node scripts/release-config.mjs)" && TAURI_CONFIG="$config" npm run tauri build
