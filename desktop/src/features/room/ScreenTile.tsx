@@ -141,16 +141,12 @@ export function ScreenTile({
   }
 
   // "prévia" e não "sua tela": o preview é um JPEG local com relógio próprio
-  // (ADR-0030), e quem julga a qualidade da transmissão por ele conclui que o
-  // produto está quebrado. Já aconteceu. Na grade ele é deliberadamente uma
-  // miniatura, e o rótulo diz isso e diz o que fazer a respeito; em foco ele é
-  // nítido e o aviso sairia sobrando.
+  // (ADR-0030), não a transmissão — quem julga uma pela outra conclui que o
+  // produto está quebrado. Já aconteceu.
   const name = isSelf
     ? 'Prévia da sua tela'
     : (owner?.user.display_name ?? owner?.user.username ?? 'Alguém');
-  const subtitle = isSelf
-    ? [sharingTitle, focused ? null : 'miniatura'].filter(Boolean).join(' · ')
-    : null;
+  const subtitle = isSelf ? sharingTitle : null;
 
   return (
     <section

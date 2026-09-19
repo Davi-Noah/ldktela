@@ -26,13 +26,15 @@ use crate::capture::{fit, Size};
 /// Emitido a cada quadro de preview, como data URL pronta para `img.src`.
 const PREVIEW_EVENT: &str = "share://preview";
 
-/// Teto do preview **na grade**, onde ele e um ladrilho entre outros. 480 px
-/// chegam para responder "e esta a janela certa?" e "continua indo?". Em JPEG
-/// q70 isso da cerca de 20 KB por quadro, contra 518 KB do mesmo quadro em RGBA
-/// cru.
+/// Teto do preview **na grade**, onde ele e um ladrilho entre outros.
+///
+/// Era 480 px, pensado como "so para conferir a janela". So que numa grade de
+/// duas telas lado a lado, numa janela de 1920, cada ladrilho tem ~950 px de
+/// largura: 480 ali e aumento de 2x, e o ladrilho parece transmissao ruim
+/// (issue #2). 960 cobre o caso comum sem aumento.
 pub const GRID_MAX: Size = Size {
-    width: 480,
-    height: 270,
+    width: 960,
+    height: 540,
 };
 
 /// Teto do preview **em foco**, onde ele ocupa a janela inteira.
@@ -56,14 +58,14 @@ pub const THUMBNAIL_MAX: Size = Size {
     height: 180,
 };
 
-/// Quadros por segundo do preview na grade. Ele e uma confirmacao, nao um
-/// monitor: tres por segundo mostram que a imagem esta viva e se mexe.
-pub const GRID_FPS: u32 = 3;
+/// Quadros por segundo do preview na grade. Tres por segundo mostravam que a
+/// imagem estava viva, e tambem que parecia travada — que era o que se lia.
+pub const GRID_FPS: u32 = 6;
 
 /// Qualidade do JPEG. Sobe junto com a resolucao, pelo mesmo motivo que ela: em
 /// foco a imagem e olhada de perto, e artefato de bloco em texto pequeno e
 /// justamente o que faz um preview parecer transmissao quebrada.
-const GRID_QUALITY: u8 = 70;
+const GRID_QUALITY: u8 = 75;
 /// A miniatura do seletor e um cartao pequeno e frio: existe para distinguir
 /// tres janelas do mesmo navegador, e nao para ser lida.
 pub const THUMBNAIL_QUALITY: u8 = 72;
@@ -528,7 +530,7 @@ mod tests {
 
         const ROUNDS: u32 = 20;
         for (label, ceiling, quality, fps) in [
-            ("grade", GRID_MAX, GRID_QUALITY, 3.0),
+            ("grade", GRID_MAX, GRID_QUALITY, 6.0),
             ("foco", FOCUS_MAX, FOCUS_QUALITY, 15.0),
         ] {
             let target = fit(source, ceiling);
@@ -611,8 +613,22 @@ mod tests {
         control.set(true, 12, true);
         assert_eq!(control.ceiling().width, FOCUS_MAX.width);
         assert!(
-            control.ceiling().width > GRID_MAX.width * 2,
-            "em foco o preview cresce de verdade, e não por um punhado de pixels"
+            control.ceiling().width > GRID_MAX.width,
+            "em foco o preview cresce de verdade"
+        );
+    }
+
+    /// Issue #2: na grade de duas telas numa janela de 1920, cada ladrilho tem
+    /// perto de 950 px. Um teto abaixo disso é aumento, e aumento é borrão.
+    #[test]
+    fn a_grid_tile_is_not_upscaled_in_a_two_screen_layout() {
+        const TWO_TILE_WIDTH: u32 = 940;
+        let control = Control::new();
+        control.set(true, GRID_FPS, false);
+        assert!(
+            control.ceiling().width >= TWO_TILE_WIDTH,
+            "o preview na grade sai com {} px para um ladrilho de {TWO_TILE_WIDTH}",
+            control.ceiling().width
         );
     }
 

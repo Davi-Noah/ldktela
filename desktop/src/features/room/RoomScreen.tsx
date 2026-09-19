@@ -121,10 +121,13 @@ export function RoomScreen() {
    */
   useEffect(() => {
     const enabled = publishing && showSelfPreview;
-    const isFocused = focused === SELF_ID;
-    const fps = isFocused ? PREVIEW_FOCUS_FPS : PREVIEW_GRID_FPS;
-    void media.setPreview(enabled, fps, isFocused);
-  }, [publishing, showSelfPreview, focused]);
+    // Sozinha na grade, a própria tela ocupa a janela inteira — o mesmo espaço
+    // do foco. Tratá-la como ladrilho ali a deixava reduzida numa área que não
+    // é de ladrilho (issue #2).
+    const large = focused === SELF_ID || (focused === null && screenCount === 0);
+    const fps = large ? PREVIEW_FOCUS_FPS : PREVIEW_GRID_FPS;
+    void media.setPreview(enabled, fps, large);
+  }, [publishing, showSelfPreview, focused, screenCount]);
 
   /**
    * Teclado, como em qualquer reprodutor: `Esc` desfaz um nível por vez — sai da
