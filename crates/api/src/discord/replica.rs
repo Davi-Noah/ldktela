@@ -447,7 +447,9 @@ mod tests {
     #[tokio::test]
     async fn joining_and_leaving_voice_is_tracked() {
         let replica = Replica::new(Duration::from_secs(60));
-        replica.replace_guild(guild_with(VIEW_CONNECT, vec![])).await;
+        replica
+            .replace_guild(guild_with(VIEW_CONNECT, vec![]))
+            .await;
 
         replica.set_voice(GUILD, MEMBER, Some(CHANNEL)).await;
         assert_eq!(replica.voice_channel_of(MEMBER).await, Some(CHANNEL));
@@ -465,7 +467,9 @@ mod tests {
 
         // Saiu da call enquanto o bot estava desconectado: o GUILD_CREATE da
         // reconexao nao o traz, e ele nao pode continuar "na call" para nos.
-        replica.replace_guild(guild_with(VIEW_CONNECT, vec![])).await;
+        replica
+            .replace_guild(guild_with(VIEW_CONNECT, vec![]))
+            .await;
         assert_eq!(replica.voice_channel_of(MEMBER).await, None);
     }
 }
