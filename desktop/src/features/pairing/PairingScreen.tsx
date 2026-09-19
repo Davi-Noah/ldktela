@@ -22,7 +22,7 @@ export function PairingScreen() {
       <form onSubmit={onSubmit} className="w-full max-w-sm">
         <h1 className="text-lg font-semibold text-text">ldktela</h1>
         <p className="mt-1 text-text-muted">
-          Compartilhamento de tela para o canal de voz do Discord em que você já está.
+          Compartilhe sua tela para o canal de voz do Discord em que você já está.
         </p>
 
         <ol className="mt-group space-y-row text-text-muted">
