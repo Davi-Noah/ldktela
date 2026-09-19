@@ -388,6 +388,17 @@ impl EventHandler for Handler {
     /// The whole zero-click room join (ADR-0011): Discord says where the user
     /// is, and the client follows.
     async fn voice_state_update(&self, _ctx: Context, old: Option<VoiceState>, new: VoiceState) {
+        if let Some(guild) = new.guild_id {
+            self.state
+                .replica
+                .set_voice(
+                    guild.get(),
+                    new.user_id.get(),
+                    new.channel_id.map(|c| c.get()),
+                )
+                .await;
+        }
+
         let before = old
             .as_ref()
             .and_then(|s| replica_sync::voice_channel(s.channel_id));

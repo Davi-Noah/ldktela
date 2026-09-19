@@ -25,6 +25,12 @@ pub struct GuildData {
     /// Voice channels only. Text channels never host a room, so mirroring them
     /// would be state we keep current for nothing.
     pub channels: HashMap<u64, ChannelData>,
+    /// Discord user id -> the voice channel they are in right now.
+    ///
+    /// Without it the only thing that ever moved a client into a room was a
+    /// voice *transition*, so someone already in the call when the app
+    /// connected stayed outside until they left and rejoined.
+    pub voice: HashMap<u64, u64>,
 }
 
 /// Why a lookup could not be answered.
@@ -206,6 +212,29 @@ impl Replica {
         ))
     }
 
+    /// Records where a user is in voice, or that they left (`None`).
+    pub async fn set_voice(&self, guild_id: u64, user_id: u64, channel_id: Option<u64>) {
+        let mut state = self.state.write().await;
+        if let Some(guild) = state.guilds.get_mut(&guild_id) {
+            match channel_id {
+                Some(channel) => guild.voice.insert(user_id, channel),
+                None => guild.voice.remove(&user_id),
+            };
+        }
+    }
+
+    /// The voice channel a user is in right now, if any.
+    ///
+    /// Discord allows one voice connection per account, so the first guild that
+    /// has the user in voice is the only one.
+    pub async fn voice_channel_of(&self, user_id: u64) -> Option<u64> {
+        let state = self.state.read().await;
+        state
+            .guilds
+            .values()
+            .find_map(|guild| guild.voice.get(&user_id).copied())
+    }
+
     /// Guild id and channel name, for the room payload.
     pub async fn channel_info(&self, discord_channel_id: u64) -> Option<(u64, String)> {
         let state = self.state.read().await;
@@ -254,6 +283,7 @@ mod tests {
             }],
             members,
             channels,
+            voice: HashMap::new(),
         }
     }
 
@@ -398,5 +428,44 @@ mod tests {
         assert_eq!(replica.staleness().await, Staleness::Stale);
         replica.set_connected(true).await;
         assert_eq!(replica.staleness().await, Staleness::Fresh);
+    }
+
+    /// Issue #1: someone already in the call when the app connects has to be
+    /// found from the snapshot `GUILD_CREATE` delivers, not only from a later
+    /// voice transition that may never come.
+    #[tokio::test]
+    async fn a_user_already_in_voice_is_found_without_a_transition() {
+        let replica = Replica::new(Duration::from_secs(60));
+        let mut guild = guild_with(VIEW_CONNECT, vec![]);
+        guild.voice.insert(MEMBER, CHANNEL);
+        replica.replace_guild(guild).await;
+
+        assert_eq!(replica.voice_channel_of(MEMBER).await, Some(CHANNEL));
+        assert_eq!(replica.voice_channel_of(OWNER).await, None);
+    }
+
+    #[tokio::test]
+    async fn joining_and_leaving_voice_is_tracked() {
+        let replica = Replica::new(Duration::from_secs(60));
+        replica.replace_guild(guild_with(VIEW_CONNECT, vec![])).await;
+
+        replica.set_voice(GUILD, MEMBER, Some(CHANNEL)).await;
+        assert_eq!(replica.voice_channel_of(MEMBER).await, Some(CHANNEL));
+
+        replica.set_voice(GUILD, MEMBER, None).await;
+        assert_eq!(replica.voice_channel_of(MEMBER).await, None);
+    }
+
+    #[tokio::test]
+    async fn a_reconnect_replaces_the_voice_snapshot() {
+        let replica = Replica::new(Duration::from_secs(60));
+        let mut guild = guild_with(VIEW_CONNECT, vec![]);
+        guild.voice.insert(MEMBER, CHANNEL);
+        replica.replace_guild(guild).await;
+
+        // Saiu da call enquanto o bot estava desconectado: o GUILD_CREATE da
+        // reconexao nao o traz, e ele nao pode continuar "na call" para nos.
+        replica.replace_guild(guild_with(VIEW_CONNECT, vec![])).await;
+        assert_eq!(replica.voice_channel_of(MEMBER).await, None);
     }
 }

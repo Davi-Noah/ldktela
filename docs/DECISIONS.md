@@ -590,3 +590,10 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   `docs/deploy-oracle.md`), mas o valor deixa de ser folgado por padrão — vale medir egress real
   (RNF-05) se o uso crescer. Atualizado em `.env.example`, `docker/env.remote.example`,
   `docs/DESTRAVAR.md` e no `.env.remote` da VM; a SRS (P-01) reflete o novo padrão.
+
+- **[#1] A réplica guarda quem está em call, e o READY consulta isso primeiro** — antes, o único
+  gatilho para o cliente entrar numa sala era uma *transição* de voz; quem já estava na call ao
+  abrir o app recebia um READY vazio (a presença só existe depois de entrar na sala do LiveKit) e
+  precisava sair e voltar. Agora o `GUILD_CREATE` traz o retrato de `voice_states`, cada
+  `VOICE_STATE_UPDATE` o mantém, e o READY usa o canal de voz — com a mesma checagem de
+  `can_join_room` da transição — antes de cair na presença.

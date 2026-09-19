@@ -73,6 +73,13 @@ pub fn guild_data(guild: &Guild) -> GuildData {
             .filter(|(_, channel)| is_room_channel(channel))
             .map(|(id, channel)| (id.get(), channel_data(channel)))
             .collect(),
+        // Quem ja esta em call quando o bot conecta so aparece aqui: nenhum
+        // VOICE_STATE_UPDATE vai chegar para essa pessoa ate ela se mexer.
+        voice: guild
+            .voice_states
+            .iter()
+            .filter_map(|(user, state)| Some((user.get(), state.channel_id?.get())))
+            .collect(),
     }
 }
 
