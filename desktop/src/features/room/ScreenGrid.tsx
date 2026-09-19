@@ -62,20 +62,17 @@ export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
       return;
     }
     const home = element.parentElement;
-    void detach(element, () => {
+    const handle = detach(element, () => {
       home?.append(element);
       useMediaStore.getState().setDetached(null);
       detachedWindow.current = null;
-    }).then((handle) => {
-      if (handle === null) {
-        useUiStore
-          .getState()
-          .toast('warning', 'Não consegui abrir a janela destacada nesta versão do Windows.');
-        return;
-      }
-      detachedWindow.current = handle;
-      useMediaStore.getState().setDetached(identity);
     });
+    if (handle === null) {
+      useUiStore.getState().toast('warning', 'Não consegui abrir a janela destacada.');
+      return;
+    }
+    detachedWindow.current = handle;
+    useMediaStore.getState().setDetached(identity);
   }, []);
 
   if (tiles.length === 0) {

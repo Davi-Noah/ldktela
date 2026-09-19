@@ -9,10 +9,13 @@ mod vault;
 #[cfg(target_os = "windows")]
 mod audio;
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
-use tauri::{Emitter, Manager, State, WindowEvent, Wry};
+use tauri::webview::NewWindowResponse;
+use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent, Wry};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 /// Pedido de troca de conta, vindo da bandeja.
@@ -136,6 +139,7 @@ pub fn run() -> tauri::Result<()> {
             tray_set_sharing,
         ])
         .setup(move |app| {
+            build_main_window(app)?;
             build_tray(app.handle())?;
             // Um atalho global pode ja estar tomado por outro aplicativo. Isso
             // nao e motivo para o aplicativo nao subir: perde-se o atalho, e o
@@ -151,6 +155,14 @@ pub fn run() -> tauri::Result<()> {
             // Fechar esconde em vez de sair. O aplicativo passa o dia na
             // bandeja esperando alguem entrar num canal de voz (RF-26); sair no
             // X faria o usuario perder o aviso de que a tela abriu.
+            //
+            // So a janela principal. A janela destacada (ADR-0034) precisa
+            // fechar de verdade: escondida, o documento que a abriu nunca fica
+            // sabendo, e o video fica preso numa janela invisivel em vez de
+            // voltar para o ladrilho.
+            if window.label() != "main" {
+                return;
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
@@ -158,6 +170,52 @@ pub fn run() -> tauri::Result<()> {
         })
         .run(tauri::generate_context!())
 }
+
+/// Cria a janela principal a partir do `tauri.conf.json` (`create: false` la),
+/// so para poder decidir sobre janelas novas.
+///
+/// Destacar uma tela move o `<video>` para uma janela `about:blank` aberta pelo
+/// proprio documento (ADR-0034) — o Document Picture-in-Picture existe no
+/// WebView2 mas falha com `InvalidStateError: no window`, porque o hospedeiro
+/// nao cria a janela dele. O Tauri nega `window.open` por padrao; aqui passa a
+/// permitir **so** `about:blank`, que e a janela que nos mesmos abrimos e
+/// preenchemos. Qualquer outro endereco continua negado, como antes.
+fn build_main_window(app: &tauri::App) -> tauri::Result<()> {
+    let Some(config) = app.config().app.windows.first().cloned() else {
+        return Ok(());
+    };
+    let handle = app.handle().clone();
+    WebviewWindowBuilder::from_config(app.handle(), &config)?
+        .on_new_window(move |url, features| {
+            if url.as_str() != "about:blank" {
+                return NewWindowResponse::Deny;
+            }
+            // Uma janela nossa, e nao o popup padrao do WebView2: aquele vem
+            // com barra de endereco mostrando `about:blank` e o globo do
+            // navegador, que e interface de navegador dentro do produto de
+            // novo. `window_features` herda posicao, tamanho e o ambiente do
+            // WebView2 de quem abriu — sem o mesmo ambiente o WebView2 recusa
+            // a janela.
+            let label = format!("destacada-{}", DETACHED.fetch_add(1, Ordering::Relaxed));
+            match WebviewWindowBuilder::new(&handle, label, WebviewUrl::External(url))
+                .window_features(features)
+                .title("ldktela")
+                .build()
+            {
+                Ok(window) => NewWindowResponse::Create { window },
+                Err(error) => {
+                    eprintln!("destacar: nao consegui criar a janela ({error})");
+                    NewWindowResponse::Deny
+                }
+            }
+        })
+        .build()?;
+    Ok(())
+}
+
+/// Contador so para rotular as janelas destacadas: o Tauri exige rotulo unico,
+/// e reabrir depois de fechar precisa de um novo.
+static DETACHED: AtomicU32 = AtomicU32::new(0);
 
 /// O WebKitGTK entrega `enable-webrtc` e `enable-media-stream` desligados, e o
 /// Tauri nao os religa: sem isto o livekit-client recusa com "LiveKit doesn't

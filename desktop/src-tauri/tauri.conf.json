@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "ldktela",
         "width": 1280,
         "height": 800,
@@ -20,7 +21,7 @@
         "resizable": true,
         "decorations": true,
         "theme": "Dark",
-        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --enable-features=DocumentPictureInPictureAPI"
+        "create": false
       }
     ],
     "security": {

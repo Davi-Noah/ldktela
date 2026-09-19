@@ -1,60 +1,44 @@
 /**
- * Detaching a screen into its own OS window (RF-33, ADR-0022).
+ * Detaching a screen into its own OS window (RF-33, ADR-0022, ADR-0034).
  *
- * Document Picture-in-Picture gives a real, movable, always-on-top window that
- * **shares this JavaScript context**. That is the whole reason it was chosen over
- * extra Tauri windows: the `<video>` element is *moved* into it, so the track
- * stays subscribed on the same connection and the decoder is never torn down
- * (CLAUDE.md §7). A second Tauri window would need a second LiveKit connection,
- * a suffixed identity and a change to `room_presence`.
+ * The window **shares this JavaScript context**. That is the whole reason it is
+ * not a second Tauri window: the `<video>` element is *moved* into it, so the
+ * track stays subscribed on the same connection and the decoder is never torn
+ * down (CLAUDE.md §7). A second Tauri window would need a second LiveKit
+ * connection, a suffixed identity and a change to `room_presence`.
  */
 
 import { log } from '../log';
-
-interface DocumentPictureInPictureApi {
-  requestWindow: (options?: { width?: number; height?: number }) => Promise<Window>;
-  readonly window: Window | null;
-}
-
-function api(): DocumentPictureInPictureApi | null {
-  const candidate = (window as unknown as Record<string, unknown>).documentPictureInPicture;
-  return candidate === undefined ? null : (candidate as DocumentPictureInPictureApi);
-}
-
-export function pictureInPictureSupported(): boolean {
-  return api() !== null;
-}
 
 export interface DetachedWindow {
   close: () => void;
 }
 
+/** O nome é fixo: um segundo `window.open` com ele reaproveita a janela. */
+const WINDOW_NAME = 'ldktela-destacada';
+
 /**
  * Opens the window and moves `element` into it. `onClose` runs whether the user
  * closed the window or the caller did, and must put the element back.
+ *
+ * The window is a plain same-origin popup, not Document Picture-in-Picture
+ * (ADR-0034). WebView2 exposes `documentPictureInPicture`, and every call to it
+ * fails with `InvalidStateError: Internal error: no window` — the host never
+ * creates that window. A popup opened by this document is still this JavaScript
+ * context, so the `<video>` is *moved* exactly as ADR-0022 intended: same track,
+ * same connection, same decoder. The Rust side allows `about:blank` and nothing
+ * else.
  */
-export async function detach(
-  element: HTMLElement,
-  onClose: () => void,
-): Promise<DetachedWindow | null> {
-  const pip = api();
-  if (pip === null) {
-    log.warn('destacar: Document Picture-in-Picture indisponível neste WebView');
+export function detach(element: HTMLElement, onClose: () => void): DetachedWindow | null {
+  const width = Math.max(640, element.clientWidth);
+  const height = Math.max(360, element.clientHeight);
+  const target = window.open('about:blank', WINDOW_NAME, `popup,width=${width},height=${height}`);
+  if (target === null) {
+    log.warn('destacar: o WebView recusou a janela');
     return null;
   }
 
-  let target: Window;
-  try {
-    target = await pip.requestWindow({
-      width: Math.max(640, element.clientWidth),
-      height: Math.max(360, element.clientHeight),
-    });
-  } catch (error) {
-    // Negado por falta de gesto do usuário, ou já há uma janela aberta.
-    log.error('destacar: não consegui abrir a janela', error);
-    return null;
-  }
-
+  target.document.title = 'ldktela';
   copyStyles(target);
   const { documentElement, body } = target.document;
   documentElement.style.height = '100%';
@@ -67,21 +51,33 @@ export async function detach(
   element.style.width = '100%';
   body.append(element);
 
-  const handleUnload = () => {
+  let done = false;
+  const finish = () => {
+    if (done) {
+      return;
+    }
+    done = true;
+    window.clearInterval(watch);
     element.style.removeProperty('height');
     element.style.removeProperty('width');
     onClose();
   };
-  target.addEventListener('pagehide', handleUnload, { once: true });
+  target.addEventListener('pagehide', finish, { once: true });
+  // `pagehide` de um popup nem sempre chega a quem o abriu quando o usuário
+  // fecha pelo X. Conferir `closed` a cada meio segundo é o que garante que o
+  // vídeo volta para o ladrilho em vez de sumir junto com a janela.
+  const watch = window.setInterval(() => {
+    if (target.closed) {
+      finish();
+    }
+  }, 500);
 
   log.info('destacar: janela aberta');
   return {
     close: () => {
-      target.removeEventListener('pagehide', handleUnload);
-      element.style.removeProperty('height');
-      element.style.removeProperty('width');
+      target.removeEventListener('pagehide', finish);
+      finish();
       target.close();
-      onClose();
     },
   };
 }

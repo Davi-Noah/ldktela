@@ -1,7 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { media } from '../../app/runtime';
 import type { RoomParticipant } from '../../api/types/RoomParticipant';
-import { pictureInPictureSupported } from '../../media/pip';
 import { registerPreviewElement } from '../../media/preview';
 import {
   type QualityChoice,
@@ -37,13 +36,6 @@ interface Props {
  * vezes no caminho, e a tela piscaria entre grade e foco antes de abrir.
  */
 const DOUBLE_CLICK_MS = 220;
-
-/**
- * Se este WebView tem Document Picture-in-Picture (ADR-0033).
- *
- * Lido uma vez: é uma pergunta sobre o WebView, não sobre o estado da sala.
- */
-const detachSupported = pictureInPictureSupported();
 
 /**
  * One screen: someone else's, or — when `identity` is `SELF_ID` — our own
@@ -259,17 +251,12 @@ export function ScreenTile({
             </Popover>
           )}
 
-          {/* Só aparece onde funciona (ADR-0033). Um botão que responde sempre
-              com "não consegui" é pior do que botão nenhum: ensina que o
-              aplicativo está quebrado, e não que o sistema não tem o recurso. */}
-          {detachSupported && (
-            <IconButton
-              icon="detach"
-              label={detached ? 'Trazer de volta' : 'Destacar em outra janela'}
-              aria-pressed={detached}
-              onClick={onDetach}
-            />
-          )}
+          <IconButton
+            icon="detach"
+            label={detached ? 'Trazer de volta' : 'Destacar em outra janela'}
+            aria-pressed={detached}
+            onClick={onDetach}
+          />
 
           <IconButton
             icon={focused ? 'grid' : 'fullscreen'}
