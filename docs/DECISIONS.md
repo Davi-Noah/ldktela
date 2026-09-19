@@ -555,6 +555,13 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   arquivo, e trocar o endereço sem trocar o CSP é exatamente o estado que a verificação existe
   para impedir.
 
+  > **Revisto em 2026-09-19.** O repositório vai ser público, e o endereço é de quem hospeda: saiu
+  > de `desktop/.env.production` (agora fora do git, com um `.example`) e do CSP versionado. O CSP
+  > do pacote é montado na build por `scripts/release-config.mjs` e entregue em `TAURI_CONFIG`; no
+  > CI, os valores vêm de variáveis do repositório, e o script para o job se faltarem — o que
+  > fecha a string vazia que antes justificava não usá-las. O `vite.config.ts` confere o CSP
+  > efetivo, não o do arquivo. Do lado da VM, o `node_ip` do LiveKit virou `LIVEKIT_NODE_IP`.
+
 - **[Lançamento] A chave do LiveKit saiu do arquivo versionado** — `docker/livekit.remote.yaml`
   carregava o segredo com que o servidor implantado estava rodando. Agora vem de `LIVEKIT_KEYS`,
   montado pelo compose a partir do `.env.remote`, com `${...:?}` para a pilha parar em vez de
@@ -590,3 +597,25 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   `docs/deploy-oracle.md`), mas o valor deixa de ser folgado por padrão — vale medir egress real
   (RNF-05) se o uso crescer. Atualizado em `.env.example`, `docker/env.remote.example`,
   `docs/DESTRAVAR.md` e no `.env.remote` da VM; a SRS (P-01) reflete o novo padrão.
+
+- **[#1] A réplica guarda quem está em call, e o READY consulta isso primeiro** — antes, o único
+  gatilho para o cliente entrar numa sala era uma *transição* de voz; quem já estava na call ao
+  abrir o app recebia um READY vazio (a presença só existe depois de entrar na sala do LiveKit) e
+  precisava sair e voltar. Agora o `GUILD_CREATE` traz o retrato de `voice_states`, cada
+  `VOICE_STATE_UPDATE` o mantém, e o READY usa o canal de voz — com a mesma checagem de
+  `can_join_room` da transição — antes de cair na presença.
+
+- **LiveKit remoto com `node_ip` fixo (2026-09-19).** `use_external_ip: true` fazia o LiveKit descobrir o IP público por STUN ao iniciar; num redeploy o container não resolveu `stun1.l.google.com` (resolv.conf com o `127.0.0.53` do host) e ficou em loop de reinício. O IP da VM é fixo, então é informado (hoje por `LIVEKIT_NODE_IP` no `.env.remote`), e subir não depende mais de DNS nem de terceiro.
+
+- **[Lançamento] A instância hospedada serve os servidores que ela nomeia (2026-09-19).** O
+  repositório é público e o instalador da release aponta para a VM de quem mantém o projeto, que
+  paga a banda de quem serve. `DISCORD_ALLOWED_GUILDS` nomeia os servidores; o filtro fica na
+  entrada da réplica, então tudo depois dele recusa sozinho. Ver
+  [ADR-0035](adr/0035-a-instancia-serve-servidores-nomeados.md).
+
+- **[Lançamento] Reescrita da moldura regional dos documentos (2026-09-19).** Antes de o repositório
+  se tornar público, saiu dos documentos a discussão sobre o ambiente regional de uso: o ADR-0020
+  foi renomeado (`transporte-comum-sem-adversario-de-rede`) e o 0013, o 0008, o 0017, o SRS e o
+  `DESTRAVAR.md` foram ajustados. As decisões, os números e o raciocínio técnico não mudaram — só
+  o que descrevia *onde* o produto é usado, que não é decisão de arquitetura. Os textos anteriores
+  estão no histórico do git; 0013 e 0020 carregam uma nota de revisão.

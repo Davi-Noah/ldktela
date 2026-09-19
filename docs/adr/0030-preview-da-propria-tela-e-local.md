@@ -37,9 +37,14 @@ ramo opcional subamostra o BGRA, uma thread separada codifica em JPEG e emite
 imperativamente. O ramo descarta quadro quando a codificação fica para trás, e **para na
 origem** quando o usuário desliga o preview — não é `display:none`.
 
-**Resolução, relógio e qualidade do JPEG acompanham o contexto**, os três: 480 px a 3 fps e
-q70 enquanto o preview é um ladrilho da grade, 1600 px a 12 fps e q80 quando ele está em
-foco.
+**Resolução, relógio e qualidade do JPEG acompanham o contexto**, os três: 960 px a 6 fps e
+q75 enquanto o preview é um ladrilho da grade, 1600 px a 12 fps e q80 quando ele está em
+foco — ou quando é o único ladrilho, que ocupa a janela inteira do mesmo jeito.
+
+> **Revisado em 2026-09-19 (issue #2).** A grade usava 480 px a 3 fps. Numa grade de duas
+> telas numa janela de 1920, cada ladrilho tem ~950 px: era aumento de 2×, e 3 fps lia como
+> travado. Medido numa tela real, 960 px custa 0,7 ms na thread de captura e ~570 KB/s de IPC —
+> abaixo do foco, que já cabia.
 
 **A redução é filtrada, pelo libyuv, e parte do NV12 que a captura já converteu para o
 encoder** — não do BGRA cru. Sai mais barato, porque a conversão já está paga, e sai melhor:

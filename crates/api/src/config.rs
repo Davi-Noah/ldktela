@@ -3,6 +3,7 @@
 //! Variable names are normative (`.env.example`); do not invent variants.
 //! Fields are added as stages start using them, never speculatively.
 
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -44,6 +45,21 @@ pub struct DiscordConfig {
     pub pairing_code_ttl: Duration,
     /// Codes one Discord account may request per hour, before the bot refuses.
     pub pairing_max_per_hour: i64,
+    /// Guilds this instance serves, or `None` for every guild the bot is in.
+    ///
+    /// A hosted instance pays for the bandwidth of everyone it serves, so it
+    /// names who it serves (ADR-0035). Self-hosting leaves this empty, which is
+    /// why absent means "all" and not "none".
+    pub allowed_guilds: Option<HashSet<u64>>,
+}
+
+impl DiscordConfig {
+    /// Whether this instance serves `guild_id`.
+    pub fn serves(&self, guild_id: u64) -> bool {
+        self.allowed_guilds
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(&guild_id))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -134,6 +150,7 @@ impl Config {
                 replica_grace: Duration::from_secs(parse(source, "DISCORD_REPLICA_GRACE_SECONDS")?),
                 pairing_code_ttl: Duration::from_secs(parse(source, "PAIRING_CODE_TTL_SECONDS")?),
                 pairing_max_per_hour: parse(source, "PAIRING_MAX_CODES_PER_HOUR")?,
+                allowed_guilds: allowed_guilds(source)?,
             },
             rooms: crate::livekit::RoomConfig {
                 url: required(source, "LIVEKIT_URL")?,
@@ -144,6 +161,38 @@ impl Config {
             },
         })
     }
+}
+
+/// `DISCORD_ALLOWED_GUILDS`: IDs separated by commas, or absent for every guild.
+fn allowed_guilds(source: &dyn Source) -> Result<Option<HashSet<u64>>, ConfigError> {
+    const NAME: &str = "DISCORD_ALLOWED_GUILDS";
+    let raw = source.get(NAME).unwrap_or_default();
+    if raw.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let allowed = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(|id| {
+            id.parse::<u64>().map_err(|_| ConfigError::Invalid {
+                name: NAME,
+                reason: format!("'{id}' não é um ID de servidor do Discord"),
+            })
+        })
+        .collect::<Result<HashSet<u64>, _>>()?;
+
+    // Escrito e vazio quer dizer que alguém tentou listar algo e errou a
+    // sintaxe. Servir ninguém e servir todos são os dois extremos: parar é a
+    // única resposta que não escolhe um deles por conta própria.
+    if allowed.is_empty() {
+        return Err(ConfigError::Invalid {
+            name: NAME,
+            reason: "não tem nenhum ID; deixe a variável vazia para servir todos".into(),
+        });
+    }
+    Ok(Some(allowed))
 }
 
 fn required(source: &dyn Source, name: &'static str) -> Result<String, ConfigError> {
@@ -269,5 +318,41 @@ mod tests {
         let mut source = valid();
         source.0.insert("APP_ENV", "staging".into());
         assert!(Config::from_source(&source).is_err());
+    }
+
+    #[test]
+    fn without_an_allow_list_every_guild_is_served() {
+        let config = Config::from_source(&valid()).unwrap();
+        assert_eq!(config.discord.allowed_guilds, None);
+        assert!(config.discord.serves(230_754_607_679_275_010));
+    }
+
+    #[test]
+    fn only_the_listed_guilds_are_served() {
+        let mut source = valid();
+        source.0.insert(
+            "DISCORD_ALLOWED_GUILDS",
+            " 230754607679275010, 1436472446168600698 ".into(),
+        );
+        let discord = Config::from_source(&source).unwrap().discord;
+        assert!(discord.serves(230_754_607_679_275_010));
+        assert!(discord.serves(1_436_472_446_168_600_698));
+        assert!(!discord.serves(999_999_999_999_999_999));
+    }
+
+    #[test]
+    fn a_malformed_guild_id_stops_the_process_instead_of_serving_nobody() {
+        let mut source = valid();
+        source.0.insert(
+            "DISCORD_ALLOWED_GUILDS",
+            "230754607679275010, nao-e-id".into(),
+        );
+        assert!(matches!(
+            Config::from_source(&source).unwrap_err(),
+            ConfigError::Invalid {
+                name: "DISCORD_ALLOWED_GUILDS",
+                ..
+            }
+        ));
     }
 }

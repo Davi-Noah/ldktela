@@ -113,21 +113,38 @@ acompanha. A troca de chave da seção 1 é independente e deve ficar de qualque
 
 ---
 
-## 3. O aplicativo precisa ser recompilado quando o endereço muda
+## 3. O endereço da VM não está no repositório
 
-Duas coisas dentro do pacote guardam o endereço do servidor, e as duas são de build:
+O repositório é público; o endereço é de quem hospeda. Ele entra por três variáveis, todas fora
+do git:
 
-| arquivo | o que guarda |
-|---|---|
-| `desktop/.env.production` | `VITE_SERVER_ORIGIN`, para onde o cliente faz requisição |
-| `desktop/src-tauri/tauri.conf.json` | o `connect-src` do CSP, o que o WebView **deixa** ele alcançar |
+| onde | variável | o que faz |
+|---|---|---|
+| `.env.remote` (VM) | `LIVEKIT_NODE_IP` | o IP que o LiveKit anuncia nos candidatos ICE; o compose o passa como `NODE_IP` e recusa subir sem ele |
+| `desktop/.env.production` (máquina de build) | `VITE_SERVER_ORIGIN` | para onde o cliente faz requisição |
+| idem | `LIVEKIT_PUBLIC_URL` | o `ws://` do LiveKit, só para o CSP |
 
-Mudam juntos, no mesmo commit. `vite.config.ts` recusa a build se discordarem, e recusa a build
-se nenhum dos dois disser nada — porque o silêncio ali já produziu um `.msi` apontando para
-`http://127.0.0.1:8080`, a máquina de quem instalasse. O valor vivia só num `.env.local` fora
-do git, que o CI nunca viu.
+Copie `desktop/.env.production.example` para `desktop/.env.production` e preencha. No CI, os
+mesmos dois nomes são **variáveis do repositório** (Settings → Secrets and variables → Actions →
+Variables), não segredos: o endereço vai dentro do `.msi` de qualquer jeito.
 
-Se a porta da API mudar (`API_PORT` no `.env.remote`), os dois arquivos mudam também.
+O IP é fixo, e não descoberto por STUN (`use_external_ip: false`): a descoberta resolve
+`stun1.l.google.com` no boot, e numa recriação o container recebeu o `127.0.0.53` do host como
+DNS e entrou em loop de reinício.
+
+### O aplicativo precisa ser recompilado quando o endereço muda
+
+O CSP versionado em `desktop/src-tauri/tauri.conf.json` só conhece servidores de
+desenvolvimento. `desktop/scripts/release-config.mjs` acrescenta o servidor público ao
+`connect-src` e entrega o resultado em `TAURI_CONFIG`, que o `tauri-codegen` mescla sobre o
+arquivo e embute no binário. `just build-app` e o fluxo de release já fazem isso.
+
+`vite.config.ts` recusa a build se `VITE_SERVER_ORIGIN` faltar, e recusa se o CSP efetivo não o
+permitir — porque o silêncio ali já produziu um `.msi` apontando para `http://127.0.0.1:8080`, a
+máquina de quem instalasse, e porque um CSP que não alcança o servidor faz o aplicativo abrir,
+pintar a interface e ter toda requisição bloqueada sem erro nenhum.
+
+Se a porta da API mudar (`API_PORT` no `.env.remote`), as variáveis de build mudam também.
 
 ---
 
@@ -194,12 +211,29 @@ código 0**.
 A chave privada foi gerada com `npm run tauri signer generate` e só deve existir na sua máquina
 e nesses dois segredos. A pública já está versionada, que é o lugar dela.
 
+**Quem esta instância serve precisa estar decidido**, porque o instalador é público e aponta
+para ela ([ADR-0035](adr/0035-a-instancia-serve-servidores-nomeados.md)). Duas camadas:
+
+1. No Developer Portal do Discord, **desligue o *Public Bot*** (Bot → Public Bot). Sem isso,
+   qualquer pessoa com permissão de gerenciar um servidor adiciona o seu bot ao dela e passa a
+   usar a sua banda.
+2. No `.env.remote`, liste os IDs em `DISCORD_ALLOWED_GUILDS`, separados por vírgula. Servidor
+   fora da lista não é espelhado, e tudo depois disso recusa sozinho; o `/tela` de lá responde
+   explicando e aponta para o repositório. Vazio serve todos.
+
+```bash
+# Com o modo de programador ligado no Discord: clique direito no servidor → Copiar ID.
+DISCORD_ALLOWED_GUILDS=230754607679275010,1436472446168600698
+```
+
+Trocar a lista é editar o arquivo e `just remote-up`; não exige build nem release nova.
+
 ---
 
 ## 7. O que fica pendente, de propósito
 
 - **Sem TLS.** `ws://` e `http://` na porta pública. Para uma primeira versão entre conhecidos
-  passa; para distribuir, um domínio e um certificado entram antes. O [ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)
+  passa; para distribuir, um domínio e um certificado entram antes. O [ADR-0020](adr/0020-transporte-comum-sem-adversario-de-rede.md)
   explica por que TURN/443 deixou de ser caminho primário, e isso não muda essa conclusão.
 - **Sem TURN próprio.** Quem não conseguir UDP cai para ICE/TCP em 7881, que funciona e fica
   ruim — e o painel mostra `tcp` em `Transporte`, então dá para saber que foi isso.

@@ -1,7 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { media } from '../../app/runtime';
 import type { RoomParticipant } from '../../api/types/RoomParticipant';
-import { pictureInPictureSupported } from '../../media/pip';
 import { registerPreviewElement } from '../../media/preview';
 import {
   type QualityChoice,
@@ -37,13 +36,6 @@ interface Props {
  * vezes no caminho, e a tela piscaria entre grade e foco antes de abrir.
  */
 const DOUBLE_CLICK_MS = 220;
-
-/**
- * Se este WebView tem Document Picture-in-Picture (ADR-0033).
- *
- * Lido uma vez: é uma pergunta sobre o WebView, não sobre o estado da sala.
- */
-const detachSupported = pictureInPictureSupported();
 
 /**
  * One screen: someone else's, or — when `identity` is `SELF_ID` — our own
@@ -141,16 +133,12 @@ export function ScreenTile({
   }
 
   // "prévia" e não "sua tela": o preview é um JPEG local com relógio próprio
-  // (ADR-0030), e quem julga a qualidade da transmissão por ele conclui que o
-  // produto está quebrado. Já aconteceu. Na grade ele é deliberadamente uma
-  // miniatura, e o rótulo diz isso e diz o que fazer a respeito; em foco ele é
-  // nítido e o aviso sairia sobrando.
+  // (ADR-0030), não a transmissão — quem julga uma pela outra conclui que o
+  // produto está quebrado. Já aconteceu.
   const name = isSelf
     ? 'Prévia da sua tela'
     : (owner?.user.display_name ?? owner?.user.username ?? 'Alguém');
-  const subtitle = isSelf
-    ? [sharingTitle, focused ? null : 'miniatura'].filter(Boolean).join(' · ')
-    : null;
+  const subtitle = isSelf ? sharingTitle : null;
 
   return (
     <section
@@ -234,6 +222,7 @@ export function ScreenTile({
 
           {isSelf ? (
             <IconButton
+              tipAlign="end"
               icon="eye-off"
               label="Ocultar minha tela"
               onClick={() => {
@@ -263,19 +252,16 @@ export function ScreenTile({
             </Popover>
           )}
 
-          {/* Só aparece onde funciona (ADR-0033). Um botão que responde sempre
-              com "não consegui" é pior do que botão nenhum: ensina que o
-              aplicativo está quebrado, e não que o sistema não tem o recurso. */}
-          {detachSupported && (
-            <IconButton
-              icon="detach"
-              label={detached ? 'Trazer de volta' : 'Destacar em outra janela'}
-              aria-pressed={detached}
-              onClick={onDetach}
-            />
-          )}
+          <IconButton
+            tipAlign="end"
+            icon="detach"
+            label={detached ? 'Trazer de volta' : 'Destacar em outra janela'}
+            aria-pressed={detached}
+            onClick={onDetach}
+          />
 
           <IconButton
+            tipAlign="end"
             icon={focused ? 'grid' : 'fullscreen'}
             label={focused ? 'Voltar para a grade' : 'Focar esta tela'}
             aria-pressed={focused}
@@ -341,6 +327,7 @@ function VolumeControl({ identity, name, volume, silenced }: VolumeProps) {
   return (
     <span className="group/vol flex items-center gap-1 pr-1">
       <IconButton
+        tipAlign="end"
         icon={muted || silenced ? 'volume-off' : 'volume'}
         label={
           silenced

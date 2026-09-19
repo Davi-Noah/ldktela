@@ -12,7 +12,7 @@ Primeira medição real do produto: UDP direto, LAN.
 > Escrito como "o piso, não a condição que o RNF-02 especifica". Deixou de ser
 > piso em 2026-09-14: sem bloqueio de rede na região alvo, o caminho direto **é**
 > o de produção para a maioria dos usuários
-> ([ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)). O relay passa a
+> ([ADR-0020](adr/0020-transporte-comum-sem-adversario-de-rede.md)). O relay passa a
 > valer só para quem está atrás de CGNAT.
 
 ### Arranjo
@@ -189,7 +189,7 @@ no orçamento.
 > estava provada, porque o que decidiria seria a Fase 3, com UDP bloqueado. Essa
 > Fase 3 foi rebaixada: não há bloqueio de rede a mídia em tempo real na região
 > alvo — quem desligou o compartilhamento de tela foi o próprio Discord
-> ([ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)). O caminho direto
+> ([ADR-0020](adr/0020-transporte-comum-sem-adversario-de-rede.md)). O caminho direto
 > medido aqui **é** o caminho de produção para a maioria dos usuários, e estes
 > números passam a valer como aprovação, não como piso.
 
@@ -209,7 +209,7 @@ camada a mais, um buffer maior.
 
 **Não executada, e rebaixada em 2026-09-14.** Deixou de ser o teste que decide o
 produto: não há bloqueio de rede a mídia em tempo real na região alvo
-([ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)).
+([ADR-0020](adr/0020-transporte-comum-sem-adversario-de-rede.md)).
 
 O que resta é a verificação de CGNAT — quem está atrás de NAT restritivo só
 conecta pelo relay — e ela roda junto da fatia S2, quando houver TURN.

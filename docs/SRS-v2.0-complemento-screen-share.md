@@ -36,8 +36,8 @@ O que sobrevive da v1.2, e por quê:
 ### 1.1 Objetivo
 
 Entregar compartilhamento de tela em alta qualidade para comunidades que continuam
-vivendo no Discord, em regiões onde o compartilhamento de tela do Discord é bloqueado por
-lei ou degradado a ponto de inutilidade.
+vivendo no Discord e precisam de compartilhamento de tela em alta qualidade, com infraestrutura
+própria, onde o compartilhamento nativo não está disponível ou não atende.
 
 O produto **não substitui o Discord**. Texto, voz, comunidade, identidade e permissões
 permanecem lá. Nós somos o plano de mídia da tela, e nada além disso.
@@ -61,12 +61,12 @@ Premissa de projeto, não estimativa. Todo dimensionamento em §7 deriva daqui.
 | Publicadores simultâneos por sala | N, com teto configurável (`ROOM_MAX_PUBLISHERS`, padrão 10 desde 2026-09-17; era 2). Cada um multiplica o egress — ver RF-32 |
 | Espectadores simultâneos por sala | Até 10 |
 | Plataforma dos clientes | Windows 10/11 x86_64 (100%) |
-| Rede alvo | Comum. Não há bloqueio regional a mídia em tempo real ([ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)); o caso difícil é CGNAT, como em qualquer produto de WebRTC |
+| Rede alvo | Comum, sem requisitos especiais de transporte ([ADR-0020](adr/0020-transporte-comum-sem-adversario-de-rede.md)); o caso difícil é CGNAT, como em qualquer produto de WebRTC |
 | Hospedagem | Uma instância por comunidade, auto-hospedada |
 
 > A linha "rede alvo" dizia "hostil a mídia em tempo real" e era a origem do RNF-01.
 > Corrigida em 2026-09-14: quem desligou o compartilhamento de tela foi o próprio
-> Discord, não a rede ([ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)).
+> Discord, não a rede ([ADR-0020](adr/0020-transporte-comum-sem-adversario-de-rede.md)).
 
 ### 1.4 Escopo do produto
 
@@ -241,7 +241,7 @@ estabelece e se sustenta por 20 minutos **com todo o UDP de saída bloqueado no 
 via TURN. Verificável com uma regra de firewall local.
 
 > Era o requisito que definia o produto, sob a premissa de um adversário de rede que não
-> existe. Rebaixado em 2026-09-14 ([ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)):
+> existe. Rebaixado em 2026-09-14 ([ADR-0020](adr/0020-transporte-comum-sem-adversario-de-rede.md)):
 > continua sendo critério de aceite de S2, porque quem está atrás de CGNAT só conecta pelo
 > relay, mas não é mais bloqueio de release.
 

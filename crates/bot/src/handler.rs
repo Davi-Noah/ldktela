@@ -35,6 +35,22 @@ impl Handler {
         }
     }
 
+    /// Registers `/tela` in one guild.
+    ///
+    /// Por guild, e nao global, porque comando global leva ate uma hora para
+    /// propagar: o usuario digitaria `/tela` e nao veria nada, sem nenhum sinal
+    /// de que a causa e propagacao. Por guild aparece na hora. `set_commands` e
+    /// idempotente — substitui o conjunto, nao acumula.
+    async fn register_command(&self, ctx: &Context, guild_id: GuildId) {
+        match guild_id
+            .set_commands(&ctx.http, vec![pairing::command()])
+            .await
+        {
+            Ok(_) => tracing::info!(guild = guild_id.get(), "/tela registrado"),
+            Err(error) => tracing::error!(%error, guild = guild_id.get(), "registering /tela"),
+        }
+    }
+
     /// A voice channel changed shape: refresh it and recheck who is inside.
     async fn refresh_channel(&self, guild_id: GuildId, channel: &GuildChannel) {
         if !replica_sync::is_room_channel(channel) {
@@ -210,6 +226,21 @@ impl EventHandler for Handler {
     }
 
     async fn guild_create(&self, ctx: Context, guild: Guild, _is_new: Option<bool>) {
+        // Um guild fora da lista nao entra na replica, e so isso ja o recusa
+        // inteiro: todo mutador da replica ignora guild que nao esta espelhado,
+        // e a autorizacao computa contra ela (ADR-0010, ADR-0035). O `/tela`
+        // ainda e registrado, porque um bot mudo parece quebrado — quem rodar o
+        // comando recebe a explicacao em `pairing`.
+        if !self.state.config.discord.serves(guild.id.get()) {
+            tracing::warn!(
+                guild = guild.id.get(),
+                name = %guild.name,
+                "guild fora de DISCORD_ALLOWED_GUILDS; nao espelhado"
+            );
+            self.register_command(&ctx, guild.id).await;
+            return;
+        }
+
         let data = replica_sync::guild_data(&guild);
         let (members, channels, roles) =
             (data.members.len(), data.channels.len(), data.roles.len());
@@ -242,19 +273,7 @@ impl EventHandler for Handler {
             self.backfill_members(&ctx, guild.id).await;
         }
 
-        // Registro por guild, e nao global, porque comando global leva ate uma
-        // hora para propagar: o usuario digitaria `/tela` e nao veria nada, sem
-        // nenhum sinal de que a causa e propagacao. Por guild aparece na hora.
-        // `set_commands` e idempotente — substitui o conjunto, nao acumula.
-        match guild
-            .id
-            .set_commands(&ctx.http, vec![pairing::command()])
-            .await
-        {
-            Ok(_) => tracing::info!(guild = guild.id.get(), "/tela registrado"),
-            Err(error) => tracing::error!(%error, guild = guild.id.get(), "registering /tela"),
-        }
-
+        self.register_command(&ctx, guild.id).await;
         revoke::sweep_guild(&self.state, guild.id.get()).await;
     }
 
@@ -388,6 +407,17 @@ impl EventHandler for Handler {
     /// The whole zero-click room join (ADR-0011): Discord says where the user
     /// is, and the client follows.
     async fn voice_state_update(&self, _ctx: Context, old: Option<VoiceState>, new: VoiceState) {
+        if let Some(guild) = new.guild_id {
+            self.state
+                .replica
+                .set_voice(
+                    guild.get(),
+                    new.user_id.get(),
+                    new.channel_id.map(|c| c.get()),
+                )
+                .await;
+        }
+
         let before = old
             .as_ref()
             .and_then(|s| replica_sync::voice_channel(s.channel_id));

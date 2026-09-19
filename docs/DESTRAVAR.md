@@ -6,7 +6,7 @@ Guia operacional, em ordem de dependência.
 > entra na sala sozinho, compartilha, e os números da Fase 2 passam em RNF-02,
 > RNF-03, RNF-04 e RNF-05 ([`RESULTS.md`](RESULTS.md)). A Fase 3 **foi rebaixada**
 > e não decide mais nada sobre a existência do produto
-> ([ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)).
+> ([ADR-0020](adr/0020-transporte-comum-sem-adversario-de-rede.md)).
 >
 > O que fazer a seguir está em ["O teste que passou a ser o mais valioso"](#o-teste-que-passou-a-ser-o-mais-valioso).
 > As fases abaixo ficam como referência de instalação e de diagnóstico.
@@ -377,7 +377,7 @@ importa de verdade é o da Fase 3.
 **Deixou de ser o teste que decide o produto.** Em 2026-09-14 a premissa que
 sustentava esse status caiu: não há bloqueio de rede a mídia em tempo real na
 região alvo — quem desligou o compartilhamento de tela foi o próprio Discord, por
-motivos dele ([ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)).
+motivos dele ([ADR-0020](adr/0020-transporte-comum-sem-adversario-de-rede.md)).
 
 O que resta desta fase é a verificação normal de CGNAT: **quem estiver atrás de
 NAT restritivo só conecta pelo relay.** Isso não é sobre a existência do produto,
@@ -386,8 +386,8 @@ TURN.
 
 ### 3.1 Pré-requisito: TURN (fatia S2, escopo reduzido)
 
-Sem IP dedicado e sem disputar a 443 com o Caddy — isso existia para parecer
-HTTPS a um inspetor de tráfego que não existe. Uma VM comum com Caddy, LiveKit e
+Sem IP dedicado e sem disputar a 443 com o Caddy — isso só se justificava pela premissa
+de um adversário de rede, que não existe (ADR-0020). Uma VM comum com Caddy, LiveKit e
 TURN na porta padrão resolve. A 443 continua sendo a porta que mais atravessa
 firewall corporativo; se sair barata, vale.
 

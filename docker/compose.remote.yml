@@ -39,6 +39,8 @@ services:
       # chave de exemplo que esteve publicada no repositorio.
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?defina LIVEKIT_API_KEY em .env.remote}: ${LIVEKIT_API_SECRET:?defina LIVEKIT_API_SECRET em .env.remote}"
       LIVEKIT_WEBHOOK_API_KEY: "${LIVEKIT_API_KEY}"
+      # O IP publico anunciado nos candidatos ICE (ver livekit.remote.yaml).
+      NODE_IP: "${LIVEKIT_NODE_IP:?defina LIVEKIT_NODE_IP em .env.remote}"
     ports:
       - "7880:7880"
       - "7881:7881"

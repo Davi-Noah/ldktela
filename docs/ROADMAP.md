@@ -13,7 +13,7 @@ documentos antigos.
 |---|---|
 | S0 — Medição de viabilidade | **Fase 2 feita e aprovada** (`RESULTS.md`). Fase 3 rebaixada — ver abaixo |
 | S1 — Poda | Feita |
-| S2 — Transporte em produção | Não feita. Escopo reduzido pelo [ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md) |
+| S2 — Transporte em produção | Não feita. Escopo reduzido pelo [ADR-0020](adr/0020-transporte-comum-sem-adversario-de-rede.md) |
 | S3 — Identidade por pareamento | Feita |
 | S4 — Réplica e autorização | Feita, com revogação ao vivo |
 | S5 — Sala atrelada ao canal de voz | Feita |
@@ -28,7 +28,7 @@ documentos antigos.
 A premissa que travava o projeto caiu, e não por medição: **não há bloqueio de
 rede a mídia em tempo real na região alvo.** Quem desligou o compartilhamento de
 tela foi o próprio Discord. O [ADR-0013](adr/0013-turn-tls-443-primario.md) foi
-rebaixado pelo [ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md): o
+rebaixado pelo [ADR-0020](adr/0020-transporte-comum-sem-adversario-de-rede.md): o
 TURN continua no roadmap por CGNAT, que é engenharia comum, e não como condição
 de existência do produto.
 
@@ -85,7 +85,7 @@ Pendente, e agora sem status de portão:
 2. **Caminho relayado**, junto de S2: uma sessão 1080p com o UDP de saída
    bloqueado no cliente, para confirmar que quem está atrás de CGNAT conecta.
    Deixou de decidir se o produto existe
-   ([ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)); decide se uma
+   ([ADR-0020](adr/0020-transporte-comum-sem-adversario-de-rede.md)); decide se uma
    parte dos usuários consegue usar.
 
 ## S1 — Poda do escopo
@@ -105,7 +105,7 @@ existe.
 
 ## S2 — Transporte em produção
 
-Escopo **reduzido** pelo [ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md):
+Escopo **reduzido** pelo [ADR-0020](adr/0020-transporte-comum-sem-adversario-de-rede.md):
 sem IP público dedicado, sem segundo certificado, sem disputar a 443 com o Caddy.
 Uma VM comum com Caddy, LiveKit e TURN na porta padrão resolve o caso do CGNAT,
 que é o que restou de motivo. A 443 continua sendo a porta que mais atravessa

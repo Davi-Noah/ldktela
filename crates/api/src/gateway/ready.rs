@@ -26,19 +26,37 @@ pub async fn build(state: &AppState, user_id: Uuid, session_id: Uuid) -> Ready {
         }
     };
 
+    let discord_user_id = u64::try_from(user.discord_user_id.get()).ok();
     Ready {
         session_id,
         user,
-        room: current_room(state, user_id).await,
+        room: current_room(state, user_id, discord_user_id).await,
         heartbeat_interval_ms: state.hub.config().heartbeat_interval_ms,
     }
 }
 
-async fn current_room(state: &AppState, user_id: Uuid) -> Option<protocol::room::RoomState> {
-    let channel = db::repo::presence::channel_of(&state.pool, user_id)
-        .await
-        .ok()
-        .flatten()?;
+/// The room the client should be in the moment it connects.
+///
+/// The Discord voice channel comes first. Presence alone is not enough: it is
+/// written only once the client joins the LiveKit room, so someone who was
+/// already in the call before opening the app had no presence, got an empty
+/// READY, and stayed out until they left the call and came back (issue #1).
+async fn current_room(
+    state: &AppState,
+    user_id: Uuid,
+    discord_user_id: Option<u64>,
+) -> Option<protocol::room::RoomState> {
+    let in_voice = match discord_user_id {
+        Some(discord) => voice_room(state, discord).await,
+        None => None,
+    };
+    let channel = match in_voice {
+        Some(channel) => channel,
+        None => db::repo::presence::channel_of(&state.pool, user_id)
+            .await
+            .ok()
+            .flatten()?,
+    };
     let (guild, name) = state
         .replica
         .channel_info(u64::try_from(channel).ok()?)
@@ -51,6 +69,23 @@ async fn current_room(state: &AppState, user_id: Uuid) -> Option<protocol::room:
     )
     .await
     .ok()
+}
+
+/// The voice channel the user is in, if they may also enter its room.
+///
+/// The same check `announce_room` makes on a transition: being in the call is
+/// not enough, the replica has to say they can join the room (ADR-0010).
+async fn voice_room(state: &AppState, discord_user_id: u64) -> Option<i64> {
+    let channel = state.replica.voice_channel_of(discord_user_id).await?;
+    let allowed = state
+        .replica
+        .permissions(discord_user_id, channel)
+        .await
+        .is_some_and(|p| p.can_join_room());
+    if !allowed {
+        return None;
+    }
+    i64::try_from(channel).ok()
 }
 
 /// Only reachable from the error branch above, where the alternative is to drop
