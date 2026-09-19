@@ -12,6 +12,9 @@ use uuid::Uuid;
 
 pub const COMMAND_NAME: &str = "tela";
 
+/// Para onde mandar quem quer hospedar a própria instância.
+const REPOSITORY: &str = "https://github.com/gbrlevi/ldktela";
+
 pub fn command() -> CreateCommand {
     CreateCommand::new(COMMAND_NAME)
         .description("Gera um código para conectar o aplicativo de compartilhamento de tela")
@@ -46,6 +49,17 @@ async fn build_reply(state: &AppState, command: &CommandInteraction) -> anyhow::
             "Rode este comando dentro do servidor cujo compartilhamento você quer usar.".to_owned(),
         );
     };
+
+    // A instancia hospedada serve os guilds que ela nomeia (ADR-0035). Recusar
+    // aqui, com o motivo e a saida, e o que separa "nao e para voce" de "esta
+    // quebrado" — o guild nem chegou a ser espelhado, entao tudo depois disto
+    // falharia fechado sem explicar nada.
+    if !state.config.discord.serves(guild_id.get()) {
+        return Ok(format!(
+            "Este servidor não está autorizado a usar esta instância do ldktela.
+             O ldktela é software livre: para usar no seu servidor, hospede a sua própria a              partir de {REPOSITORY}."
+        ));
+    }
 
     let discord_user_id = i64::try_from(command.user.id.get())?;
     let discord_guild_id = i64::try_from(guild_id.get())?;

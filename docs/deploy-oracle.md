@@ -211,6 +211,23 @@ código 0**.
 A chave privada foi gerada com `npm run tauri signer generate` e só deve existir na sua máquina
 e nesses dois segredos. A pública já está versionada, que é o lugar dela.
 
+**Quem esta instância serve precisa estar decidido**, porque o instalador é público e aponta
+para ela ([ADR-0035](adr/0035-a-instancia-serve-servidores-nomeados.md)). Duas camadas:
+
+1. No Developer Portal do Discord, **desligue o *Public Bot*** (Bot → Public Bot). Sem isso,
+   qualquer pessoa com permissão de gerenciar um servidor adiciona o seu bot ao dela e passa a
+   usar a sua banda.
+2. No `.env.remote`, liste os IDs em `DISCORD_ALLOWED_GUILDS`, separados por vírgula. Servidor
+   fora da lista não é espelhado, e tudo depois disso recusa sozinho; o `/tela` de lá responde
+   explicando e aponta para o repositório. Vazio serve todos.
+
+```bash
+# Com o modo de programador ligado no Discord: clique direito no servidor → Copiar ID.
+DISCORD_ALLOWED_GUILDS=230754607679275010,1436472446168600698
+```
+
+Trocar a lista é editar o arquivo e `just remote-up`; não exige build nem release nova.
+
 ---
 
 ## 7. O que fica pendente, de propósito

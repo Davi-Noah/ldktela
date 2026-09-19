@@ -606,3 +606,9 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   `can_join_room` da transição — antes de cair na presença.
 
 - **LiveKit remoto com `node_ip` fixo (2026-09-19).** `use_external_ip: true` fazia o LiveKit descobrir o IP público por STUN ao iniciar; num redeploy o container não resolveu `stun1.l.google.com` (resolv.conf com o `127.0.0.53` do host) e ficou em loop de reinício. O IP da VM é fixo, então é informado (hoje por `LIVEKIT_NODE_IP` no `.env.remote`), e subir não depende mais de DNS nem de terceiro.
+
+- **[Lançamento] A instância hospedada serve os servidores que ela nomeia (2026-09-19).** O
+  repositório é público e o instalador da release aponta para a VM de quem mantém o projeto, que
+  paga a banda de quem serve. `DISCORD_ALLOWED_GUILDS` nomeia os servidores; o filtro fica na
+  entrada da réplica, então tudo depois dele recusa sozinho. Ver
+  [ADR-0035](adr/0035-a-instancia-serve-servidores-nomeados.md).

@@ -86,3 +86,4 @@ certas.
 | [0032](0032-a-escada-do-vp9-e-temporal.md) | A escada do VP9 é temporal (`L1T3`), não espacial | Aceito |
 | [0033](0033-o-pip-do-webview-sai.md) | O Picture-in-Picture do WebView sai; destacar é tudo ou nada | Aceito; gate substituído pelo 0034 |
 | [0034](0034-destacar-e-um-popup-do-mesmo-documento.md) | Destacar tela é um popup do mesmo documento, não Document PiP | Aceito |
+| [0035](0035-a-instancia-serve-servidores-nomeados.md) | A instância hospedada serve os servidores que ela nomeia | Aceito |
