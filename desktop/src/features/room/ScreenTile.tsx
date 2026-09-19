@@ -222,6 +222,7 @@ export function ScreenTile({
 
           {isSelf ? (
             <IconButton
+              tipAlign="end"
               icon="eye-off"
               label="Ocultar minha tela"
               onClick={() => {
@@ -252,6 +253,7 @@ export function ScreenTile({
           )}
 
           <IconButton
+            tipAlign="end"
             icon="detach"
             label={detached ? 'Trazer de volta' : 'Destacar em outra janela'}
             aria-pressed={detached}
@@ -259,6 +261,7 @@ export function ScreenTile({
           />
 
           <IconButton
+            tipAlign="end"
             icon={focused ? 'grid' : 'fullscreen'}
             label={focused ? 'Voltar para a grade' : 'Focar esta tela'}
             aria-pressed={focused}
@@ -324,6 +327,7 @@ function VolumeControl({ identity, name, volume, silenced }: VolumeProps) {
   return (
     <span className="group/vol flex items-center gap-1 pr-1">
       <IconButton
+        tipAlign="end"
         icon={muted || silenced ? 'volume-off' : 'volume'}
         label={
           silenced

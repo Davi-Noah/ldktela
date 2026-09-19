@@ -69,7 +69,11 @@ export function Popover({ icon, label, children, align = 'right' }: PopoverProps
         <div
           id={id}
           role="menu"
-          className={`absolute bottom-full z-50 mb-2 min-w-44 rounded-panel border border-border bg-surface-1 p-1 ${
+          // `w-max`: um bloco `absolute` dentro de um âncora de 34 px calcula a
+          // própria largura a partir desses 34 px, trava no `min-w-44`, e o
+          // rótulo — que é o que trunca — perde para a dica ao lado: o menu de
+          // qualidade mostrava "A…" no lugar de "Automático" (issue #4).
+          className={`absolute bottom-full z-50 mb-2 w-max min-w-44 rounded-panel border border-border bg-surface-1 p-1 ${
             align === 'right' ? 'right-0' : 'left-0'
           }`}
         >
