@@ -20,7 +20,7 @@ use time::OffsetDateTime;
 use tokio::sync::broadcast::error::RecvError;
 
 /// Discord caps a nickname at 32 characters, prefix included.
-const PREFIX: &str = "[LIVE] ";
+const PREFIX: &str = "[🔴LIVE] ";
 const NICK_LIMIT: usize = 32;
 
 /// How long snapshots pile up before one edit goes out.
