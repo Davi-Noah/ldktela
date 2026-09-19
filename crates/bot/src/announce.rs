@@ -21,6 +21,11 @@ use tokio::sync::broadcast::error::RecvError;
 
 /// Discord caps a nickname at 32 characters, prefix included.
 const PREFIX: &str = "[🔴LIVE] ";
+/// The prefix before the emoji. A nickname still carrying it is already tagged;
+/// tagging it again would read "[🔴LIVE] [LIVE] ...".
+const LEGACY_PREFIX: &str = "[LIVE] ";
+/// Counted in UTF-16 units, the way Discord's client counts: an emoji outside
+/// the BMP, like the one in the prefix, is two of them.
 const NICK_LIMIT: usize = 32;
 
 /// How long snapshots pile up before one edit goes out.
@@ -67,13 +72,24 @@ pub fn may_rename(
 /// would also poison the saved nickname on the second pass.
 pub fn tagged_nickname(current: Option<&str>, username: &str) -> Option<String> {
     let base = current.unwrap_or(username);
-    if base.starts_with(PREFIX) {
+    if base.starts_with(PREFIX) || base.starts_with(LEGACY_PREFIX) {
         return None;
     }
-    let room = NICK_LIMIT - PREFIX.len();
-    // Corta por caractere, nao por byte: cortar UTF-8 no meio produz um apelido
-    // que o Discord recusa, e a maioria dos apelidos daqui tem acento.
-    let trimmed: String = base.chars().take(room).collect();
+    // Orcado em unidades UTF-16, e nao em bytes: `PREFIX.len()` sao bytes, e
+    // com o emoji o prefixo tem 11 bytes para 8 caracteres — os apelidos
+    // passaram a ser cortados tres caracteres antes da hora. UTF-16 e o que o
+    // cliente do Discord conta, e e o unico corte que nunca estoura o limite.
+    let room = NICK_LIMIT - PREFIX.encode_utf16().count();
+    // Corta por caractere inteiro: cortar no meio produz um apelido que o
+    // Discord recusa, e a maioria dos apelidos daqui tem acento.
+    let mut used = 0;
+    let trimmed: String = base
+        .chars()
+        .take_while(|c| {
+            used += c.len_utf16();
+            used <= room
+        })
+        .collect();
     Some(format!("{PREFIX}{trimmed}"))
 }
 
@@ -392,6 +408,14 @@ mod tests {
     fn tagging_twice_does_not_stack_the_prefix() {
         // Guarda 4 do ADR-0024. Sem isto o apelido viraria "[LIVE] [LIVE] ..."
         // e o apelido salvo na segunda vez ja viria marcado.
+        let tagged = format!("{PREFIX}Gabriel");
+        assert_eq!(tagged_nickname(Some(&tagged), "gabriel.2352"), None);
+    }
+
+    /// Quem ficou marcado pela versao anterior, sem o emoji, nao pode ganhar o
+    /// prefixo novo por cima do velho.
+    #[test]
+    fn the_prefix_without_the_emoji_still_counts_as_tagged() {
         assert_eq!(
             tagged_nickname(Some("[LIVE] Gabriel"), "gabriel.2352"),
             None
@@ -401,8 +425,8 @@ mod tests {
     #[test]
     fn someone_without_a_nickname_is_tagged_over_their_username() {
         assert_eq!(
-            tagged_nickname(None, "gabriel.2352").as_deref(),
-            Some("[LIVE] gabriel.2352")
+            tagged_nickname(None, "gabriel.2352"),
+            Some(format!("{PREFIX}gabriel.2352"))
         );
     }
 
@@ -410,7 +434,7 @@ mod tests {
     fn a_long_nickname_is_cut_to_fit_the_prefix() {
         let long = "a".repeat(40);
         let tagged = tagged_nickname(Some(&long), "x").expect("marcado");
-        assert_eq!(tagged.chars().count(), NICK_LIMIT);
+        assert_eq!(tagged.encode_utf16().count(), NICK_LIMIT);
         assert!(tagged.starts_with(PREFIX));
     }
 
@@ -420,8 +444,17 @@ mod tests {
         // com acento e a regra por aqui, nao a excecao.
         let long = "ãé".repeat(30);
         let tagged = tagged_nickname(Some(&long), "x").expect("marcado");
-        assert_eq!(tagged.chars().count(), NICK_LIMIT);
+        assert_eq!(tagged.encode_utf16().count(), NICK_LIMIT);
         assert!(tagged.is_char_boundary(tagged.len()));
+    }
+
+    /// Um emoji no apelido vale duas unidades, como o do prefixo. Cortar pela
+    /// contagem de caracteres deixaria este apelido um acima do limite.
+    #[test]
+    fn an_emoji_in_the_nickname_is_budgeted_as_two() {
+        let long = "🎮".repeat(20);
+        let tagged = tagged_nickname(Some(&long), "x").expect("marcado");
+        assert!(tagged.encode_utf16().count() <= NICK_LIMIT, "{tagged}");
     }
 
     fn snapshot(publishers: Vec<i64>, viewers: usize) -> RoomBroadcast {
