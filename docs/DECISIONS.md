@@ -597,3 +597,5 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   precisava sair e voltar. Agora o `GUILD_CREATE` traz o retrato de `voice_states`, cada
   `VOICE_STATE_UPDATE` o mantém, e o READY usa o canal de voz — com a mesma checagem de
   `can_join_room` da transição — antes de cair na presença.
+
+- **LiveKit remoto com `node_ip` fixo (2026-09-19).** `use_external_ip: true` fazia o LiveKit descobrir o IP público por STUN ao iniciar; num redeploy o container não resolveu `stun1.l.google.com` (resolv.conf com o `127.0.0.53` do host) e ficou em loop de reinício. O IP da VM é fixo, então vai escrito em `docker/livekit.remote.yaml`, e subir não depende mais de DNS nem de terceiro.

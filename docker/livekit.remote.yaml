@@ -26,9 +26,13 @@ rtc:
   # Verificado com `livekit-server ports`: rtc.portUDP {Start: 7882, End: 0}.
   udp_port: 7882
 
-  # NAT 1:1 da nuvem: o LiveKit descobre o IP publico da VM por STUN e o anuncia
-  # nos candidatos ICE, em vez do 172.x do container, que ninguem alcanca.
-  use_external_ip: true
+  # NAT 1:1 da nuvem: o IP publico da VM e anunciado nos candidatos ICE, em vez
+  # do 172.x do container, que ninguem alcanca. Fixo, e nao descoberto por STUN:
+  # a descoberta resolve stun1.l.google.com no boot, e o container recebeu um
+  # resolv.conf apontando para o 127.0.0.53 do host — o LiveKit entrou em loop de
+  # reinicio. Trocar o IP da VM exige trocar esta linha.
+  node_ip: 147.15.46.120
+  use_external_ip: false
 
 # RNF-10: o ciclo de vida da sala e do LiveKit, nao de um varredor no backend.
 room:
