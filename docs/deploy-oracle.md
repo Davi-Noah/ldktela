@@ -233,7 +233,7 @@ Trocar a lista é editar o arquivo e `just remote-up`; não exige build nem rele
 ## 7. O que fica pendente, de propósito
 
 - **Sem TLS.** `ws://` e `http://` na porta pública. Para uma primeira versão entre conhecidos
-  passa; para distribuir, um domínio e um certificado entram antes. O [ADR-0020](adr/0020-o-bloqueio-e-do-discord-nao-da-rede.md)
+  passa; para distribuir, um domínio e um certificado entram antes. O [ADR-0020](adr/0020-transporte-comum-sem-adversario-de-rede.md)
   explica por que TURN/443 deixou de ser caminho primário, e isso não muda essa conclusão.
 - **Sem TURN próprio.** Quem não conseguir UDP cai para ICE/TCP em 7881, que funciona e fica
   ruim — e o painel mostra `tcp` em `Transporte`, então dá para saber que foi isso.

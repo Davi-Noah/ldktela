@@ -4,7 +4,7 @@ Instruções de trabalho para este repositório. Leia por inteiro antes da prime
 
 ## 1. O que é este projeto
 
-**Complemento ao Discord para compartilhamento de tela**, desktop (Windows). Voltado a comunidades que continuam vivendo no Discord, em regiões onde o compartilhamento de tela do Discord é bloqueado por lei ou degradado a ponto de inutilidade.
+**Complemento ao Discord para compartilhamento de tela**, desktop (Windows). Voltado a comunidades que continuam vivendo no Discord e precisam de compartilhamento de tela em alta qualidade, com infraestrutura própria.
 
 O Discord continua sendo a camada social: identidade, texto, voz, comunidade, permissões. Nós somos o plano de mídia da tela, e nada além disso.
 

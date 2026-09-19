@@ -39,16 +39,15 @@ do produto; é um produto inviável.
 O `getDisplayMedia` dentro do iframe é discussão que nem chega a acontecer: sem transporte
 de mídia, não importa se a captura é possível.
 
-### 2. Bloqueio estratégico: o lugar errado para estar
+### 2. Dependência estratégica: o lugar errado para estar
 
 Este motivo é independente do primeiro e sobrevive a ele. Se o Discord habilitar WebRTC em
 Activities amanhã, a resposta continua não.
 
-O produto existe porque o compartilhamento de tela do Discord está bloqueado por lei na
-região alvo. Uma Activity roda dentro do cliente do Discord, é distribuída pelo Discord,
-passa por revisão do Discord e pode ser removida pelo Discord. Seria pedir à plataforma
-que hospede a contorna de uma restrição legal que a própria plataforma está cumprindo.
-Isso é reprovação na revisão no melhor caso, e um único ponto de remoção no pior.
+Uma Activity roda dentro do cliente do Discord, é distribuída pelo Discord, passa por
+revisão do Discord e pode ser removida pelo Discord. Seria construir o produto inteiro
+sobre um recurso que a plataforma controla e que ela pode recusar ou retirar a qualquer
+momento: reprovação na revisão no melhor caso, e um único ponto de remoção no pior.
 
 O [ADR-0008](0008-complemento-ao-discord.md) escolheu deliberadamente o oposto: cada
 comunidade hospeda a própria instância, sem ponto central de controle. Virar Activity

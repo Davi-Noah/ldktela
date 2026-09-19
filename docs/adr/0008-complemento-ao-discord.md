@@ -13,8 +13,8 @@ histórico e ponte bidirecional permanente.
 Duas constatações mudaram a direção.
 
 A primeira é de produto: o problema real que motiva o projeto não é "queremos sair do
-Discord", é **compartilhamento de tela indisponível** — em regiões onde o screen share do
-Discord é bloqueado por lei ou degradado a ponto de inutilidade. Todo o resto do Discord
+Discord", é **compartilhamento de tela que não atende** — indisponível ou degradado a
+ponto de inutilidade para a comunidade. Todo o resto do Discord
 continua funcionando e continua sendo onde a comunidade vive. Reconstruir chat, busca e
 DMs é reconstruir o que não está quebrado.
 

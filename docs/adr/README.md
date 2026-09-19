@@ -71,7 +71,7 @@ certas.
 | [0017](0017-nao-usar-discord-activity.md) | O produto não é uma Discord Activity | Aceito |
 | [0018](0018-construir-antes-de-medir.md) | Construir S1 e S3–S6 antes de medir S0 | Aceito, dívida quitada em parte |
 | [0019](0019-versoes-do-livekit-sao-um-par.md) | Cliente e servidor do LiveKit são um par fixado | Aceito |
-| [0020](0020-o-bloqueio-e-do-discord-nao-da-rede.md) | O bloqueio é do Discord, não da rede | Aceito |
+| [0020](0020-transporte-comum-sem-adversario-de-rede.md) | O transporte é comum: não há adversário de rede | Aceito |
 | [0021](0021-seletor-de-tela-e-o-do-chromium.md) | O seletor de tela é o do Chromium, até depois do S9 | Substituído pelo 0026 |
 | [0022](0022-destacar-tela-usa-document-pip.md) | Destacar uma tela usa Document Picture-in-Picture | Aceito |
 | [0023](0023-quem-publica-escolhe-resolucao-e-fps.md) | Quem publica escolhe resolução e fps | Aceito |

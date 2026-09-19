@@ -612,3 +612,10 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   paga a banda de quem serve. `DISCORD_ALLOWED_GUILDS` nomeia os servidores; o filtro fica na
   entrada da réplica, então tudo depois dele recusa sozinho. Ver
   [ADR-0035](adr/0035-a-instancia-serve-servidores-nomeados.md).
+
+- **[Lançamento] Reescrita da moldura regional dos documentos (2026-09-19).** Antes de o repositório
+  se tornar público, saiu dos documentos a discussão sobre o ambiente regional de uso: o ADR-0020
+  foi renomeado (`transporte-comum-sem-adversario-de-rede`) e o 0013, o 0008, o 0017, o SRS e o
+  `DESTRAVAR.md` foram ajustados. As decisões, os números e o raciocínio técnico não mudaram — só
+  o que descrevia *onde* o produto é usado, que não é decisão de arquitetura. Os textos anteriores
+  estão no histórico do git; 0013 e 0020 carregam uma nota de revisão.
