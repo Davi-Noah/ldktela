@@ -42,6 +42,45 @@ mesmo cenário sustenta 1080p a ~59,5 fps. O raciocínio e os números estão no
 
 ---
 
+## O aplicativo em uso
+
+O cliente passa a maior parte do tempo na bandeja; a janela existe para parear, escolher o que
+transmitir e assistir. O vídeo ocupa a tela e o restante da interface sai da frente. O fluxo
+completo, do primeiro uso à transmissão:
+
+**1. Pareamento.** No primeiro uso não há login: a pessoa roda `/tela` no Discord, recebe do
+bot um código de 8 caracteres (válido por 5 minutos, uso único) e o digita no aplicativo. O
+mecanismo está descrito em [Pareamento por código efêmero](#pareamento-por-código-efêmero).
+
+![Tela de pareamento com o campo do código de 8 caracteres](images/Screenshot_1.png)
+
+**2. Sala.** Depois de pareado, o aplicativo mostra a sala de voz do Discord em que a pessoa já
+está e quem mais está nela.
+
+![Sala de voz com os participantes e o botão de compartilhar tela](images/Screenshot_2.png)
+
+**3. Assistindo.** Quando alguém transmite, o vídeo passa a ocupar a janela, com o mínimo de
+cromo por cima. Os controles somem sozinhos e reaparecem ao mover o mouse.
+
+![Espectador assistindo a uma tela compartilhada](images/Screenshot_3.png)
+
+**4. Seleção de fonte e qualidade.** As telas e janelas são enumeradas pelo core nativo, com
+miniatura de cada uma. O publicador escolhe a resolução e a taxa de quadros (1080p60, 1080p30,
+720p60 ou 720p30) e, opcionalmente, inclui o áudio do computador, capturado por processo, com o
+Discord excluído.
+
+![Diálogo de seleção de tela ou janela, qualidade e áudio](images/Screenshot_4.png)
+
+**5. Transmitindo.** Quem publica vê o estado da transmissão (resolução, taxa de quadros,
+bitrate e número de espectadores) e o *preview* local da própria tela, gerado a partir do buffer
+de captura, sem passar pelo SFU.
+A tela de outro participante continua sendo assistida ao lado; a sala comporta várias
+transmissões simultâneas.
+
+![Transmissão no ar com preview local da própria tela ao lado da tela de outro participante](images/Screenshot_5.png)
+
+---
+
 ## Arquitetura do sistema
 
 ```mermaid
