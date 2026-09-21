@@ -7,6 +7,7 @@ import { Avatar } from '../../ui/Avatar';
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
 import { PublisherPanel } from './PublisherPanel';
+import { WatchButton } from './WatchButton';
 
 interface RoomBodyProps {
   onShare: () => void;
@@ -73,33 +74,32 @@ function InRoom({ onShare, onStop }: RoomBodyProps) {
           return (
             <li key={id} className="flex items-center gap-2">
               <Avatar url={participant.user.avatar_url} name={participant.user.username} />
-              <span className="min-w-0 flex-1 truncate text-text">
+              <span className="min-w-0 truncate text-text">
                 {participant.user.display_name ?? participant.user.username}
               </span>
               {participant.publishing && (
-                <>
-                  <span className="flex shrink-0 items-center gap-1 rounded-pill bg-danger-soft px-1.5 text-xs font-medium text-danger">
-                    <Icon name="dot" size={10} />
-                    AO VIVO
-                  </span>
-                  {/* Saindo de todas as telas, a sala volta a esta lista — que
-                      passa a ser o único caminho de volta (ADR-0036). O botão
-                      fica em todas as transmissões, e não só nas recusadas:
-                      quem chega aqui com tudo no ar quer poder escolher uma. */}
-                  {screens[id]?.subscribed === false ? (
-                    <Button
-                      icon="eye"
-                      className="ml-auto shrink-0 py-0.5"
-                      onClick={() => {
-                        media.setScreenSubscribed(id, true);
-                      }}
-                    >
-                      Entrar
-                    </Button>
-                  ) : (
-                    <span className="ml-auto shrink-0 text-text-faint">assistindo</span>
-                  )}
-                </>
+                // A etiqueta acompanha o nome, e não o botão: ela diz o que a
+                // pessoa está fazendo, e o botão é o que se pode fazer com isso.
+                // Lado a lado à direita, as duas coisas competiam.
+                <span className="flex shrink-0 items-center gap-1 rounded-pill bg-danger-soft px-1.5 py-px text-[0.6875rem] font-semibold tracking-wide text-danger">
+                  <Icon name="dot" size={8} />
+                  AO VIVO
+                </span>
+              )}
+              {/* Saindo de todas as telas, a sala volta a esta lista — que passa a
+                  ser o único caminho de volta (ADR-0036). Só aparece onde há uma
+                  tela a que se possa entrar: quem transmite mas cuja trilha ainda
+                  não chegou não tem o que oferecer. */}
+              {participant.publishing && screens[id] !== undefined && (
+                <span className="ml-auto">
+                  <WatchButton
+                    size="md"
+                    watching={screens[id].subscribed}
+                    onClick={() => {
+                      media.setScreenSubscribed(id, !screens[id]?.subscribed);
+                    }}
+                  />
+                </span>
               )}
             </li>
           );

@@ -17,6 +17,7 @@ import { Icon } from '../../ui/Icon';
 import { IconButton } from '../../ui/IconButton';
 import { MenuItem, MenuLabel, Popover } from '../../ui/Popover';
 import { kbps } from './format';
+import { WatchButton } from './WatchButton';
 
 interface RoomChromeProps {
   onShare: () => void;
@@ -308,20 +309,29 @@ function People() {
                     {nameOf(participants, id)}
                     {id === me && <span className="text-text-faint"> · você</span>}
                   </span>
-                  {participant.publishing && (
+                  {participant.publishing &&
                     // Botão com texto, e não com dica: a dica de um botão de
                     // ícone é um bloco posicionado, e dentro desta lista, que
                     // rola, ela empurrava a largura do menu e ganhava uma barra
                     // de rolagem horizontal — foi assim que o menu apareceu
                     // torto e cortando o conteúdo.
-                    <WatchButton
-                      watching={screens[id]?.subscribed !== false}
-                      known={screens[id] !== undefined}
-                      onClick={() => {
-                        media.setScreenSubscribed(id, screens[id]?.subscribed === false);
-                      }}
-                    />
-                  )}
+                    // `known` separa "está transmitindo e eu recebo" de "está
+                    // transmitindo e a trilha ainda não chegou": no segundo caso
+                    // não há do que sair, e um botão ali prometeria uma ação que
+                    // não acontece.
+                    (screens[id] === undefined ? (
+                      <span className="flex shrink-0 items-center gap-1 text-danger">
+                        <Icon name="dot" size={10} />
+                        no ar
+                      </span>
+                    ) : (
+                      <WatchButton
+                        watching={screens[id].subscribed}
+                        onClick={() => {
+                          media.setScreenSubscribed(id, !screens[id]?.subscribed);
+                        }}
+                      />
+                    ))}
                 </li>
               );
             })}
@@ -364,42 +374,4 @@ function People() {
 function nameOf(participants: Record<string, RoomParticipant>, id: string): string {
   const user = participants[id]?.user;
   return user?.display_name ?? user?.username ?? 'Alguém';
-}
-
-/**
- * Entrar ou sair da tela de alguém, do tamanho de um item de lista.
- *
- * `known` separa "está transmitindo e eu recebo" de "está transmitindo e a
- * trilha ainda não chegou": no segundo caso não há do que sair, e um botão ali
- * prometeria uma ação que não acontece.
- */
-function WatchButton({
-  watching,
-  known,
-  onClick,
-}: {
-  watching: boolean;
-  known: boolean;
-  onClick: () => void;
-}) {
-  if (watching && !known) {
-    return (
-      <span className="flex shrink-0 items-center gap-1 text-danger">
-        <Icon name="dot" size={10} />
-        no ar
-      </span>
-    );
-  }
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex shrink-0 items-center gap-1 rounded-pill px-2 py-0.5 text-xs ${
-        watching ? 'text-text-muted hover:text-text' : 'bg-accent-soft text-text'
-      }`}
-    >
-      <Icon name={watching ? 'eye-off' : 'eye'} size={14} />
-      {watching ? 'Sair' : 'Entrar'}
-    </button>
-  );
 }
