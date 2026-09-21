@@ -92,6 +92,15 @@ interface MediaState {
    */
   audioMode: AudioMode | null;
   publishPreset: PublishPreset;
+  /**
+   * Whether the next share goes out with the computer's sound.
+   *
+   * Ligado por padrão: compartilhar tela sem som surpreende — quem assiste
+   * avisa que não há áudio, e quem transmite não sabe onde procurar. Mora aqui,
+   * e não no seletor, para que desligar dure a sessão inteira: religar sozinho
+   * mandaria áudio que a pessoa já tinha decidido não mandar.
+   */
+  shareAudio: boolean;
   /** Screens being received, by publisher identity (RF-31). */
   screens: Record<string, ScreenState>;
   /** Arrival order, so the grid does not reshuffle on every render. */
@@ -115,6 +124,7 @@ interface MediaStore extends MediaState {
   ) => void;
   setStarting: (starting: boolean) => void;
   setPublishPreset: (preset: PublishPreset) => void;
+  setShareAudio: (shareAudio: boolean) => void;
   addScreen: (identity: string, kind: 'video' | 'audio') => void;
   removeScreen: (identity: string, kind: 'video' | 'audio') => void;
   setVolume: (identity: string, volume: number) => void;
@@ -135,6 +145,7 @@ const INITIAL: MediaState = {
   sharingAudio: false,
   audioMode: null,
   publishPreset: '1080p60',
+  shareAudio: true,
   screens: {},
   screenOrder: [],
   focused: null,
@@ -242,6 +253,10 @@ export const useMediaStore = create<MediaStore>()((set) => ({
   setStarting: (starting) => {
     set({ starting });
   },
+  setShareAudio: (shareAudio) => {
+    set({ shareAudio });
+  },
+
   setPublishPreset: (publishPreset) => {
     set({ publishPreset });
   },

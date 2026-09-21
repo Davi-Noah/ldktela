@@ -38,7 +38,11 @@ export function SharePicker({ loadSources, loadThumbnail, onCancel, onConfirm }:
   const [status, setStatus] = useState<Loading>({ state: 'loading' });
   const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState<SourceKind>('screen');
-  const [audio, setAudio] = useState(false);
+  // Com uma transmissão no ar, este diálogo troca a fonte em vez de começar uma
+  // (issue #9). O rótulo precisa dizer isso: "Compartilhar" com algo já no ar
+  // sugere uma segunda transmissão, que não é o que acontece.
+  const publishing = useMediaStore((state) => state.publishing);
+  const [audio, setAudio] = useState(useMediaStore.getState().shareAudio);
   const [preset, setPreset] = useState<PublishPreset>(useMediaStore.getState().publishPreset);
   const [nonce, setNonce] = useState(0);
 
@@ -78,20 +82,21 @@ export function SharePicker({ loadSources, loadThumbnail, onCancel, onConfirm }:
 
   const confirm = useCallback(() => {
     if (chosen !== null) {
+      useMediaStore.getState().setShareAudio(audio);
       onConfirm({ sourceId: chosen.id, kind: chosen.kind, audio, title: chosen.title }, preset);
     }
   }, [chosen, audio, preset, onConfirm]);
 
   return (
     <Dialog
-      title="Compartilhar tela"
+      title={publishing ? 'Trocar o que você envia' : 'Compartilhar tela'}
       onClose={onCancel}
       footer={
         <div className="flex items-center justify-between gap-3">
           <div className="flex gap-2">
             <Button onClick={onCancel}>Cancelar</Button>
             <Button variant="primary" disabled={chosen === null} onClick={confirm}>
-              Compartilhar
+              {publishing ? 'Trocar' : 'Compartilhar'}
             </Button>
           </div>
         </div>

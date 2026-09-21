@@ -224,3 +224,16 @@ describe('o motivo pelo qual a conexão de mídia desistiu', () => {
     expect(useMediaStore.getState().fault).toBeNull();
   });
 });
+
+describe('o som do computador (issue #8)', () => {
+  it('vem ligado, porque é o que o usuário espera de compartilhar tela', () => {
+    expect(fresh().shareAudio).toBe(true);
+  });
+
+  it('lembra que foi desligado, para não voltar sozinho na próxima transmissão', () => {
+    // Religar sozinho é pior do que começar desligado: quem tirou o áudio tinha
+    // um motivo, e descobriria pelo amigo do outro lado que ele voltou.
+    useMediaStore.getState().setShareAudio(false);
+    expect(useMediaStore.getState().shareAudio).toBe(false);
+  });
+});
