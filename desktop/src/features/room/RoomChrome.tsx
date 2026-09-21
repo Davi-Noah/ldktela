@@ -1,6 +1,13 @@
 import type { RoomParticipant } from '../../api/types/RoomParticipant';
 import { media } from '../../app/runtime';
-import { ownerOf, PUBLISH_PRESETS, SELF_ID, useMediaStore, visibleTiles } from '../../store/media';
+import {
+  leftScreenIds,
+  ownerOf,
+  PUBLISH_PRESETS,
+  SELF_ID,
+  useMediaStore,
+  visibleTiles,
+} from '../../store/media';
 import { useRoomStore } from '../../store/room';
 import { useSessionStore } from '../../store/session';
 import { useUiStore } from '../../store/ui';
@@ -39,6 +46,8 @@ export function RoomChrome({ onShare, onStop, onToggleFullscreen, fullscreen }: 
   const starting = useMediaStore((state) => state.starting);
   const connection = useMediaStore((state) => state.connection);
   const screenOrder = useMediaStore((state) => state.screenOrder);
+  const screens = useMediaStore((state) => state.screens);
+  const solo = useMediaStore((state) => state.solo);
   const viewers = useMediaStore((state) => state.viewerIds.length);
   const stats = useMediaStore((state) => state.stats);
   const preset = useMediaStore((state) => state.publishPreset);
@@ -47,7 +56,8 @@ export function RoomChrome({ onShare, onStop, onToggleFullscreen, fullscreen }: 
   const showSelfPreview = useUiStore((state) => state.showSelfPreview);
   const setShowSelfPreview = useUiStore((state) => state.setShowSelfPreview);
 
-  const tiles = visibleTiles(screenOrder, publishing, showSelfPreview);
+  const tiles = visibleTiles(screenOrder, screens, publishing, showSelfPreview);
+  const left = leftScreenIds({ screenOrder, screens });
 
   return (
     <>
@@ -56,6 +66,10 @@ export function RoomChrome({ onShare, onStop, onToggleFullscreen, fullscreen }: 
           <span className="truncate font-medium text-text">{channelName ?? 'Canal de voz'}</span>
           <span className="shrink-0 text-text-muted">
             {tiles.length === 1 ? '1 tela' : `${tiles.length} telas`}
+            {/* Sair de uma tela tira o ladrilho do layout (ADR-0036). Sem esta
+                contagem, a transmissão de alguém simplesmente não estaria lá, e
+                procurar um defeito é a primeira reação a isso. */}
+            {left.length > 0 && <span className="text-text-faint"> · {left.length} fora</span>}
           </span>
           {connection !== 'connected' && (
             <span className="shrink-0 text-warning">{connectionLabel(connection)}</span>
@@ -151,7 +165,20 @@ export function RoomChrome({ onShare, onStop, onToggleFullscreen, fullscreen }: 
           )}
 
           {focused !== null && tiles.length > 1 && (
-            <FocusSwitcher tiles={tiles} focused={focused} />
+            <>
+              {/* Alternador, e não duas ações: o ícone é sempre o do arranjo
+                  exclusivo e o estado vive no `aria-pressed`. Trocar o desenho
+                  junto com o estado diria "ligado" mostrando o contrário. */}
+              <IconButton
+                icon="layout-solo"
+                label={solo ? 'Mostrar as outras telas ao lado' : 'Ver só esta tela'}
+                aria-pressed={solo}
+                onClick={() => {
+                  useMediaStore.getState().setSolo(!solo);
+                }}
+              />
+              <FocusSwitcher tiles={tiles} focused={focused} />
+            </>
           )}
 
           <People />
@@ -242,6 +269,7 @@ function People() {
   const participants = useRoomStore((state) => state.participants);
   const publishing = useMediaStore((state) => state.publishing);
   const viewerIds = useMediaStore((state) => state.viewerIds);
+  const screens = useMediaStore((state) => state.screens);
   const me = useSessionStore((state) => state.user?.discord_user_id ?? null);
 
   // As conexões de quem publica já foram descartadas na origem; o `ownerOf`
@@ -270,9 +298,40 @@ function People() {
                   <span className="truncate text-text">{nameOf(participants, id)}</span>
                   {id === me && <span className="text-text-faint">você</span>}
                   {participant.publishing && (
-                    <span className="ml-auto flex items-center gap-1 pl-2 text-danger">
-                      <Icon name="dot" size={10} />
-                      transmitindo
+                    <span className="ml-auto flex items-center gap-1 pl-2">
+                      {screens[id]?.subscribed === false ? (
+                        // É daqui que se volta: o ladrilho de uma tela da qual
+                        // se saiu não existe mais (ADR-0036), e esta lista é o
+                        // único lugar que mostra a sala inteira.
+                        <>
+                          <span className="text-text-faint">fora</span>
+                          <IconButton
+                            icon="eye"
+                            label={`Ver a tela de ${nameOf(participants, id)}`}
+                            variant="ghost"
+                            onClick={() => {
+                              media.setScreenSubscribed(id, true);
+                            }}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <span className="flex items-center gap-1 text-danger">
+                            <Icon name="dot" size={10} />
+                            transmitindo
+                          </span>
+                          {screens[id] !== undefined && (
+                            <IconButton
+                              icon="eye-off"
+                              label={`Sair da tela de ${nameOf(participants, id)}`}
+                              variant="ghost"
+                              onClick={() => {
+                                media.setScreenSubscribed(id, false);
+                              }}
+                            />
+                          )}
+                        </>
+                      )}
                     </span>
                   )}
                 </li>

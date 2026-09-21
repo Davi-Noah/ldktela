@@ -9,7 +9,6 @@ import {
   useMediaStore,
 } from '../../store/media';
 import { useUiStore } from '../../store/ui';
-import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
 import { IconButton } from '../../ui/IconButton';
 import { MenuItem, MenuLabel, Popover } from '../../ui/Popover';
@@ -24,6 +23,8 @@ interface Props {
       a layer, and unmounting would tear the decoder down (RF-32, ADR-0031). */
   /** Onde este ladrilho cai no layout: a grade, a tela em foco ou a coluna lateral. */
   role: 'grid' | 'main' | 'rail';
+  /** Fora do documento no foco exclusivo, para o `adaptiveStream` parar de baixar. */
+  hidden: boolean;
   detached: boolean;
   onFocus: () => void;
   onDetach: () => void;
@@ -59,6 +60,7 @@ export function ScreenTile({
   owner,
   focused,
   role,
+  hidden,
   detached,
   onFocus,
   onDetach,
@@ -70,7 +72,6 @@ export function ScreenTile({
   const screen = useMediaStore((state) => state.screens[identity]);
   const sharingTitle = useMediaStore((state) => state.sharingTitle);
   const silenced = useMediaStore(shouldSilenceOtherScreens);
-  const left = screen?.subscribed === false;
   const setShowSelfPreview = useUiStore((state) => state.setShowSelfPreview);
 
   useEffect(() => {
@@ -148,6 +149,7 @@ export function ScreenTile({
       // Âncora do ladrilho: é por aqui que a grade acha a mídia para destacar,
       // sem passar por uma ref que o React controla.
       data-screen={identity}
+      hidden={hidden}
       // Posição e tamanho são do CSS, por este papel (issue #7). O ladrilho em
       // foco deixou de ser `absolute inset-0`: com as outras telas ao lado, ele
       // é uma célula da grade como as demais, só que maior.
@@ -191,22 +193,6 @@ export function ScreenTile({
         </p>
       )}
 
-      {left && (
-        // O ladrilho fica, vazio, porque é daqui que se volta (issue #6). Nada
-        // desta tela está chegando enquanto este aviso estiver no lugar.
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-stage px-4 text-center">
-          <p className="text-text-muted">Você saiu da tela de {name}.</p>
-          <Button
-            icon="eye"
-            onClick={() => {
-              media.setScreenSubscribed(identity, true);
-            }}
-          >
-            Entrar de novo
-          </Button>
-        </div>
-      )}
-
       {/* Crachá permanente: quem é a tela precisa ser legível sem gesto
           nenhum (RF-34). O que some no repouso são os controles.
 
@@ -227,7 +213,13 @@ export function ScreenTile({
           role === 'rail' ? 'pb-2' : 'pb-16'
         }`}
       >
-        <div className="flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-1/80 px-2 py-1">
+        <div
+          // O crachá e os controles disputam a mesma faixa, e num ladrilho
+          // estreito o nome perdia: virava "8:" espremido contra os botões.
+          // Some enquanto os controles estão à mostra e volta quando eles saem —
+          // os dois nunca precisam ser lidos ao mesmo tempo.
+          className="chrome-fade flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-1/80 px-2 py-1 group-hover:opacity-0 group-focus-within:opacity-0"
+        >
           {isSelf ? (
             <span className="shrink-0 text-danger">
               <Icon name="dot" size={12} />
@@ -241,7 +233,7 @@ export function ScreenTile({
         </div>
 
         <Controls>
-          {!isSelf && !left && screen?.hasAudio === true && (
+          {!isSelf && screen?.hasAudio === true && (
             <VolumeControl
               identity={identity}
               name={name}
@@ -259,7 +251,7 @@ export function ScreenTile({
                 setShowSelfPreview(false);
               }}
             />
-          ) : left ? null : (
+          ) : (
             <Popover icon="gear" label={`Qualidade da tela de ${name}`}>
               {(close) => (
                 <>
@@ -282,31 +274,24 @@ export function ScreenTile({
             </Popover>
           )}
 
-          {!isSelf && !left && (
+          {!isSelf && (
             <IconButton
               tipAlign="end"
               icon="eye-off"
               label={`Sair da tela de ${name}`}
               onClick={() => {
-                // Sair de uma tela em foco devolve à grade: continuar em foco
-                // seria encarar um aviso em tela cheia.
-                if (focused) {
-                  useMediaStore.getState().focus(null);
-                }
                 media.setScreenSubscribed(identity, false);
               }}
             />
           )}
 
-          {!left && (
-            <IconButton
-              tipAlign="end"
-              icon="detach"
-              label={detached ? 'Trazer de volta' : 'Destacar em outra janela'}
-              aria-pressed={detached}
-              onClick={onDetach}
-            />
-          )}
+          <IconButton
+            tipAlign="end"
+            icon="detach"
+            label={detached ? 'Trazer de volta' : 'Destacar em outra janela'}
+            aria-pressed={detached}
+            onClick={onDetach}
+          />
 
           <IconButton
             tipAlign="end"

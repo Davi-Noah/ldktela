@@ -20,6 +20,8 @@ import { ScreenTile } from './ScreenTile';
  */
 export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
   const screenOrder = useMediaStore((state) => state.screenOrder);
+  const screens = useMediaStore((state) => state.screens);
+  const solo = useMediaStore((state) => state.solo);
   const publishing = useMediaStore((state) => state.publishing);
   const focused = useMediaStore((state) => state.focused);
   const detached = useMediaStore((state) => state.detached);
@@ -30,7 +32,8 @@ export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
   const detachedWindow = useRef<DetachedWindow | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
-  const tiles = visibleTiles(screenOrder, publishing, showSelfPreview);
+  const tiles = visibleTiles(screenOrder, screens, publishing, showSelfPreview);
+  const layout = focused === null ? 'grid' : solo ? 'solo' : 'hybrid';
 
   // Fechar a janela destacada quando o componente sai, ou ela fica órfã na tela.
   useEffect(() => {
@@ -86,7 +89,7 @@ export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
       ref={gridRef}
       className="relative screen-grid"
       data-count={focused === null ? Math.min(tiles.length, 6) : tiles.length}
-      data-focus={focused === null ? 'false' : 'true'}
+      data-layout={layout}
       style={
         {
           '--rail-width': `${railWidth}%`,
@@ -94,7 +97,7 @@ export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
         } as CSSProperties
       }
     >
-      {focused !== null && tiles.length > 1 && <Split gridRef={gridRef} />}
+      {layout === 'hybrid' && tiles.length > 1 && <Split gridRef={gridRef} />}
       {tiles.map((identity) => (
         <ScreenTile
           key={identity}
@@ -105,6 +108,10 @@ export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
           owner={participants[identity === SELF_ID ? (selfId ?? '') : identity]}
           focused={focused === identity}
           role={focused === null ? 'grid' : focused === identity ? 'main' : 'rail'}
+          // No exclusivo as outras saem do documento, e não só da vista: oculto
+          // é o que faz o `adaptiveStream` parar de baixar os quadros delas
+          // (RF-32). Escondê-las com CSS continuaria pagando por todas.
+          hidden={layout === 'solo' && focused !== identity}
           detached={detached === identity}
           onFocus={() => {
             useMediaStore.getState().focus(focused === identity ? null : identity);

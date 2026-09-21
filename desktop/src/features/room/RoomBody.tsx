@@ -1,3 +1,4 @@
+import { media } from '../../app/runtime';
 import { type MediaFault, useMediaStore } from '../../store/media';
 import { useRoomStore } from '../../store/room';
 import { useSessionStore } from '../../store/session';
@@ -51,6 +52,7 @@ function InRoom({ onShare, onStop }: RoomBodyProps) {
   const participants = useRoomStore((state) => state.participants);
   const publishing = useMediaStore((state) => state.publishing);
   const starting = useMediaStore((state) => state.starting);
+  const screens = useMediaStore((state) => state.screens);
   const fault = useMediaStore((state) => state.fault);
   const showSelfPreview = useUiStore((state) => state.showSelfPreview);
   const setShowSelfPreview = useUiStore((state) => state.setShowSelfPreview);
@@ -74,12 +76,25 @@ function InRoom({ onShare, onStop }: RoomBodyProps) {
               <span className="truncate text-text">
                 {participant.user.display_name ?? participant.user.username}
               </span>
-              {participant.publishing && (
-                <span className="ml-auto flex items-center gap-1 text-danger">
-                  <Icon name="dot" size={12} />
-                  compartilhando
-                </span>
-              )}
+              {participant.publishing &&
+                (screens[id]?.subscribed === false ? (
+                  // Saindo de todas as telas, a sala volta a esta lista — que
+                  // passa a ser o único caminho de volta (ADR-0036).
+                  <Button
+                    icon="eye"
+                    className="ml-auto py-0.5"
+                    onClick={() => {
+                      media.setScreenSubscribed(id, true);
+                    }}
+                  >
+                    Entrar
+                  </Button>
+                ) : (
+                  <span className="ml-auto flex items-center gap-1 text-danger">
+                    <Icon name="dot" size={12} />
+                    compartilhando
+                  </span>
+                ))}
             </li>
           );
         })}

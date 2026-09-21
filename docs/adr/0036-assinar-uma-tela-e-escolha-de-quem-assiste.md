@@ -1,6 +1,6 @@
 # ADR-0036 — Assinar uma tela é escolha de quem assiste
 
-- **Status:** Aceito
+- **Status:** Aceito, corrigido em 2026-09-21 (ver emenda ao fim)
 - **Data:** 2026-09-20
 - **Complementa o** [ADR-0031](0031-navegacao-nao-assina-video.md)
 
@@ -44,3 +44,24 @@ aconteceu, e sem o primeiro sobraria na tela um convite para entrar numa transmi
   assinaturas por participante, e não vale o acoplamento por enquanto.
 - Voltar a entrar custa o tempo de uma assinatura nova e alguns quadros até a imagem aparecer. É o
   mesmo custo de quando a tela chega pela primeira vez.
+
+## Emenda de 2026-09-21 — o ladrilho vazio não fica; a lista de pessoas é o caminho de volta
+
+A decisão original manteve o ladrilho no lugar, vazio, com um botão de voltar. Em uso real isso se
+mostrou errado: **um ladrilho que não mostra nada ocupa uma célula inteira da grade** — e, no foco
+parcial, um lugar na coluna lateral — para dizer que ali não há nada. Com duas telas no ar e uma
+recusada, metade do espaço ia para um aviso.
+
+Então o ladrilho sai do layout, e o caminho de volta muda de lugar: **a lista de pessoas**, que já
+existia (issue #10) e que é a única superfície que mostra a sala inteira, assistida ou não. Cada
+pessoa transmitindo ganha ali o par ver/não ver. A mesma lista aparece no corpo da sala quando não
+há vídeo nenhum, que é onde se cai ao recusar todas as telas.
+
+Duas garantias acompanham a mudança, porque estado invisível é o que faz a pessoa procurar defeito
+onde não há:
+
+- o cabeçalho conta quantas telas estão fora (`3 telas · 1 fora`);
+- sair produz um aviso passageiro dizendo onde entrar de novo.
+
+O resto do ADR continua valendo: sair é `setSubscribed(false)` de verdade, e quem parou de
+transmitir leva o registro junto, tendo sido assistido ou não.

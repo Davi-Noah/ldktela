@@ -649,3 +649,18 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
     Quem quiser o comportamento antigo sai da tela ([ADR-0036](adr/0036-assinar-uma-tela-e-escolha-de-quem-assiste.md)),
     que é a recusa de verdade.
 
+- **[S7] Três arranjos de tela, e um só jeito de sair deles (issue #7).** Grade (tudo o que se
+  assiste), foco parcial (uma grande, as outras na lateral) e foco exclusivo (uma só, as outras
+  fora do documento). O exclusivo é um alternador **dentro** do foco, não um terceiro estado solto:
+  sair do foco volta para a grade nos dois casos, e `Esc` continua servindo. Voltar para a grade
+  zera o exclusivo, senão o próximo foco esconderia as outras sem ninguém pedir.
+  - No exclusivo as outras telas saem por `hidden`, e não por CSS: oculto é o que faz o
+    `adaptiveStream` parar de baixar os quadros delas (RF-32). Escondê-las com `display` do lado de
+    fora do documento teria o mesmo efeito visual e continuaria pagando por todas.
+  - Não há caixa de seleção "exibir apenas telas selecionadas": sair de uma tela **já é** essa
+    declaração, e um segundo interruptor deixaria o desperdício de espaço disponível como opção.
+  - O crachá com o nome some enquanto os controles do ladrilho estão à mostra. Os dois disputavam a
+    mesma faixa e, num ladrilho estreito, o nome virava `8:` espremido contra os botões; eles nunca
+    precisam ser lidos ao mesmo tempo. O crachá mantém a caixa (`opacity`), então os botões não
+    pulam de lugar quando ele volta.
+

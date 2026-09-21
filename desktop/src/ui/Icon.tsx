@@ -20,6 +20,8 @@ export type IconName =
   | 'fullscreen'
   | 'gear'
   | 'grid'
+  | 'layout-side'
+  | 'layout-solo'
   | 'info'
   | 'monitor'
   | 'people'
@@ -64,6 +66,10 @@ const STROKE: Record<string, string[]> = {
     'M10 2.61L14 2.61L14.29 4.96L15.36 5.41L17.23 3.95L20.05 6.77L18.59 8.64L19.04 9.71L21.39 10L21.39 14L19.04 14.29L18.59 15.36L20.05 17.23L17.23 20.05L15.36 18.59L14.29 19.04L14 21.39L10 21.39L9.71 19.04L8.64 18.59L6.77 20.05L3.95 17.23L5.41 15.36L4.96 14.29L2.61 14L2.61 10L4.96 9.71L5.41 8.64L3.95 6.77L6.77 3.95L8.64 5.41L9.71 4.96Z',
   ],
   grid: ['M3.5 3.5h7v7h-7z', 'M13.5 3.5h7v7h-7z', 'M3.5 13.5h7v7h-7z', 'M13.5 13.5h7v7h-7z'],
+  // Uma tela grande com a coluna das outras ao lado, e a mesma tela sozinha: os
+  // dois arranjos do foco, desenhados como são vistos.
+  'layout-side': ['M3.5 5h17v14h-17z', 'M15 5v14', 'M15 12h5.5'],
+  'layout-solo': ['M3.5 5h17v14h-17z'],
   info: ['M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z', 'M12 11v5.5'],
   monitor: [
     'M4 4.5h16a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 15V6A1.5 1.5 0 0 1 4 4.5z',

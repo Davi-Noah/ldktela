@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  leftScreenIds,
   type MediaState,
   ownerOf,
   SELF_ID,
@@ -18,6 +19,12 @@ function fresh() {
 function leftScreen(state: MediaState, identity: string): MediaState {
   useMediaStore.setState(state);
   useMediaStore.getState().setScreenSubscribed(identity, false);
+  return useMediaStore.getState();
+}
+
+function enteredScreen(state: MediaState, identity: string): MediaState {
+  useMediaStore.setState(state);
+  useMediaStore.getState().setScreenSubscribed(identity, true);
   return useMediaStore.getState();
 }
 
@@ -189,23 +196,66 @@ describe('silenciar as telas alheias ao transmitir áudio (ADR-0028)', () => {
   });
 });
 
+describe('o layout mostra só o que se assiste (issue #7)', () => {
+  it('não gasta espaço com a tela de quem eu deixei de assistir', () => {
+    // O ladrilho vazio ocupava uma célula inteira da grade — e, no foco
+    // parcial, um lugar na coluna lateral — para dizer "aqui não tem nada".
+    let state = withTrack(withTrack(fresh(), 'ana', 'video'), 'bruno', 'video');
+    state = leftScreen(state, 'bruno');
+    expect(visibleTiles(state.screenOrder, state.screens, false, false)).toEqual(['ana']);
+    expect(leftScreenIds(state)).toEqual(['bruno']);
+  });
+
+  it('devolve o ladrilho quando se entra de novo', () => {
+    let state = withTrack(fresh(), 'ana', 'video');
+    state = leftScreen(state, 'ana');
+    state = enteredScreen(state, 'ana');
+    expect(visibleTiles(state.screenOrder, state.screens, false, false)).toEqual(['ana']);
+    expect(leftScreenIds(state)).toEqual([]);
+  });
+});
+
+describe('foco exclusivo (issue #7)', () => {
+  it('sair do foco volta para a grade inteira, e não para uma tela sozinha', () => {
+    const store = useMediaStore.getState();
+    store.reset();
+    store.focus('ana');
+    store.setSolo(true);
+    expect(useMediaStore.getState().solo).toBe(true);
+
+    store.focus(null);
+    expect(useMediaStore.getState().solo).toBe(false);
+  });
+
+  it('continua exclusivo ao trocar de tela em foco', () => {
+    // Trocar de tela pelo seletor de foco é continuar vendo uma de cada vez;
+    // devolver a lateral no meio disso seria desfazer a escolha sozinho.
+    const store = useMediaStore.getState();
+    store.reset();
+    store.focus('ana');
+    store.setSolo(true);
+    store.focus('bruno');
+    expect(useMediaStore.getState().solo).toBe(true);
+  });
+});
+
 describe('ladrilho da própria tela (ADR-0030)', () => {
   it('entra por último, para não empurrar as telas dos outros de lugar', () => {
-    expect(visibleTiles(['ana', 'bruno'], true, true)).toEqual(['ana', 'bruno', SELF_ID]);
+    expect(visibleTiles(['ana', 'bruno'], {}, true, true)).toEqual(['ana', 'bruno', SELF_ID]);
   });
 
   it('não aparece quando não se está transmitindo', () => {
-    expect(visibleTiles(['ana'], false, true)).toEqual(['ana']);
+    expect(visibleTiles(['ana'], {}, false, true)).toEqual(['ana']);
   });
 
   it('some quando o usuário escolhe não se ver', () => {
-    expect(visibleTiles(['ana'], true, false)).toEqual(['ana']);
+    expect(visibleTiles(['ana'], {}, true, false)).toEqual(['ana']);
   });
 
   it('pode ser o único ladrilho da grade', () => {
     // Transmitindo sozinho, a sala deixa de ser uma lista de participantes e
     // passa a ser a própria tela — que é o que o Discord mostra.
-    expect(visibleTiles([], true, true)).toEqual([SELF_ID]);
+    expect(visibleTiles([], {}, true, true)).toEqual([SELF_ID]);
   });
 
   it('nunca colide com um id do Discord, que é só dígitos', () => {

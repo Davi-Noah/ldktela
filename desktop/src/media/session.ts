@@ -320,7 +320,20 @@ export class MediaSession {
    * nada a quem saiu. O ladrilho fica, sem trilha, porque é dele que se volta.
    */
   setScreenSubscribed(owner: string, subscribed: boolean): void {
-    useMediaStore.getState().setScreenSubscribed(owner, subscribed);
+    const store = useMediaStore.getState();
+    store.setScreenSubscribed(owner, subscribed);
+    if (!subscribed) {
+      // O ladrilho sai do layout (ADR-0036), então continuar em foco nele
+      // deixaria a janela inteira vazia.
+      if (store.focused === owner) {
+        store.focus(null);
+      }
+      // Dito uma vez, e não desenhado para sempre: sem isto, a tela some e o
+      // caminho de volta fica escondido atrás de um botão que ninguém abriu.
+      useUiStore
+        .getState()
+        .toast('info', 'Saiu da tela. Para voltar, abra a lista de pessoas no rodapé.');
+    }
     const room = this.room;
     if (room === null) {
       return;

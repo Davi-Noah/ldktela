@@ -114,6 +114,14 @@ export interface MediaState {
   screenOrder: string[];
   /** Identity shown large. `null` means the grid. */
   focused: string | null;
+  /**
+   * No foco, esconder as outras telas em vez de mostrá-las na lateral.
+   *
+   * É um tempero do foco, e não um terceiro modo solto: sair do foco volta para
+   * a grade nos dois casos. Assistir a várias e assistir a uma são as duas
+   * coisas que uma sala de telas precisa fazer, e a lateral serve à primeira.
+   */
+  solo: boolean;
   /** Identity currently in the picture-in-picture window (RF-33). */
   detached: string | null;
   /** Identities connected to the media room, minus ourselves: the viewers. */
@@ -140,6 +148,7 @@ interface MediaStore extends MediaState {
   /** Quem transmitia parou ou saiu: o ladrilho vai junto, tendo sido assinado ou não. */
   dropScreen: (identity: string) => void;
   focus: (identity: string | null) => void;
+  setSolo: (solo: boolean) => void;
   setDetached: (identity: string | null) => void;
   setViewerIds: (ids: string[]) => void;
   setStats: (stats: PublisherStats | null) => void;
@@ -159,6 +168,7 @@ const INITIAL: MediaState = {
   screens: {},
   screenOrder: [],
   focused: null,
+  solo: false,
   detached: null,
   viewerIds: [],
   stats: null,
@@ -323,7 +333,14 @@ export const useMediaStore = create<MediaStore>()((set) => ({
   },
 
   focus: (focused) => {
-    set({ focused });
+    // Voltar para a grade zera o exclusivo: a grade é, por definição, ver todas
+    // as telas assinadas, e guardar o exclusivo faria o próximo foco esconder
+    // as outras sem ninguém ter pedido.
+    set(focused === null ? { focused, solo: false } : { focused });
+  },
+
+  setSolo: (solo) => {
+    set({ solo });
   },
   setDetached: (detached) => {
     set({ detached });
@@ -387,11 +404,23 @@ export const SELF_ID = '~self';
  * A própria tela entra **por último**: entrando na frente, começar a transmitir
  * empurraria as telas dos outros de lugar no meio de uma sessão, e mudança de
  * posição sem motivo é a coisa que mais parece defeito numa grade de vídeo.
+ *
+ * Quem foi deixado de fora não entra (ADR-0036): uma tela que não está sendo
+ * assistida ocupando uma célula da grade — ou um lugar na coluna lateral do
+ * foco — é espaço gasto para dizer que ali não há nada. O caminho de volta é a
+ * lista de pessoas, que mostra a sala inteira, assistida ou não.
  */
 export function visibleTiles(
   screenOrder: readonly string[],
+  screens: Record<string, ScreenState>,
   publishing: boolean,
   showSelfPreview: boolean,
 ): string[] {
-  return publishing && showSelfPreview ? [...screenOrder, SELF_ID] : [...screenOrder];
+  const watched = screenOrder.filter((id) => screens[id]?.subscribed !== false);
+  return publishing && showSelfPreview ? [...watched, SELF_ID] : watched;
+}
+
+/** Telas no ar que este espectador deixou de assistir, na ordem de chegada. */
+export function leftScreenIds(state: Pick<MediaState, 'screenOrder' | 'screens'>): string[] {
+  return state.screenOrder.filter((id) => state.screens[id]?.subscribed === false);
 }
