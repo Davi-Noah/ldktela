@@ -75,7 +75,7 @@ certas.
 | [0021](0021-seletor-de-tela-e-o-do-chromium.md) | O seletor de tela é o do Chromium, até depois do S9 | Substituído pelo 0026 |
 | [0022](0022-destacar-tela-usa-document-pip.md) | Destacar uma tela usa Document Picture-in-Picture | Aceito |
 | [0023](0023-quem-publica-escolhe-resolucao-e-fps.md) | Quem publica escolhe resolução e fps | Aceito |
-| [0024](0024-tag-live-no-apelido.md) | A tag `[LIVE]` vai no apelido, com guardas | Aceito |
+| [0024](0024-tag-live-no-apelido.md) | A tag `[LIVE]` vai no apelido, com guardas | Aceito; anúncio substituído pelo 0037 |
 | [0025](0025-audio-exclui-o-discord.md) | O áudio do sistema exclui a árvore do Discord | Aceito |
 | [0026](0026-publicacao-no-rust-nativo.md) | A publicação vai para o core Rust; o WebView só assiste | Aceito |
 | [0027](0027-publicador-e-um-segundo-participante.md) | Quem publica entra na sala como um segundo participante | Aceito |
@@ -88,3 +88,4 @@ certas.
 | [0034](0034-destacar-e-um-popup-do-mesmo-documento.md) | Destacar tela é um popup do mesmo documento, não Document PiP | Aceito |
 | [0035](0035-a-instancia-serve-servidores-nomeados.md) | A instância hospedada serve os servidores que ela nomeia | Aceito |
 | [0036](0036-assinar-uma-tela-e-escolha-de-quem-assiste.md) | Assinar uma tela é escolha de quem assiste | Aceito; corrigido em 2026-09-21 |
+| [0037](0037-o-bot-nao-anuncia-no-canal.md) | O bot não anuncia a transmissão no canal | Aceito |

@@ -687,3 +687,9 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   ancestral posicionado, e acompanha a largura dela sozinho. Medido nas duas larguras: centro do
   painel e da barra coincidem em 700 px.
 
+- **[S8] A mensagem do bot no canal saiu (2026-09-21).** Ela mencionava quem transmite, e a
+  pessoa era notificada sobre a própria transmissão a cada sessão. O bot deixou de postar, editar
+  e encerrar mensagem; a tag de apelido fica. Consequência que vale ler antes de reverter: dono do
+  servidor e cargos acima do bot não recebem tag e agora não têm sinal nenhum no Discord. Ver
+  [ADR-0037](adr/0037-o-bot-nao-anuncia-no-canal.md).
+

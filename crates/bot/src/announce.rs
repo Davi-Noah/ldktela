@@ -1,10 +1,14 @@
-//! The Discord side of a live session (S8): one message per session, and the
-//! `[LIVE]` tag on the publisher's nickname.
+//! The Discord side of a live session (S8): the `[LIVE]` tag on the publisher's
+//! nickname.
 //!
-//! Both are driven by the room snapshots `api` publishes, never by guessing from
-//! gateway events. A snapshot is the whole state of the room, so a consumer that
-//! missed one still converges, and two changes a moment apart collapse into a
-//! single edit instead of two — which is what keeps the edit rate limit out of
+//! There is no message in the channel. It used to be one, per session, and it
+//! mentioned the publisher: people were notified about their own screen share
+//! (ADR-0037).
+//!
+//! The tag is driven by the room snapshots `api` publishes, never by guessing
+//! from gateway events. A snapshot is the whole state of the room, so a consumer
+//! that missed one still converges, and two changes a moment apart collapse into
+//! a single edit instead of two — which is what keeps the edit rate limit out of
 //! the path of someone joining and leaving repeatedly.
 
 use std::collections::{HashMap, HashSet};
@@ -13,8 +17,8 @@ use std::time::Duration;
 use api::announce::RoomBroadcast;
 use api::AppState;
 use db::repo::live_tags;
-use serenity::builder::{EditMember, EditMessage};
-use serenity::model::id::{ChannelId, GuildId, MessageId, UserId};
+use serenity::builder::EditMember;
+use serenity::model::id::{GuildId, UserId};
 use serenity::prelude::*;
 use time::OffsetDateTime;
 use tokio::sync::broadcast::error::RecvError;
@@ -30,10 +34,10 @@ const NICK_LIMIT: usize = 32;
 
 /// How long snapshots pile up before one edit goes out.
 ///
-/// Discord allows a handful of edits per channel per five seconds. Joining and
-/// leaving a voice channel is something people do in bursts, and each one moves
-/// the audience count — without coalescing, a lively room would spend the
-/// session rate limited and the message would lag further and further behind.
+/// Discord rate limits member edits. Joining and leaving a voice channel is
+/// something people do in bursts, and each one is a new snapshot — without
+/// coalescing, a lively room would spend the session rate limited and a
+/// nickname would lag behind the share it is meant to announce.
 const FLUSH: Duration = Duration::from_secs(2);
 
 /// Why a member cannot be renamed. Both cases are Discord's rules, not ours.
@@ -123,7 +127,6 @@ async fn sweep_stale_tags(state: &AppState, ctx: &Context) -> anyhow::Result<()>
 async fn run(state: AppState, ctx: Context) {
     let mut snapshots = state.announce.subscribe();
     let mut pending: HashMap<i64, RoomBroadcast> = HashMap::new();
-    let mut sessions: HashMap<i64, MessageId> = HashMap::new();
     let mut tagged: HashSet<(i64, i64)> = HashSet::new();
     let mut flush = tokio::time::interval(FLUSH);
     flush.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -142,7 +145,7 @@ async fn run(state: AppState, ctx: Context) {
             },
             _ = flush.tick() => {
                 for (_, snapshot) in pending.drain() {
-                    apply(&state, &ctx, &snapshot, &mut sessions, &mut tagged).await;
+                    apply(&state, &ctx, &snapshot, &mut tagged).await;
                 }
             }
         }
@@ -153,80 +156,21 @@ async fn apply(
     state: &AppState,
     ctx: &Context,
     snapshot: &RoomBroadcast,
-    sessions: &mut HashMap<i64, MessageId>,
     tagged: &mut HashSet<(i64, i64)>,
 ) {
     let channel = snapshot.discord_channel_id;
-    let Some((guild_id, channel_name)) = state
+    let Some(guild_id) = state
         .replica
         .channel_info(channel.unsigned_abs())
         .await
-        .map(|(guild, name)| (i64::try_from(guild).unwrap_or_default(), name))
+        .map(|(guild, _)| i64::try_from(guild).unwrap_or_default())
     else {
-        // Canal fora da réplica: não é nosso, e anunciar nele seria escrever num
-        // servidor que não pediu.
+        // Canal fora da réplica: não é nosso, e renomear alguém num servidor que
+        // não pediu seria escrever nele.
         return;
     };
 
-    update_message(ctx, channel, &channel_name, snapshot, sessions).await;
     update_tags(state, ctx, guild_id, snapshot, tagged).await;
-}
-
-/// One message per session, edited in place (S8).
-///
-/// The id is dropped when the session ends, so the next one posts fresh instead
-/// of resurrecting a message people have already scrolled past.
-async fn update_message(
-    ctx: &Context,
-    channel: i64,
-    channel_name: &str,
-    snapshot: &RoomBroadcast,
-    sessions: &mut HashMap<i64, MessageId>,
-) {
-    let channel_id = ChannelId::new(channel.unsigned_abs());
-
-    if snapshot.is_idle() {
-        if let Some(message) = sessions.remove(&channel) {
-            let ended = EditMessage::new().content("A transmissão terminou.");
-            if let Err(error) = channel_id.edit_message(&ctx.http, message, ended).await {
-                tracing::warn!(%error, channel, "não consegui encerrar o anúncio");
-            }
-        }
-        return;
-    }
-
-    let content = describe(snapshot, channel_name);
-    match sessions.get(&channel) {
-        Some(message) => {
-            let edit = EditMessage::new().content(content);
-            if let Err(error) = channel_id.edit_message(&ctx.http, *message, edit).await {
-                tracing::warn!(%error, channel, "não consegui editar o anúncio");
-            }
-        }
-        None => match channel_id.say(&ctx.http, content).await {
-            Ok(message) => {
-                sessions.insert(channel, message.id);
-            }
-            Err(error) => {
-                tracing::warn!(%error, channel, "não consegui anunciar a transmissão");
-            }
-        },
-    }
-}
-
-fn describe(snapshot: &RoomBroadcast, channel_name: &str) -> String {
-    let who = snapshot
-        .publishers
-        .iter()
-        .map(|id| format!("<@{id}>"))
-        .collect::<Vec<_>>()
-        .join(" e ");
-    let audience = match snapshot.viewers {
-        0 => "ninguém assistindo ainda".to_owned(),
-        1 => "1 assistindo".to_owned(),
-        n => format!("{n} assistindo"),
-    };
-    format!("🔴 {who} está compartilhando a tela em **{channel_name}** · {audience}")
 }
 
 async fn update_tags(
@@ -455,34 +399,5 @@ mod tests {
         let long = "🎮".repeat(20);
         let tagged = tagged_nickname(Some(&long), "x").expect("marcado");
         assert!(tagged.encode_utf16().count() <= NICK_LIMIT, "{tagged}");
-    }
-
-    fn snapshot(publishers: Vec<i64>, viewers: usize) -> RoomBroadcast {
-        RoomBroadcast {
-            discord_channel_id: 10,
-            publishers,
-            viewers,
-        }
-    }
-
-    #[test]
-    fn the_message_names_who_is_sharing_and_how_many_watch() {
-        let text = describe(&snapshot(vec![7], 2), "Geral");
-        assert!(text.contains("<@7>"), "menciona quem transmite: {text}");
-        assert!(text.contains("Geral"));
-        assert!(text.contains("2 assistindo"));
-    }
-
-    #[test]
-    fn an_empty_audience_is_said_plainly() {
-        // "0 assistindo" le como defeito; a sessao acabou de comecar.
-        assert!(describe(&snapshot(vec![7], 0), "Geral").contains("ninguém assistindo ainda"));
-    }
-
-    #[test]
-    fn two_publishers_are_both_named() {
-        let text = describe(&snapshot(vec![7, 8], 1), "Geral");
-        assert!(text.contains("<@7>") && text.contains("<@8>"), "{text}");
-        assert!(text.contains("1 assistindo"));
     }
 }

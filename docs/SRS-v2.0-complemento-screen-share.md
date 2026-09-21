@@ -187,9 +187,9 @@ descrevem por que ele não é de outro jeito.
 
 | ID | Requisito | Descrição | Prioridade |
 |---|---|---|---|
-| RF-23 | Anúncio por mensagem editada | Ao iniciar uma sessão, o bot publica **uma** mensagem no canal de texto associado e a **edita** ao longo da sessão (contagem de espectadores, encerramento). Uma sessão inteira produz uma mensagem, nunca várias. | Must |
-| RF-24 | Link profundo | O anúncio traz um link que abre o aplicativo direto na sala; sem o aplicativo instalado, leva à página de download. | Must |
-| RF-25 | Respeito ao limite de taxa | O anúncio respeita o limite de edição por canal, com coalescência de atualizações. Renomear canal de voz é proibido como mecanismo de presença: o limite é de duas renomeações por 10 min e o recurso quebraria sob uso normal. | Must |
+| ~~RF-23~~ | ~~Anúncio por mensagem editada~~ **Removido** ([ADR-0037](adr/0037-o-bot-nao-anuncia-no-canal.md)). | Ao iniciar uma sessão, o bot publica **uma** mensagem no canal de texto associado e a **edita** ao longo da sessão (contagem de espectadores, encerramento). Uma sessão inteira produz uma mensagem, nunca várias. | Must |
+| ~~RF-24~~ | ~~Link profundo~~ **Sem superfície** desde a remoção do anúncio ([ADR-0037](adr/0037-o-bot-nao-anuncia-no-canal.md)); adiado por [ADR-0029](adr/0029-link-profundo-espera-uma-pagina-https.md). | O anúncio traz um link que abre o aplicativo direto na sala; sem o aplicativo instalado, leva à página de download. | Must |
+| RF-25 | Respeito ao limite de taxa | A tag de apelido respeita o limite de edição por canal, com coalescência de atualizações. Renomear canal de voz é proibido como mecanismo de presença: o limite é de duas renomeações por 10 min e o recurso quebraria sob uso normal. | Must |
 
 ### 3.7 Módulo 7 — Integração desktop
 

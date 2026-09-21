@@ -43,9 +43,10 @@ posicionar o cargo do bot acima dos cargos de membro.
 
 - Quem for dono do servidor nunca recebe a tag. É limitação do Discord e precisa
   estar escrita no `DESTRAVAR.md`, ou vira relato de bug.
-- O anúncio no canal ([ADR-0008](0008-complemento-ao-discord.md), fatia S8)
-  continua sendo o sinal principal, e é o que funciona para todo mundo. A tag é
-  reforço, não substituto — e essa ordem importa se algum dia a tag for removida.
+- ~~O anúncio no canal continua sendo o sinal principal, e é o que funciona para
+  todo mundo.~~ **Removido em 2026-09-21** ([ADR-0037](0037-o-bot-nao-anuncia-no-canal.md)):
+  a mensagem mencionava quem transmite e notificava a pessoa sobre a própria ação. A tag
+  passou a ser o único sinal de Discord — e continua sem alcançar dono e cargos acima do bot.
 - O apelido é estado do usuário no servidor **dele**. Errar a restauração é
   estragar algo que não é nosso, e por isso a restauração vem antes da marcação
   na ordem de implementação e de teste.
