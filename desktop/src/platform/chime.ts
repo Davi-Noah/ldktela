@@ -22,6 +22,9 @@ interface Chime {
   /** Em ordem de execução: a primeira nota dá o sentido do movimento. */
   readonly tones: readonly { hz: number; delay: number }[];
   /**
+   * Amplitude do pico, de 0 a 1 — e **não** volume percebido: dobrar este número
+   * é +6 dB, que soa bem mais alto. Um passo perceptível e discreto é ×1,25.
+   *
    * Baixo de propósito. Isto toca por cima de jogo, voz e da tela de alguém; um
    * aviso que se sobrepõe ao que a pessoa estava ouvindo é o aviso que ela
    * desliga.
@@ -36,7 +39,7 @@ const CHIMES: Record<ChimeKind, Chime> = {
       { hz: E5, delay: 0 },
       { hz: B5, delay: 0.08 },
     ],
-    peak: 0.06,
+    peak: 0.075,
     decay: 0.45,
   },
   // Sair é mais discreto que entrar: uma tela que acabou não pede atenção
@@ -46,7 +49,7 @@ const CHIMES: Record<ChimeKind, Chime> = {
       { hz: B5, delay: 0 },
       { hz: E5, delay: 0.08 },
     ],
-    peak: 0.045,
+    peak: 0.056,
     decay: 0.35,
   },
 };
