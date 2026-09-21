@@ -1,6 +1,6 @@
 # ADR-0028 — Quem transmite áudio não ouve o áudio das outras telas
 
-- **Status:** Aceito
+- **Status:** Aceito, restringido em 2026-09-20 (ver emenda ao fim)
 - **Data:** 2026-09-14
 - **Decorre de:** [ADR-0025](0025-audio-exclui-o-discord.md)
 
@@ -46,3 +46,28 @@ nada, e compartilhar sem áudio também não.
   garantidos; seria cancelamento de eco caseiro, frágil, num caminho onde falhar é audível.
 - **Deixar ecoar e avisar.** O [ADR-0014](0014-audio-por-aplicativo.md) já registra que
   aviso não conserta eco, só transfere a culpa.
+
+## Emenda de 2026-09-20 — compartilhar uma janela não silencia ninguém (issue #11)
+
+A decisão acima vale para o caso em que ela foi escrita: **a tela inteira**. Aí a captura é a
+máquina toda menos o Discord, o áudio das telas alheias sai pelo mesmo alto-falante que ela grava,
+e silenciar é o que impede a volta.
+
+Compartilhar uma **janela** não é esse caso. `AUDIOCLIENT_ACTIVATION_PARAMS` aceita também
+`INCLUDE_TARGET_PROCESS_TREE`, e a janela compartilhada tem dono: o `HWND` que a identifica é o
+mesmo que dá o processo. Incluindo só essa árvore, o que sai é o som daquela janela e nada mais —
+nem o Discord, nem o navegador ao lado, nem as telas dos outros. Não há o que silenciar, e
+silenciar mesmo assim tira da pessoa um áudio sem nenhuma razão técnica.
+
+Então: **o silenciamento passa a depender do modo de captura que o core conseguiu**, e não do fato
+de transmitir áudio. `only_window` não silencia; `excluding_discord` e `whole_system` continuam
+silenciando, pelo motivo original.
+
+A degradação importa e é deliberada: se o modo por janela falhar, o core cai para
+`excluding_discord` — e não para o sistema inteiro — e relata isso, de modo que a interface volta a
+silenciar sozinha. O inverso, cair calado para uma captura que pega tudo sem silenciar nada, é
+exatamente o eco que este ADR existe para impedir.
+
+Uma consequência fica de pé: a janela compartilhada continua sendo a única fonte de som. Quem
+espera mandar o jogo numa janela e a música de outro programa junto não consegue — é o preço de
+mandar só o que foi escolhido, e o seletor diz isso antes de começar.

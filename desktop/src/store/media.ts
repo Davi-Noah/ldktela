@@ -325,9 +325,13 @@ export function ownerOf(identity: string): string {
  * so our own playback is inside our own capture. Without this, two people
  * sharing audio at once would hear each other echoed, and everyone else would
  * receive one of them twice.
+ *
+ * Compartilhar uma **janela** é o caso em que nada disso acontece: o core
+ * captura só a árvore daquele processo, o som das outras telas não entra, e
+ * silenciá-lo seria tirar do usuário um áudio sem motivo nenhum (issue #11).
  */
 export function shouldSilenceOtherScreens(state: MediaState): boolean {
-  return state.publishing && state.sharingAudio;
+  return state.publishing && state.sharingAudio && state.audioMode !== 'only_window';
 }
 
 /**

@@ -138,6 +138,16 @@ describe('silenciar as telas alheias ao transmitir áudio (ADR-0028)', () => {
     expect(shouldSilenceOtherScreens(useMediaStore.getState())).toBe(false);
   });
 
+  it('não silencia quando só a janela compartilhada está sendo capturada (issue #11)', () => {
+    // Capturando apenas a árvore do processo daquela janela, o som das telas
+    // alheias não entra na captura — silenciá-lo seria tirar do usuário um
+    // áudio que nada obriga a tirar.
+    const store = useMediaStore.getState();
+    store.reset();
+    store.setPublishing(true, true, 'only_window');
+    expect(shouldSilenceOtherScreens(useMediaStore.getState())).toBe(false);
+  });
+
   it('esquece o modo de áudio ao parar', () => {
     const store = useMediaStore.getState();
     store.reset();

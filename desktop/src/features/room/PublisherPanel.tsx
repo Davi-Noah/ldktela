@@ -184,7 +184,14 @@ function limitLabel(reason: string | undefined): string {
 }
 
 function audioLabel(mode: AudioMode | null): string {
-  return mode === 'whole_system' ? 'Com áudio do sistema inteiro' : 'Com áudio, sem o Discord';
+  switch (mode) {
+    case 'whole_system':
+      return 'Com áudio do sistema inteiro';
+    case 'only_window':
+      return 'Com o áudio desta janela';
+    default:
+      return 'Com áudio, sem o Discord';
+  }
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

@@ -31,8 +31,10 @@ use windows::Win32::Media::Audio::{
     AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_LOOPBACK,
     AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, AUDIOCLIENT_ACTIVATION_PARAMS,
     AUDIOCLIENT_ACTIVATION_PARAMS_0, AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
-    AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS, PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
-    VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, WAVEFORMATEX, WAVE_FORMAT_PCM,
+    AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS, PROCESS_LOOPBACK_MODE,
+    PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
+    PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE, VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+    WAVEFORMATEX, WAVE_FORMAT_PCM,
 };
 use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 use windows::Win32::System::Com::{
@@ -44,6 +46,7 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
 };
 use windows::Win32::System::Threading::{CreateEventW, SetEvent, WaitForSingleObject};
 use windows::Win32::System::Variant::VT_BLOB;
+use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 
 use crate::publisher::{CHANNELS, SAMPLE_RATE};
 
@@ -60,9 +63,40 @@ const POLL: Duration = Duration::from_millis(10);
 pub enum AudioMode {
     /// Process loopback, Discord's tree excluded. The intended path.
     ExcludingDiscord,
+    /// Process loopback with only the shared window's tree included (issue #11).
+    ///
+    /// Nada mais da máquina entra na captura, então o som das outras telas não
+    /// volta para quem o mandou e não precisa ser silenciado aqui (ADR-0028).
+    OnlyWindow,
     /// No Discord running, or the platform refused process loopback. Everything
     /// the machine plays goes out, and the interface has to admit it.
     WholeSystem,
+}
+
+/// Whose sound the share is supposed to carry.
+///
+/// A escolha vem da fonte compartilhada, e não de uma preferência: ao mandar uma
+/// janela, o que interessa é o som daquela janela; ao mandar uma tela inteira,
+/// o que interessa é a máquina toda, menos o Discord (ADR-0025).
+#[derive(Debug, Clone, Copy)]
+pub enum AudioTarget {
+    SystemExceptDiscord,
+    /// A árvore do processo dono da janela compartilhada.
+    Window(u32),
+}
+
+/// The process behind a window, from the `HWND` that libwebrtc uses as source id.
+pub fn window_owner_pid(hwnd: u64) -> Option<u32> {
+    let mut pid = 0u32;
+    let thread = unsafe {
+        GetWindowThreadProcessId(
+            windows::Win32::Foundation::HWND(hwnd as *mut std::ffi::c_void),
+            Some(&mut pid),
+        )
+    };
+    // Thread 0 quer dizer que a janela nao existe mais — entre listar e
+    // compartilhar cabe um fechamento.
+    (thread != 0 && pid != 0).then_some(pid)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -108,7 +142,10 @@ impl AudioCapture {
 /// comes back over a channel because it is only known after activation, and the
 /// interface has to state it before the user starts talking over a stream that
 /// is carrying everyone's voice back to them.
-pub fn start(sink: NativeAudioSource) -> Result<(AudioCapture, AudioMode), AudioError> {
+pub fn start(
+    sink: NativeAudioSource,
+    target: AudioTarget,
+) -> Result<(AudioCapture, AudioMode), AudioError> {
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = Arc::clone(&stop);
     let (ready_tx, ready_rx) = mpsc::channel::<Result<AudioMode, AudioError>>();
@@ -141,7 +178,7 @@ pub fn start(sink: NativeAudioSource) -> Result<(AudioCapture, AudioMode), Audio
 
     let thread = std::thread::Builder::new()
         .name("ldktela-audio".into())
-        .spawn(move || run(&thread_stop, &ready_tx, &frames_tx))
+        .spawn(move || run(&thread_stop, &ready_tx, &frames_tx, target))
         .map_err(|_| AudioError::Timeout)?;
 
     match ready_rx.recv_timeout(Duration::from_secs(5)) {
@@ -169,6 +206,7 @@ fn run(
     stop: &AtomicBool,
     ready: &mpsc::Sender<Result<AudioMode, AudioError>>,
     frames: &tokio::sync::mpsc::Sender<Vec<i16>>,
+    target: AudioTarget,
 ) {
     // MTA: `ActivateAudioInterfaceAsync` completes on a pool thread, and an STA
     // would need a message pump for that to ever arrive.
@@ -183,7 +221,7 @@ fn run(
     // Todo objeto COM vive dentro deste escopo. Soltar uma interface DEPOIS de
     // `CoUninitialize` e comportamento indefinido.
     {
-        let opened = match open_client() {
+        let opened = match open_client(target) {
             Ok(opened) => opened,
             Err(error) => {
                 let _ = ready.send(Err(error));
@@ -219,12 +257,38 @@ impl Drop for Opened {
     }
 }
 
+/// Opens the capture the target asks for, degrading one step at a time.
+fn open_client(target: AudioTarget) -> Result<Opened, AudioError> {
+    match target {
+        AudioTarget::Window(pid) => match open_process_loopback(
+            pid,
+            PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE,
+            AudioMode::OnlyWindow,
+        ) {
+            Ok(opened) => Ok(opened),
+            Err(error) => {
+                // Cai para o caminho de sempre, e nao para o sistema inteiro: a
+                // diferenca entre os dois e o Discord de todo mundo voltando
+                // para todo mundo. O modo relatado muda junto, e a interface
+                // volta a silenciar as telas alheias (ADR-0028).
+                eprintln!("audio: so a janela indisponivel ({error}), excluindo o Discord");
+                open_system_except_discord()
+            }
+        },
+        AudioTarget::SystemExceptDiscord => open_system_except_discord(),
+    }
+}
+
 /// Process loopback if Discord is running, whole-system loopback otherwise.
-fn open_client() -> Result<Opened, AudioError> {
+fn open_system_except_discord() -> Result<Opened, AudioError> {
     let Some(pid) = discord_root_pid() else {
         return open_whole_system();
     };
-    match open_process_loopback(pid) {
+    match open_process_loopback(
+        pid,
+        PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
+        AudioMode::ExcludingDiscord,
+    ) {
         Ok(opened) => Ok(opened),
         Err(error) => {
             // RF-30: cair para o sistema inteiro e melhor do que nao ter audio,
@@ -275,7 +339,11 @@ impl IActivateAudioInterfaceCompletionHandler_Impl for Completion_Impl {
     }
 }
 
-fn open_process_loopback(pid: u32) -> Result<Opened, AudioError> {
+fn open_process_loopback(
+    pid: u32,
+    loopback_mode: PROCESS_LOOPBACK_MODE,
+    mode: AudioMode,
+) -> Result<Opened, AudioError> {
     // O blob vai em memoria do COM, e nao na pilha, porque o `mmdevapi` limpa o
     // PROPVARIANT que recebe — e limpar um VT_BLOB e `CoTaskMemFree(pBlobData)`.
     //
@@ -297,7 +365,7 @@ fn open_process_loopback(pid: u32) -> Result<Opened, AudioError> {
             Anonymous: AUDIOCLIENT_ACTIVATION_PARAMS_0 {
                 ProcessLoopbackParams: AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS {
                     TargetProcessId: pid,
-                    ProcessLoopbackMode: PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
+                    ProcessLoopbackMode: loopback_mode,
                 },
             },
         });
@@ -362,7 +430,7 @@ fn open_process_loopback(pid: u32) -> Result<Opened, AudioError> {
     Ok(Opened {
         client,
         tick: Some(tick),
-        mode: AudioMode::ExcludingDiscord,
+        mode,
     })
 }
 
@@ -554,12 +622,22 @@ mod tests {
     /// what caught the `CoTaskMemAlloc` bug: COM activation, process loopback and
     /// the fallback are all invisible from the interface until someone complains
     /// they can hear themselves.
+    /// Issue #11: sem o dono da janela nao ha o que incluir, e a captura teria
+    /// de cair no caminho de sempre. Um `HWND` que nao existe precisa dizer
+    /// isso, em vez de devolver um processo qualquer.
+    #[test]
+    fn a_window_that_does_not_exist_has_no_owner() {
+        assert_eq!(window_owner_pid(0), None);
+        assert_eq!(window_owner_pid(u64::from(u32::MAX)), None);
+    }
+
     #[tokio::test]
     #[ignore]
     async fn wasapi_delivers_samples() {
         let sink =
             NativeAudioSource::new(AudioSourceOptions::default(), SAMPLE_RATE, CHANNELS, 1_000);
-        let (capture, mode) = start(sink).expect("a captura de audio deve iniciar");
+        let (capture, mode) =
+            start(sink, AudioTarget::SystemExceptDiscord).expect("a captura de audio deve iniciar");
         println!("modo de captura: {mode:?}");
         if mode == AudioMode::WholeSystem {
             println!("  (nenhum Discord rodando: nada a excluir, RF-30)");

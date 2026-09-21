@@ -226,9 +226,19 @@ export function SharePicker({ loadSources, loadThumbnail, onCancel, onConfirm }:
             describedBy="share-audio-hint"
           />
           <Hint id="share-audio-hint">
-            Sai tudo o que o computador estiver tocando, <strong>menos o Discord</strong>. A voz das
-            outras pessoas não volta para elas. Enquanto você transmite com áudio, o som das telas
-            dos outros fica mudo aqui — senão ele seria capturado junto e reenviado.
+            {chosen?.kind === 'window' ? (
+              <>
+                Sai <strong>só o som desta janela</strong>. Nada mais do que o computador estiver
+                tocando vai junto, e por isso você continua ouvindo as telas dos outros normalmente.
+              </>
+            ) : (
+              <>
+                Sai tudo o que o computador estiver tocando, <strong>menos o Discord</strong>. A voz
+                das outras pessoas não volta para elas. Enquanto você transmite a tela inteira com
+                áudio, o som das telas dos outros fica mudo aqui — senão ele seria capturado junto e
+                reenviado.
+              </>
+            )}
           </Hint>
         </div>
       </div>

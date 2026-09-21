@@ -21,7 +21,7 @@ export interface ShareSource {
 }
 
 /** Which of the two capture modes the core actually got (RF-30). */
-export type AudioMode = 'excluding_discord' | 'whole_system';
+export type AudioMode = 'excluding_discord' | 'only_window' | 'whole_system';
 
 export interface StartedShare {
   /** `null` when sharing without audio. */

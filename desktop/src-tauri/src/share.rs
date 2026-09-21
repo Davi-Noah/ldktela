@@ -44,6 +44,7 @@ pub struct StartedShare {
 #[serde(rename_all = "snake_case")]
 pub enum AudioModeReport {
     ExcludingDiscord,
+    OnlyWindow,
     WholeSystem,
 }
 
@@ -201,7 +202,7 @@ pub async fn share_start(
         }
     };
 
-    let audio = start_audio(&publisher);
+    let audio = start_audio(&publisher, request.kind, source_id);
 
     *active = Some(Active {
         publisher,
@@ -265,14 +266,17 @@ pub async fn share_stop(state: State<'_, Sharing>) -> Result<(), ShareFailure> {
 #[cfg(target_os = "windows")]
 fn start_audio(
     publisher: &Publisher,
+    kind: SourceKind,
+    source_id: u64,
 ) -> (Option<crate::audio::AudioCapture>, Option<AudioModeReport>) {
     let Some(sink) = publisher.audio_sink() else {
         return (None, None);
     };
-    match crate::audio::start(sink) {
+    match crate::audio::start(sink, audio_target(kind, source_id)) {
         Ok((capture, mode)) => {
             let report = match mode {
                 crate::audio::AudioMode::ExcludingDiscord => AudioModeReport::ExcludingDiscord,
+                crate::audio::AudioMode::OnlyWindow => AudioModeReport::OnlyWindow,
                 crate::audio::AudioMode::WholeSystem => AudioModeReport::WholeSystem,
             };
             (Some(capture), Some(report))
@@ -286,8 +290,29 @@ fn start_audio(
     }
 }
 
+/// Sharing a window carries that window's sound, and nothing else (issue #11).
+///
+/// Uma tela inteira nao tem dono: o que se ve nela e a maquina toda, entao o que
+/// sai e a maquina toda menos o Discord (ADR-0025). Uma janela tem — e capturar
+/// so a arvore dela e o que dispensa silenciar as telas alheias aqui (ADR-0028).
+/// Janela que sumiu entre listar e compartilhar cai no caminho de sempre.
+#[cfg(target_os = "windows")]
+fn audio_target(kind: SourceKind, source_id: u64) -> crate::audio::AudioTarget {
+    match kind {
+        SourceKind::Window => crate::audio::window_owner_pid(source_id)
+            .map_or(crate::audio::AudioTarget::SystemExceptDiscord, |pid| {
+                crate::audio::AudioTarget::Window(pid)
+            }),
+        SourceKind::Screen => crate::audio::AudioTarget::SystemExceptDiscord,
+    }
+}
+
 #[cfg(not(target_os = "windows"))]
-fn start_audio(_publisher: &Publisher) -> ((), Option<AudioModeReport>) {
+fn start_audio(
+    _publisher: &Publisher,
+    _kind: SourceKind,
+    _source_id: u64,
+) -> ((), Option<AudioModeReport>) {
     ((), None)
 }
 

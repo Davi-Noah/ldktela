@@ -79,7 +79,7 @@ certas.
 | [0025](0025-audio-exclui-o-discord.md) | O áudio do sistema exclui a árvore do Discord | Aceito |
 | [0026](0026-publicacao-no-rust-nativo.md) | A publicação vai para o core Rust; o WebView só assiste | Aceito |
 | [0027](0027-publicador-e-um-segundo-participante.md) | Quem publica entra na sala como um segundo participante | Aceito |
-| [0028](0028-silenciar-telas-alheias-ao-transmitir-audio.md) | Quem transmite áudio não ouve o áudio das outras telas | Aceito |
+| [0028](0028-silenciar-telas-alheias-ao-transmitir-audio.md) | Quem transmite áudio não ouve o áudio das outras telas | Aceito; restringido em 2026-09-20 |
 | [0029](0029-link-profundo-espera-uma-pagina-https.md) | O link profundo espera uma página https; o esquema não basta | Aceito |
 | [0030](0030-preview-da-propria-tela-e-local.md) | O preview da própria tela é local, nunca pelo SFU | Aceito |
 | [0031](0031-navegacao-nao-assina-video.md) | Nenhum elemento de navegação assina vídeo | Aceito |
