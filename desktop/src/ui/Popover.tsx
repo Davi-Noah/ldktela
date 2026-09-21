@@ -7,6 +7,11 @@ interface PopoverProps {
   label: string;
   children: (close: () => void) => ReactNode;
   align?: 'left' | 'right';
+  /**
+   * `group` para conteúdo que só informa. Um `menu` promete itens acionáveis a
+   * quem navega por leitor de tela, e uma lista de nomes não tem nenhum.
+   */
+  role?: 'menu' | 'group';
 }
 
 /**
@@ -18,7 +23,7 @@ interface PopoverProps {
  * Enquanto está aberto, **segura o cromo**: sem isso o temporizador de
  * ociosidade esconderia a barra por baixo do próprio menu que o usuário abriu.
  */
-export function Popover({ icon, label, children, align = 'right' }: PopoverProps) {
+export function Popover({ icon, label, children, align = 'right', role = 'menu' }: PopoverProps) {
   const [open, setOpen] = useState(false);
   const holdChrome = useUiStore((state) => state.holdChrome);
   const anchor = useRef<HTMLDivElement>(null);
@@ -68,7 +73,8 @@ export function Popover({ icon, label, children, align = 'right' }: PopoverProps
       {open && (
         <div
           id={id}
-          role="menu"
+          role={role}
+          aria-label={role === 'group' ? label : undefined}
           // `w-max`: um bloco `absolute` dentro de um âncora de 34 px calcula a
           // própria largura a partir desses 34 px, trava no `min-w-44`, e o
           // rótulo — que é o que trunca — perde para a dica ao lado: o menu de

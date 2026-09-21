@@ -1,6 +1,8 @@
+import type { RoomParticipant } from '../../api/types/RoomParticipant';
 import { media } from '../../app/runtime';
-import { PUBLISH_PRESETS, SELF_ID, useMediaStore, visibleTiles } from '../../store/media';
+import { ownerOf, PUBLISH_PRESETS, SELF_ID, useMediaStore, visibleTiles } from '../../store/media';
 import { useRoomStore } from '../../store/room';
+import { useSessionStore } from '../../store/session';
 import { useUiStore } from '../../store/ui';
 import { Avatar } from '../../ui/Avatar';
 import { Button } from '../../ui/Button';
@@ -152,6 +154,8 @@ export function RoomChrome({ onShare, onStop, onToggleFullscreen, fullscreen }: 
             <FocusSwitcher tiles={tiles} focused={focused} />
           )}
 
+          <People />
+
           <IconButton
             icon={fullscreen ? 'exit-fullscreen' : 'fullscreen'}
             label={fullscreen ? 'Sair da tela cheia (Esc)' : 'Tela cheia (F)'}
@@ -221,4 +225,96 @@ function connectionLabel(state: string): string {
     default:
       return state;
   }
+}
+
+/**
+ * Quem está na sala, e quem está vendo a sua tela (issue #10).
+ *
+ * Com alguém transmitindo, o corpo da sala dá lugar ao vídeo e a lista de
+ * pessoas some junto — some justamente quando ela importa, porque é aí que se
+ * quer saber quem chegou, quem saiu e quem está do outro lado da sua tela.
+ *
+ * Fica num popover, e não fixa no cromo: painel permanente disputando espaço com
+ * a imagem é exatamente o que a direção visual proíbe (CLAUDE.md §8).
+ */
+function People() {
+  const participantIds = useRoomStore((state) => state.participantIds);
+  const participants = useRoomStore((state) => state.participants);
+  const publishing = useMediaStore((state) => state.publishing);
+  const viewerIds = useMediaStore((state) => state.viewerIds);
+  const me = useSessionStore((state) => state.user?.discord_user_id ?? null);
+
+  // As conexões de quem publica já foram descartadas na origem; o `ownerOf`
+  // aqui é o que sobra de um `~pub` que tenha escapado, e o `Set` evita alguém
+  // aparecer duas vezes por ter duas conexões (ADR-0027).
+  const watching = [...new Set(viewerIds.map(ownerOf))];
+
+  return (
+    <Popover icon="people" label={`Quem está aqui (${participantIds.length})`} role="group">
+      {() => (
+        <>
+          <MenuLabel>Na sala</MenuLabel>
+          <ul className="max-h-56 overflow-y-auto">
+            {participantIds.map((id) => {
+              const participant = participants[id];
+              if (participant === undefined) {
+                return null;
+              }
+              return (
+                <li key={id} className="flex items-center gap-2 px-2 py-1">
+                  <Avatar
+                    url={participant.user.avatar_url}
+                    name={participant.user.username}
+                    size={20}
+                  />
+                  <span className="truncate text-text">{nameOf(participants, id)}</span>
+                  {id === me && <span className="text-text-faint">você</span>}
+                  {participant.publishing && (
+                    <span className="ml-auto flex items-center gap-1 pl-2 text-danger">
+                      <Icon name="dot" size={10} />
+                      transmitindo
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+
+          {publishing && (
+            <>
+              <MenuLabel>Vendo a sua tela</MenuLabel>
+              {watching.length === 0 ? (
+                <p className="px-2 pb-1 text-text-muted">Ninguém ainda.</p>
+              ) : (
+                <ul aria-label="Vendo a sua tela" className="max-h-40 overflow-y-auto">
+                  {watching.map((id) => (
+                    <li key={id} className="flex items-center gap-2 px-2 py-1">
+                      <Avatar
+                        url={participants[id]?.user.avatar_url ?? null}
+                        name={participants[id]?.user.username ?? '?'}
+                        size={20}
+                      />
+                      <span className="truncate text-text">{nameOf(participants, id)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+
+          {/* A sala é o canal de voz do Discord, mas esta lista vem da nossa
+              presença: quem está no canal sem o ldktela aberto não aparece, e
+              deixar isso implícito faria a lista parecer errada. */}
+          <p className="max-w-56 px-2 pb-1 pt-1.5 text-xs text-text-faint">
+            Quem está no canal de voz sem o ldktela aberto não aparece aqui.
+          </p>
+        </>
+      )}
+    </Popover>
+  );
+}
+
+function nameOf(participants: Record<string, RoomParticipant>, id: string): string {
+  const user = participants[id]?.user;
+  return user?.display_name ?? user?.username ?? 'Alguém';
 }

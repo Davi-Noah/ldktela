@@ -629,3 +629,8 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   baixo — trocar de fonte não é renegociável no lugar, como já valia para o preset —, mas o botão
   novo no cromo e o seletor com rótulo de troca tiram esse trabalho do usuário.
 
+- **[S7] Quem está na sala cabe num popover, não num painel (issue #10).** Com vídeo na tela, a
+  lista de pessoas do corpo da sala some justamente quando importa. Ela volta como popover no
+  cromo, com quem está na sala e quem está vendo a própria tela, e diz em uma linha que quem não
+  abriu o ldktela não aparece — a presença é nossa, não a do canal de voz.
+
