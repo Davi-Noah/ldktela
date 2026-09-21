@@ -22,7 +22,8 @@ interface Props {
   focused: boolean;
   /** Hidden rather than unmounted: hiding is what stops adaptiveStream pulling
       a layer, and unmounting would tear the decoder down (RF-32, ADR-0031). */
-  hidden: boolean;
+  /** Onde este ladrilho cai no layout: a grade, a tela em foco ou a coluna lateral. */
+  role: 'grid' | 'main' | 'rail';
   detached: boolean;
   onFocus: () => void;
   onDetach: () => void;
@@ -57,7 +58,7 @@ export function ScreenTile({
   identity,
   owner,
   focused,
-  hidden,
+  role,
   detached,
   onFocus,
   onDetach,
@@ -147,12 +148,15 @@ export function ScreenTile({
       // Âncora do ladrilho: é por aqui que a grade acha a mídia para destacar,
       // sem passar por uma ref que o React controla.
       data-screen={identity}
-      hidden={hidden}
-      className={
-        focused
-          ? 'group absolute inset-0 z-10 bg-stage'
-          : 'group relative min-h-0 overflow-hidden rounded-panel border border-line bg-stage'
-      }
+      // Posição e tamanho são do CSS, por este papel (issue #7). O ladrilho em
+      // foco deixou de ser `absolute inset-0`: com as outras telas ao lado, ele
+      // é uma célula da grade como as demais, só que maior.
+      data-role={role}
+      className={`group relative min-h-0 overflow-hidden bg-stage ${
+        role === 'main'
+          ? 'rounded-panel border border-accent/40'
+          : 'rounded-panel border border-line'
+      }`}
     >
       <div
         // O que a janela destacada leva embora é ESTE elemento, e não a seção
@@ -214,7 +218,15 @@ export function ScreenTile({
           `px-2 pt-2` em vez de `p-2`, para não depender da ordem em que o
           Tailwind emite `padding` e `padding-bottom` no arquivo final — quem
           perde essa corrida devolve o crachá para baixo da pílula. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-linear-to-t from-scrim to-transparent px-2 pt-2 pb-16">
+      <div
+        // `pb-16` só onde a pílula de controles passa: ela é centralizada na
+        // base da janela, e sem esse respiro caía em cima do crachá e dos
+        // botões. Na coluna lateral ela não passa, e o mesmo respiro deixava o
+        // crachá boiando no meio do ladrilho (issue #7).
+        className={`pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-linear-to-t from-scrim to-transparent px-2 pt-2 ${
+          role === 'rail' ? 'pb-2' : 'pb-16'
+        }`}
+      >
         <div className="flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-1/80 px-2 py-1">
           {isSelf ? (
             <span className="shrink-0 text-danger">

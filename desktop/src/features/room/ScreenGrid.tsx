@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { type CSSProperties, useCallback, useEffect, useRef } from 'react';
 import { detach, type DetachedWindow } from '../../media/pip';
 import { SELF_ID, useMediaStore, visibleTiles } from '../../store/media';
 import { useRoomStore } from '../../store/room';
@@ -26,7 +26,9 @@ export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
   const participants = useRoomStore((state) => state.participants);
   const selfId = useSessionStore((state) => state.user?.id);
   const showSelfPreview = useUiStore((state) => state.showSelfPreview);
+  const railWidth = useUiStore((state) => state.railWidth);
   const detachedWindow = useRef<DetachedWindow | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
 
   const tiles = visibleTiles(screenOrder, publishing, showSelfPreview);
 
@@ -80,7 +82,19 @@ export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
   }
 
   return (
-    <div className="screen-grid" data-count={Math.min(tiles.length, 6)}>
+    <div
+      ref={gridRef}
+      className="relative screen-grid"
+      data-count={focused === null ? Math.min(tiles.length, 6) : tiles.length}
+      data-focus={focused === null ? 'false' : 'true'}
+      style={
+        {
+          '--rail-width': `${railWidth}%`,
+          '--rail-count': Math.max(1, tiles.length - 1),
+        } as CSSProperties
+      }
+    >
+      {focused !== null && tiles.length > 1 && <Split gridRef={gridRef} />}
       {tiles.map((identity) => (
         <ScreenTile
           key={identity}
@@ -90,7 +104,7 @@ export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
           // mesmo que os outros estão vendo (RF-34).
           owner={participants[identity === SELF_ID ? (selfId ?? '') : identity]}
           focused={focused === identity}
-          hidden={focused !== null && focused !== identity}
+          role={focused === null ? 'grid' : focused === identity ? 'main' : 'rail'}
           detached={detached === identity}
           onFocus={() => {
             useMediaStore.getState().focus(focused === identity ? null : identity);
@@ -102,5 +116,74 @@ export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
         />
       ))}
     </div>
+  );
+}
+
+/**
+ * Arrasta a divisão entre a tela em foco e a coluna lateral (issue #7).
+ *
+ * Durante o gesto, a largura vai direto para a variável CSS do elemento: passar
+ * por estado do React redesenharia a árvore do vídeo a cada movimento do
+ * ponteiro, que é exatamente o trabalho por quadro que CLAUDE.md §7 proíbe no
+ * caminho de render. O store só é escrito ao soltar, porque é ele que faz a
+ * escolha sobreviver a sair e voltar do foco.
+ */
+function Split({ gridRef }: { gridRef: React.RefObject<HTMLDivElement | null> }) {
+  const setRailWidth = useUiStore((state) => state.setRailWidth);
+  const railWidth = useUiStore((state) => state.railWidth);
+
+  const widthAt = (clientX: number): number | null => {
+    const grid = gridRef.current;
+    if (grid === null) {
+      return null;
+    }
+    const box = grid.getBoundingClientRect();
+    if (box.width === 0) {
+      return null;
+    }
+    return Math.min(45, Math.max(10, ((box.right - clientX) / box.width) * 100));
+  };
+
+  return (
+    <button
+      type="button"
+      className="screen-split z-20"
+      style={{ left: `calc(100% - ${railWidth}%)` }}
+      aria-label="Ajustar a largura da coluna lateral"
+      aria-valuenow={railWidth}
+      aria-valuemin={10}
+      aria-valuemax={45}
+      role="separator"
+      aria-orientation="vertical"
+      tabIndex={0}
+      onPointerDown={(event) => {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={(event) => {
+        if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+          return;
+        }
+        const width = widthAt(event.clientX);
+        if (width !== null) {
+          gridRef.current?.style.setProperty('--rail-width', `${width}%`);
+          event.currentTarget.style.left = `calc(100% - ${width}%)`;
+        }
+      }}
+      onPointerUp={(event) => {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        const width = widthAt(event.clientX);
+        if (width !== null) {
+          setRailWidth(width);
+        }
+      }}
+      // Sem teclado, a divisão seria inalcançável para quem não usa mouse.
+      onKeyDown={(event) => {
+        const step = event.key === 'ArrowLeft' ? 2 : event.key === 'ArrowRight' ? -2 : 0;
+        if (step !== 0) {
+          event.preventDefault();
+          setRailWidth(railWidth + step);
+        }
+      }}
+    />
   );
 }

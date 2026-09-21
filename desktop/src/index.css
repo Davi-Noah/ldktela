@@ -78,6 +78,73 @@ code,
 }
 
 /* ---------------------------------------------------------------------------
+   Foco parcial (issue #7): a tela escolhida grande, as outras numa coluna ao
+   lado, como a tela de cima e a de baixo de um emulador portatil.
+
+   Antes, focar escondia as demais (`hidden`), que num monitor so obrigava a
+   escolher entre ver bem uma coisa e nao perder a outra de vista.
+
+   As linhas da coluna sao implicitas: cada ladrilho lateral cria a sua, todas
+   `1fr`. A principal atravessa todas por `span var(--rail-count)`, e nao por
+   `1 / -1`: o `-1` conta a partir da ultima linha da grade EXPLICITA, que aqui
+   nao existe, entao a tela em foco ficava presa na primeira linha com metade da
+   janela vazia embaixo. Visto em captura, nao deduzido.
+
+   A divisao vem de `--rail-width`, que o arraste escreve direto no elemento —
+   nao por estado do React, que redesenharia a arvore a cada quadro do gesto
+   (CLAUDE.md 7).
+   --------------------------------------------------------------------------- */
+.screen-grid[data-focus='true'] {
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--rail-width, 24%));
+  grid-auto-rows: minmax(0, 1fr);
+}
+
+.screen-grid[data-focus='true'] > [data-role='main'] {
+  grid-column: 1;
+  grid-row: 1 / span var(--rail-count, 1);
+}
+
+.screen-grid[data-focus='true'] > [data-role='rail'] {
+  grid-column: 2;
+}
+
+/* Uma tela sozinha em foco nao tem lateral: a coluna deixa de existir para a
+   imagem ocupar a janela inteira, que e o que focar quer dizer ali. */
+.screen-grid[data-focus='true'][data-count='1'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* A alca de arraste mora entre as duas colunas, fora do fluxo da grade: como
+   filha direta, ela viraria mais um ladrilho e empurraria a coluna. */
+.screen-split {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0.75rem;
+  transform: translateX(-50%);
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.screen-split::after {
+  content: '';
+  position: absolute;
+  inset: 25% 45%;
+  border-radius: 999px;
+  background: var(--color-line-soft);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.screen-split:hover::after,
+.screen-split:focus-visible::after {
+  opacity: 1;
+}
+
+/* ---------------------------------------------------------------------------
    Controle de intervalo (volume). Nativo, mas inteiramente nosso: o
    `accent-color` sozinho deixa o trilho com a cara do Windows.
    --------------------------------------------------------------------------- */

@@ -51,3 +51,17 @@ describe('travamento do cromo', () => {
     expect(useUiStore.getState().chromeHolds).toBe(0);
   });
 });
+
+describe('a largura da lateral do foco parcial (issue #7)', () => {
+  it('não deixa a lateral sumir nem engolir a tela em foco', () => {
+    const store = useUiStore.getState();
+    store.setRailWidth(0);
+    expect(useUiStore.getState().railWidth).toBe(10);
+
+    store.setRailWidth(90);
+    expect(useUiStore.getState().railWidth).toBe(45);
+
+    store.setRailWidth(33.4);
+    expect(useUiStore.getState().railWidth).toBe(33);
+  });
+});

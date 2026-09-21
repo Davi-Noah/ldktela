@@ -634,3 +634,18 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   cromo, com quem está na sala e quem está vendo a própria tela, e diz em uma linha que quem não
   abriu o ldktela não aparece — a presença é nossa, não a do canal de voz.
 
+- **[S7] Focar uma tela não esconde mais as outras (issue #7).** O foco virou **parcial**: a tela
+  escolhida ocupa a área principal e as demais ficam numa coluna lateral, com a divisão arrastável
+  (10% a 45%). Quem tem um monitor só não precisa mais escolher entre ver bem uma coisa e não
+  perder a outra de vista.
+  - A tela em foco atravessa as linhas por `span var(--rail-count)`, e **não** por `1 / -1`: o
+    `-1` conta a partir da grade explícita, que aqui não existe, e a tela ficava presa na primeira
+    linha com metade da janela vazia. Encontrado por captura de tela, não por leitura.
+  - O arraste escreve a largura direto na variável CSS do elemento e só grava no store ao soltar:
+    estado do React a cada movimento do ponteiro é trabalho por quadro no caminho do vídeo
+    (CLAUDE.md §7).
+  - **Custo assumido:** antes, focar deixava as outras telas ocultas, e `adaptiveStream` parava de
+    baixar os quadros delas. Agora elas ficam visíveis e pequenas — camada baixa, mas chegando.
+    Quem quiser o comportamento antigo sai da tela ([ADR-0036](adr/0036-assinar-uma-tela-e-escolha-de-quem-assiste.md)),
+    que é a recusa de verdade.
+

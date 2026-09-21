@@ -34,6 +34,12 @@ interface UiState {
   chromeHolds: number;
   /** RF-31 e ADR-0030: ver, ou não, a própria tela na grade. */
   showSelfPreview: boolean;
+  /**
+   * Quanto da largura, em porcentagem, a coluna lateral do foco parcial ocupa
+   * (issue #7). Quem vê duas telas num monitor só divide espaço, e onde dividir
+   * depende do que está assistindo — jogo e chat não pedem a mesma proporção.
+   */
+  railWidth: number;
 }
 
 interface UiStore extends UiState {
@@ -41,6 +47,7 @@ interface UiStore extends UiState {
   dismiss: (id: number) => void;
   holdChrome: () => () => void;
   setShowSelfPreview: (show: boolean) => void;
+  setRailWidth: (percent: number) => void;
 }
 
 let nextId = 1;
@@ -49,6 +56,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
   toasts: [],
   chromeHolds: 0,
   showSelfPreview: true,
+  railWidth: 24,
 
   toast: (tone, text) => {
     // Mesma mensagem duas vezes seguidas é uma mensagem, não duas: uma queda de
@@ -83,5 +91,11 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 
   setShowSelfPreview: (showSelfPreview) => {
     set({ showSelfPreview });
+  },
+
+  setRailWidth: (percent) => {
+    // Os limites não são estéticos: abaixo de 10% a lateral não mostra nada
+    // reconhecível, e acima de 45% a tela em foco deixa de ser o foco.
+    set({ railWidth: Math.min(45, Math.max(10, Math.round(percent))) });
   },
 }));
