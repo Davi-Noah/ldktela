@@ -259,6 +259,21 @@ export class MediaSession {
     }
   }
 
+  /**
+   * Switches source, audio or preset without the user stopping first (issue #9).
+   *
+   * Parar e recomeçar continua sendo o que acontece por baixo — a trilha é
+   * substituída, e trocar de fonte não é renegociável no lugar (ver
+   * `changePreset`). O que muda é de quem é o trabalho: quem quer passar da tela
+   * 1 para a 2 não precisa mais parar, reabrir o seletor e começar de novo.
+   */
+  async switchShare(choice: ShareChoice, preset: PublishPreset): Promise<void> {
+    if (this.sharing !== null) {
+      await this.stopShare();
+    }
+    await this.startShare(choice, preset);
+  }
+
   async stopShare(): Promise<void> {
     if (this.sharing === null) {
       return;

@@ -90,6 +90,15 @@ export function RoomChrome({ onShare, onStop, onToggleFullscreen, fullscreen }: 
               <Button variant="danger" icon="stop" onClick={onStop} className="rounded-pill px-3">
                 Parar
               </Button>
+              {/* Trocar de tela, de janela ou o áudio sem parar antes (issue
+                  #9). Por baixo a trilha é substituída, como na troca de
+                  qualidade; por isso a dica avisa que a imagem reinicia. */}
+              <IconButton
+                icon="monitor"
+                label="Trocar o que você envia (reinicia)"
+                onClick={onShare}
+                disabled={starting}
+              />
               <Popover icon="gear" label="Ajustes da sua transmissão">
                 {(close) => (
                   <>

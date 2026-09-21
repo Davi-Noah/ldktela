@@ -619,3 +619,13 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   `DESTRAVAR.md` foram ajustados. As decisões, os números e o raciocínio técnico não mudaram — só
   o que descrevia *onde* o produto é usado, que não é decisão de arquitetura. Os textos anteriores
   estão no histórico do git; 0013 e 0020 carregam uma nota de revisão.
+
+- **[S7] O som do computador vem ligado, e desligar dura a sessão (issue #8).** Compartilhar tela
+  sem som surpreendia: quem assiste avisa que não há áudio e quem transmite não sabe onde procurar.
+  A preferência mora no store, ao lado do preset, para que desligar valha para as transmissões
+  seguintes — religar sozinho mandaria áudio que a pessoa já tinha decidido não mandar.
+
+- **[S7] Trocar a fonte não exige parar antes (issue #9).** `switchShare` para e recomeça por
+  baixo — trocar de fonte não é renegociável no lugar, como já valia para o preset —, mas o botão
+  novo no cromo e o seletor com rótulo de troca tiram esse trabalho do usuário.
+

@@ -179,7 +179,7 @@ export function RoomScreen() {
 
   const onConfirmShare = useCallback((choice: ShareChoice, preset: PublishPreset) => {
     setPicker(false);
-    void media.startShare(choice, preset);
+    void media.switchShare(choice, preset);
   }, []);
 
   const loadSources = useCallback(() => media.listSources(), []);
