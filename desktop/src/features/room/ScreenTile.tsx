@@ -9,6 +9,7 @@ import {
   useMediaStore,
 } from '../../store/media';
 import { useUiStore } from '../../store/ui';
+import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
 import { IconButton } from '../../ui/IconButton';
 import { MenuItem, MenuLabel, Popover } from '../../ui/Popover';
@@ -68,6 +69,7 @@ export function ScreenTile({
   const screen = useMediaStore((state) => state.screens[identity]);
   const sharingTitle = useMediaStore((state) => state.sharingTitle);
   const silenced = useMediaStore(shouldSilenceOtherScreens);
+  const left = screen?.subscribed === false;
   const setShowSelfPreview = useUiStore((state) => state.setShowSelfPreview);
 
   useEffect(() => {
@@ -185,6 +187,22 @@ export function ScreenTile({
         </p>
       )}
 
+      {left && (
+        // O ladrilho fica, vazio, porque é daqui que se volta (issue #6). Nada
+        // desta tela está chegando enquanto este aviso estiver no lugar.
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-stage px-4 text-center">
+          <p className="text-text-muted">Você saiu da tela de {name}.</p>
+          <Button
+            icon="eye"
+            onClick={() => {
+              media.setScreenSubscribed(identity, true);
+            }}
+          >
+            Entrar de novo
+          </Button>
+        </div>
+      )}
+
       {/* Crachá permanente: quem é a tela precisa ser legível sem gesto
           nenhum (RF-34). O que some no repouso são os controles.
 
@@ -211,7 +229,7 @@ export function ScreenTile({
         </div>
 
         <Controls>
-          {!isSelf && screen?.hasAudio === true && (
+          {!isSelf && !left && screen?.hasAudio === true && (
             <VolumeControl
               identity={identity}
               name={name}
@@ -229,7 +247,7 @@ export function ScreenTile({
                 setShowSelfPreview(false);
               }}
             />
-          ) : (
+          ) : left ? null : (
             <Popover icon="gear" label={`Qualidade da tela de ${name}`}>
               {(close) => (
                 <>
@@ -252,13 +270,31 @@ export function ScreenTile({
             </Popover>
           )}
 
-          <IconButton
-            tipAlign="end"
-            icon="detach"
-            label={detached ? 'Trazer de volta' : 'Destacar em outra janela'}
-            aria-pressed={detached}
-            onClick={onDetach}
-          />
+          {!isSelf && !left && (
+            <IconButton
+              tipAlign="end"
+              icon="eye-off"
+              label={`Sair da tela de ${name}`}
+              onClick={() => {
+                // Sair de uma tela em foco devolve à grade: continuar em foco
+                // seria encarar um aviso em tela cheia.
+                if (focused) {
+                  useMediaStore.getState().focus(null);
+                }
+                media.setScreenSubscribed(identity, false);
+              }}
+            />
+          )}
+
+          {!left && (
+            <IconButton
+              tipAlign="end"
+              icon="detach"
+              label={detached ? 'Trazer de volta' : 'Destacar em outra janela'}
+              aria-pressed={detached}
+              onClick={onDetach}
+            />
+          )}
 
           <IconButton
             tipAlign="end"

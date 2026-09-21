@@ -312,6 +312,35 @@ export class MediaSession {
     this.applyAudioPolicy();
   }
 
+  /**
+   * Leaves or re-enters one person's screen (issue #6, ADR-0036).
+   *
+   * Sair é deixar de assinar de verdade, e não esconder o ladrilho: o que custa
+   * banda e decodificação é a trilha chegando, então escondê-la não devolveria
+   * nada a quem saiu. O ladrilho fica, sem trilha, porque é dele que se volta.
+   */
+  setScreenSubscribed(owner: string, subscribed: boolean): void {
+    useMediaStore.getState().setScreenSubscribed(owner, subscribed);
+    const room = this.room;
+    if (room === null) {
+      return;
+    }
+    for (const participant of room.remoteParticipants.values()) {
+      if (ownerOf(participant.identity) !== owner) {
+        continue;
+      }
+      for (const publication of participant.trackPublications.values()) {
+        if (
+          publication.source === Track.Source.ScreenShare ||
+          publication.source === Track.Source.ScreenShareAudio
+        ) {
+          publication.setSubscribed(subscribed);
+        }
+      }
+    }
+    log.info(subscribed ? 'sala: entrei numa tela' : 'sala: saí de uma tela', { de: owner });
+  }
+
   setQuality(owner: string, choice: QualityChoice): void {
     useMediaStore.getState().setQuality(owner, choice);
     const publication = this.remotes.get(owner)?.publication;
@@ -393,6 +422,15 @@ export class MediaSession {
     });
     room.on(RoomEvent.TrackUnsubscribed, (_track, publication, participant) => {
       this.dropPublication(publication, participant);
+    });
+    room.on(RoomEvent.TrackUnpublished, (publication, participant) => {
+      // Quem parou de transmitir leva o ladrilho junto, inclusive o de quem
+      // tinha saído daquela tela: sem isto, sair de uma tela deixaria para
+      // sempre um convite para entrar numa transmissão que acabou.
+      if (publication.source === Track.Source.ScreenShare) {
+        this.forget(ownerOf(participant.identity));
+        this.syncViewers();
+      }
     });
     room.on(RoomEvent.ParticipantConnected, () => {
       this.syncViewers();
@@ -507,19 +545,18 @@ export class MediaSession {
   /** Everything belonging to one publisher is gone. */
   private forget(owner: string): void {
     const screen = this.remotes.get(owner);
-    if (screen === undefined) {
-      return;
+    if (screen !== undefined) {
+      if (screen.video !== null && screen.videoElement !== null) {
+        screen.video.detach(screen.videoElement);
+      }
+      if (screen.audio !== null && screen.audioElement !== null) {
+        screen.audio.detach(screen.audioElement);
+      }
+      this.remotes.delete(owner);
     }
-    if (screen.video !== null && screen.videoElement !== null) {
-      screen.video.detach(screen.videoElement);
-    }
-    if (screen.audio !== null && screen.audioElement !== null) {
-      screen.audio.detach(screen.audioElement);
-    }
-    this.remotes.delete(owner);
-    const store = useMediaStore.getState();
-    store.removeScreen(owner, 'video');
-    store.removeScreen(owner, 'audio');
+    // `dropScreen`, e não `removeScreen`: o ladrilho de uma tela da qual se saiu
+    // sobrevive à perda das trilhas de propósito, e aqui a transmissão acabou.
+    useMediaStore.getState().dropScreen(owner);
   }
 
   private detachAll(): void {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  type MediaState,
   ownerOf,
   SELF_ID,
   shouldSilenceOtherScreens,
@@ -11,6 +12,12 @@ import {
 
 function fresh() {
   useMediaStore.getState().reset();
+  return useMediaStore.getState();
+}
+
+function leftScreen(state: MediaState, identity: string): MediaState {
+  useMediaStore.setState(state);
+  useMediaStore.getState().setScreenSubscribed(identity, false);
   return useMediaStore.getState();
 }
 
@@ -69,6 +76,30 @@ describe('screens', () => {
     const state = withTrack(fresh(), 'ana', 'video');
     expect(withTrack(state, 'ana', 'video')).toBe(state);
     expect(withoutTrack(state, 'quem-nao-existe', 'video')).toBe(state);
+  });
+});
+
+describe('entrar e sair de uma tela (issue #6)', () => {
+  it('mantém o ladrilho de quem eu deixei de ver, ou não haveria caminho de volta', () => {
+    let state = withTrack(fresh(), 'ana', 'video');
+    state = withTrack(state, 'ana', 'audio');
+    state = leftScreen(state, 'ana');
+    state = withoutTrack(state, 'ana', 'video');
+    state = withoutTrack(state, 'ana', 'audio');
+
+    expect(state.screens.ana?.subscribed).toBe(false);
+    expect(state.screens.ana?.hasVideo).toBe(false);
+    expect(state.screenOrder).toEqual(['ana']);
+  });
+
+  it('tira o ladrilho quando quem transmitia parou, e não quando eu saí', () => {
+    let state = withTrack(fresh(), 'ana', 'video');
+    state = withoutTrack(state, 'ana', 'video');
+    expect(state.screens.ana).toBeUndefined();
+  });
+
+  it('começa assinada: sair é uma escolha, e não o padrão', () => {
+    expect(withTrack(fresh(), 'ana', 'video').screens.ana?.subscribed).toBe(true);
   });
 });
 

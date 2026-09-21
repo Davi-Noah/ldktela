@@ -87,3 +87,4 @@ certas.
 | [0033](0033-o-pip-do-webview-sai.md) | O Picture-in-Picture do WebView sai; destacar é tudo ou nada | Aceito; gate substituído pelo 0034 |
 | [0034](0034-destacar-e-um-popup-do-mesmo-documento.md) | Destacar tela é um popup do mesmo documento, não Document PiP | Aceito |
 | [0035](0035-a-instancia-serve-servidores-nomeados.md) | A instância hospedada serve os servidores que ela nomeia | Aceito |
+| [0036](0036-assinar-uma-tela-e-escolha-de-quem-assiste.md) | Assinar uma tela é escolha de quem assiste | Aceito |

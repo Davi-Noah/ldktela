@@ -63,11 +63,18 @@ export interface ScreenState {
   /** 0 to 1. Independent per screen (RF-35) and kept across focus changes. */
   volume: number;
   quality: QualityChoice;
+  /**
+   * Whether this viewer wants this screen at all (ADR-0036, issue #6).
+   *
+   * `false` mantém o ladrilho sem trilha nenhuma: sem ele, sair de uma tela
+   * apagaria o único lugar de onde se pode voltar a entrar.
+   */
+  subscribed: boolean;
 }
 
 const DEFAULT_VOLUME = 1;
 
-interface MediaState {
+export interface MediaState {
   connection: MediaConnection;
   /** Preenchido junto com `connection: 'failed'`, e limpo em qualquer outra. */
   fault: MediaFault | null;
@@ -129,6 +136,9 @@ interface MediaStore extends MediaState {
   removeScreen: (identity: string, kind: 'video' | 'audio') => void;
   setVolume: (identity: string, volume: number) => void;
   setQuality: (identity: string, quality: QualityChoice) => void;
+  setScreenSubscribed: (identity: string, subscribed: boolean) => void;
+  /** Quem transmitia parou ou saiu: o ladrilho vai junto, tendo sido assinado ou não. */
+  dropScreen: (identity: string) => void;
   focus: (identity: string | null) => void;
   setDetached: (identity: string | null) => void;
   setViewerIds: (ids: string[]) => void;
@@ -161,6 +171,7 @@ function blank(identity: string): ScreenState {
     hasAudio: false,
     volume: DEFAULT_VOLUME,
     quality: 'auto',
+    subscribed: true,
   };
 }
 
@@ -209,7 +220,7 @@ export function withoutTrack(
     hasVideo: kind === 'video' ? false : existing.hasVideo,
     hasAudio: kind === 'audio' ? false : existing.hasAudio,
   };
-  if (updated.hasVideo || updated.hasAudio) {
+  if (updated.hasVideo || updated.hasAudio || !updated.subscribed) {
     return { ...state, screens: { ...state.screens, [identity]: updated } };
   }
   // Nada mais chegando desta pessoa: a tela sai, e o foco e o destaque saem com
@@ -285,6 +296,32 @@ export const useMediaStore = create<MediaStore>()((set) => ({
       return { screens: { ...state.screens, [identity]: { ...screen, quality } } };
     });
   },
+  setScreenSubscribed: (identity, subscribed) => {
+    set((state) => {
+      const screen = state.screens[identity];
+      if (screen === undefined) {
+        return state;
+      }
+      return { screens: { ...state.screens, [identity]: { ...screen, subscribed } } };
+    });
+  },
+
+  dropScreen: (identity) => {
+    set((state) => {
+      if (state.screens[identity] === undefined) {
+        return state;
+      }
+      const screens = { ...state.screens };
+      delete screens[identity];
+      return {
+        screens,
+        screenOrder: state.screenOrder.filter((id) => id !== identity),
+        focused: state.focused === identity ? null : state.focused,
+        detached: state.detached === identity ? null : state.detached,
+      };
+    });
+  },
+
   focus: (focused) => {
     set({ focused });
   },
