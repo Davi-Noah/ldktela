@@ -142,9 +142,23 @@ export function MenuItem({ children, selected = false, hint, onClick }: MenuItem
   );
 }
 
-export function MenuLabel({ children }: { children: ReactNode }) {
+export function MenuLabel({
+  children,
+  centered = false,
+}: {
+  children: ReactNode;
+  /**
+   * Centralizado no painel de pessoas, que é uma lista informativa. Nos menus de
+   * escolha o rótulo continua à esquerda, alinhado aos itens que ele encabeça.
+   */
+  centered?: boolean;
+}) {
   return (
-    <p className="px-2 pb-1 pt-1.5 text-xs font-semibold uppercase tracking-wide text-text-faint">
+    <p
+      className={`px-2 pb-1 pt-1.5 text-xs font-semibold uppercase tracking-wide text-text-faint ${
+        centered ? 'text-center' : ''
+      }`}
+    >
       {children}
     </p>
   );

@@ -290,7 +290,7 @@ function People() {
     >
       {() => (
         <>
-          <MenuLabel>Na sala</MenuLabel>
+          <MenuLabel centered>Na sala</MenuLabel>
           <ul className="max-h-56 overflow-y-auto">
             {participantIds.map((id) => {
               const participant = participants[id];
@@ -329,9 +329,9 @@ function People() {
 
           {publishing && (
             <>
-              <MenuLabel>Vendo a sua tela</MenuLabel>
+              <MenuLabel centered>Vendo a sua tela</MenuLabel>
               {watching.length === 0 ? (
-                <p className="px-2 pb-1 text-text-muted">Ninguém ainda.</p>
+                <p className="px-2 pb-1 text-center text-text-muted">Ninguém ainda.</p>
               ) : (
                 <ul aria-label="Vendo a sua tela" className="max-h-40 overflow-y-auto">
                   {watching.map((id) => (
@@ -352,7 +352,7 @@ function People() {
           {/* A sala é o canal de voz do Discord, mas esta lista vem da nossa
               presença: quem está no canal sem o ldktela aberto não aparece, e
               deixar isso implícito faria a lista parecer errada. */}
-          <p className="max-w-56 px-2 pb-1 pt-1.5 text-xs text-text-faint">
+          <p className="px-2 pb-1 pt-1.5 text-center text-xs text-text-faint">
             Quem está no canal de voz sem o ldktela aberto não aparece aqui.
           </p>
         </>
