@@ -99,7 +99,10 @@ export function RoomChrome({ onShare, onStop, onToggleFullscreen, fullscreen }: 
           // barra sumir debaixo do cursor. Quem lê este atributo é o `:hover` em
           // `RoomScreen`, e não um contador — ver o comentário de lá.
           data-chrome-hold
-          className="pointer-events-auto flex items-center gap-1 rounded-pill border border-line-soft bg-chrome p-1"
+          // `relative`: é esta pílula que o painel de pessoas usa para se
+          // centralizar, e é ela que muda de largura quando a transmissão
+          // começa ou termina (Popover, `align="bar"`).
+          className="pointer-events-auto relative flex items-center gap-1 rounded-pill border border-line-soft bg-chrome p-1"
         >
           {publishing ? (
             <>
@@ -283,6 +286,7 @@ function People() {
       label={`Quem está aqui (${participantIds.length})`}
       role="group"
       width="w-72"
+      align="bar"
     >
       {() => (
         <>

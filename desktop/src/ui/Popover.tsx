@@ -2,11 +2,23 @@ import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { Icon, type IconName } from './Icon';
 import { useUiStore } from '../store/ui';
 
+const ALIGNMENT: Record<'left' | 'right' | 'bar', string> = {
+  left: 'left-0',
+  right: 'right-0',
+  bar: 'left-1/2 -translate-x-1/2',
+};
+
 interface PopoverProps {
   icon: IconName;
   label: string;
   children: (close: () => void) => ReactNode;
-  align?: 'left' | 'right';
+  /**
+   * A que o painel se alinha. `bar` o centraliza na **barra** que contém o
+   * botão, e não no botão: um painel largo presilhado a um ícone que fica na
+   * ponta da barra nasce torto, e anda de lugar toda vez que a barra ganha ou
+   * perde um controle.
+   */
+  align?: 'left' | 'right' | 'bar';
   /**
    * `group` para conteúdo que só informa. Um `menu` promete itens acionáveis a
    * quem navega por leitor de tela, e uma lista de nomes não tem nenhum.
@@ -70,7 +82,9 @@ export function Popover({
   }, [open, holdChrome]);
 
   return (
-    <div ref={anchor} className="relative inline-flex">
+    // Sem `relative` no modo `bar`: é o ancestral posicionado — a própria
+    // barra — que o painel usa como referência para se centralizar.
+    <div ref={anchor} className={align === 'bar' ? 'inline-flex' : 'relative inline-flex'}>
       <button
         type="button"
         aria-label={label}
@@ -92,9 +106,7 @@ export function Popover({
           // própria largura a partir desses 34 px, trava no `min-w-44`, e o
           // rótulo — que é o que trunca — perde para a dica ao lado: o menu de
           // qualidade mostrava "A…" no lugar de "Automático" (issue #4).
-          className={`absolute bottom-full z-50 mb-2 max-w-[calc(100vw-1.5rem)] rounded-panel border border-border bg-surface-1 p-1 ${width} ${
-            align === 'right' ? 'right-0' : 'left-0'
-          }`}
+          className={`absolute bottom-full z-50 mb-2 max-w-[calc(100vw-1.5rem)] rounded-panel border border-border bg-surface-1 p-1 ${width} ${ALIGNMENT[align]}`}
         >
           {children(() => {
             setOpen(false);

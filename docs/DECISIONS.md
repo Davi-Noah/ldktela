@@ -680,3 +680,10 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
     só o que está sendo assistido; antes, recusar todas deixava um palco preto com o cromo por
     cima. Na lista, cada transmissão tem a etiqueta **AO VIVO** e o botão de entrar.
 
+- **[S7] O painel de pessoas se centraliza na barra, não no botão (2026-09-21).** Preso ao ícone,
+  que fica na ponta da pílula de controles, um painel de 18 rem nascia torto — e andava de lugar
+  toda vez que a barra mudava de largura, o que acontece sempre que a transmissão começa ou
+  termina. `Popover` ganhou `align="bar"`: o painel se posiciona contra a pílula, que é o
+  ancestral posicionado, e acompanha a largura dela sozinho. Medido nas duas larguras: centro do
+  painel e da barra coincidem em 700 px.
+
