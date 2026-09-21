@@ -278,7 +278,12 @@ function People() {
   const watching = [...new Set(viewerIds.map(ownerOf))];
 
   return (
-    <Popover icon="people" label={`Quem está aqui (${participantIds.length})`} role="group">
+    <Popover
+      icon="people"
+      label={`Quem está aqui (${participantIds.length})`}
+      role="group"
+      width="w-72"
+    >
       {() => (
         <>
           <MenuLabel>Na sala</MenuLabel>
@@ -295,44 +300,23 @@ function People() {
                     name={participant.user.username}
                     size={20}
                   />
-                  <span className="truncate text-text">{nameOf(participants, id)}</span>
-                  {id === me && <span className="text-text-faint">você</span>}
+                  <span className="min-w-0 flex-1 truncate text-text">
+                    {nameOf(participants, id)}
+                    {id === me && <span className="text-text-faint"> · você</span>}
+                  </span>
                   {participant.publishing && (
-                    <span className="ml-auto flex items-center gap-1 pl-2">
-                      {screens[id]?.subscribed === false ? (
-                        // É daqui que se volta: o ladrilho de uma tela da qual
-                        // se saiu não existe mais (ADR-0036), e esta lista é o
-                        // único lugar que mostra a sala inteira.
-                        <>
-                          <span className="text-text-faint">fora</span>
-                          <IconButton
-                            icon="eye"
-                            label={`Ver a tela de ${nameOf(participants, id)}`}
-                            variant="ghost"
-                            onClick={() => {
-                              media.setScreenSubscribed(id, true);
-                            }}
-                          />
-                        </>
-                      ) : (
-                        <>
-                          <span className="flex items-center gap-1 text-danger">
-                            <Icon name="dot" size={10} />
-                            transmitindo
-                          </span>
-                          {screens[id] !== undefined && (
-                            <IconButton
-                              icon="eye-off"
-                              label={`Sair da tela de ${nameOf(participants, id)}`}
-                              variant="ghost"
-                              onClick={() => {
-                                media.setScreenSubscribed(id, false);
-                              }}
-                            />
-                          )}
-                        </>
-                      )}
-                    </span>
+                    // Botão com texto, e não com dica: a dica de um botão de
+                    // ícone é um bloco posicionado, e dentro desta lista, que
+                    // rola, ela empurrava a largura do menu e ganhava uma barra
+                    // de rolagem horizontal — foi assim que o menu apareceu
+                    // torto e cortando o conteúdo.
+                    <WatchButton
+                      watching={screens[id]?.subscribed !== false}
+                      known={screens[id] !== undefined}
+                      onClick={() => {
+                        media.setScreenSubscribed(id, screens[id]?.subscribed === false);
+                      }}
+                    />
                   )}
                 </li>
               );
@@ -376,4 +360,42 @@ function People() {
 function nameOf(participants: Record<string, RoomParticipant>, id: string): string {
   const user = participants[id]?.user;
   return user?.display_name ?? user?.username ?? 'Alguém';
+}
+
+/**
+ * Entrar ou sair da tela de alguém, do tamanho de um item de lista.
+ *
+ * `known` separa "está transmitindo e eu recebo" de "está transmitindo e a
+ * trilha ainda não chegou": no segundo caso não há do que sair, e um botão ali
+ * prometeria uma ação que não acontece.
+ */
+function WatchButton({
+  watching,
+  known,
+  onClick,
+}: {
+  watching: boolean;
+  known: boolean;
+  onClick: () => void;
+}) {
+  if (watching && !known) {
+    return (
+      <span className="flex shrink-0 items-center gap-1 text-danger">
+        <Icon name="dot" size={10} />
+        no ar
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex shrink-0 items-center gap-1 rounded-pill px-2 py-0.5 text-xs ${
+        watching ? 'text-text-muted hover:text-text' : 'bg-accent-soft text-text'
+      }`}
+    >
+      <Icon name={watching ? 'eye-off' : 'eye'} size={14} />
+      {watching ? 'Sair' : 'Entrar'}
+    </button>
+  );
 }

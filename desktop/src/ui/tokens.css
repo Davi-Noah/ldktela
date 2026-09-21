@@ -33,6 +33,8 @@
 
   /* Estados */
   --color-danger: #e5646b;
+  /* Fundo da etiqueta "ao vivo": o mesmo vermelho a 15%, como o accent-soft. */
+  --color-danger-soft: #e5646b26;
   --color-danger-strong: #b93b45;
   --color-success: #5cc98d;
   --color-warning: #d9a441;

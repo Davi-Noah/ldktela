@@ -61,7 +61,9 @@ describe('quem está na sala (issue #10)', () => {
 
     expect(screen.getByText('ana')).toBeDefined();
     expect(screen.getByText('bruno')).toBeDefined();
-    expect(screen.getByText('transmitindo')).toBeDefined();
+    // Transmitindo sem a trilha ter chegado: não há do que sair ainda, então a
+    // linha informa em vez de oferecer um botão que não faria nada.
+    expect(screen.getByText('no ar')).toBeDefined();
   });
 
   it('diz quem está vendo a sua tela, e conta uma pessoa uma vez só', () => {
@@ -99,7 +101,7 @@ describe('o caminho de volta para uma tela que se deixou de assistir (issue #7)'
     chrome();
     fireEvent.click(screen.getByRole('button', { name: /Quem está aqui/ }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Ver a tela de ana' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Entrar' }));
     expect(setScreenSubscribed).toHaveBeenCalledWith('1', true);
   });
 

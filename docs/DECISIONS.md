@@ -664,3 +664,19 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
     precisam ser lidos ao mesmo tempo. O crachá mantém a caixa (`opacity`), então os botões não
     pulam de lugar quando ele volta.
 
+- **[S7] Três correções do relato de uso (2026-09-21).**
+  - **Os controles do ladrilho saíram do fluxo.** Invisíveis, eles continuavam ocupando a linha do
+    rodapé: num ladrilho de 13 rem o nome era espremido até virar `b..`, e mais estreito sobrava só
+    a pílula vazia — o "fundo cobrindo metade do número" do relato. Como o crachá some justamente
+    quando eles aparecem, os dois passam a ocupar o mesmo lugar. Só depois disso os limites de
+    largura fazem sentido: **cada ladrilho é um container nomeado** (`tile`), e o relógio sai
+    abaixo de 16 rem, o crachá abaixo de 9 rem. É a largura do ladrilho que muda com o arraste, não
+    a da janela — por isso container query, e não media query.
+  - **A lista de pessoas ganhou largura fixa e botões com texto.** A dica de um botão de ícone é um
+    bloco posicionado; dentro de uma lista com rolagem, ela empurrava a largura do menu e criava
+    uma barra horizontal, que foi o menu "torto e engolindo o conteúdo" do relato. `Popover` agora
+    aceita a largura de quem o usa.
+  - **Sem nenhuma tela assistida, a sala volta a ser a lista de gente.** `hasVideo` passou a contar
+    só o que está sendo assistido; antes, recusar todas deixava um palco preto com o cromo por
+    cima. Na lista, cada transmissão tem a etiqueta **AO VIVO** e o botão de entrar.
+

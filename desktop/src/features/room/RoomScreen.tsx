@@ -12,7 +12,12 @@ import { SharePicker } from './SharePicker';
 export function RoomScreen() {
   const containerRef = useRef<HTMLDivElement>(null);
   const chromeRef = useRef<HTMLDivElement>(null);
-  const screenCount = useMediaStore((state) => state.screenOrder.length);
+  // Contam as telas **assistidas**: uma tela da qual se saiu não ocupa o palco
+  // (ADR-0036), e com todas recusadas o que sobrava era um palco preto. Sem
+  // vídeo, a sala volta a ser a lista de gente, que é onde se entra de novo.
+  const screenCount = useMediaStore(
+    (state) => state.screenOrder.filter((id) => state.screens[id]?.subscribed !== false).length,
+  );
   const publishing = useMediaStore((state) => state.publishing);
   const focused = useMediaStore((state) => state.focused);
   const showSelfPreview = useUiStore((state) => state.showSelfPreview);

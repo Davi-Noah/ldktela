@@ -12,6 +12,12 @@ interface PopoverProps {
    * quem navega por leitor de tela, e uma lista de nomes não tem nenhum.
    */
   role?: 'menu' | 'group';
+  /**
+   * Largura fixa, para conteúdo que tem colunas. `w-max` serve a um menu de
+   * rótulos curtos; uma lista de nomes com ação ao lado precisa de um limite,
+   * ou o item mais largo decide o tamanho do menu inteiro.
+   */
+  width?: string;
 }
 
 /**
@@ -23,7 +29,14 @@ interface PopoverProps {
  * Enquanto está aberto, **segura o cromo**: sem isso o temporizador de
  * ociosidade esconderia a barra por baixo do próprio menu que o usuário abriu.
  */
-export function Popover({ icon, label, children, align = 'right', role = 'menu' }: PopoverProps) {
+export function Popover({
+  icon,
+  label,
+  children,
+  align = 'right',
+  role = 'menu',
+  width = 'w-max min-w-44',
+}: PopoverProps) {
   const [open, setOpen] = useState(false);
   const holdChrome = useUiStore((state) => state.holdChrome);
   const anchor = useRef<HTMLDivElement>(null);
@@ -79,7 +92,7 @@ export function Popover({ icon, label, children, align = 'right', role = 'menu' 
           // própria largura a partir desses 34 px, trava no `min-w-44`, e o
           // rótulo — que é o que trunca — perde para a dica ao lado: o menu de
           // qualidade mostrava "A…" no lugar de "Automático" (issue #4).
-          className={`absolute bottom-full z-50 mb-2 w-max min-w-44 rounded-panel border border-border bg-surface-1 p-1 ${
+          className={`absolute bottom-full z-50 mb-2 max-w-[calc(100vw-1.5rem)] rounded-panel border border-border bg-surface-1 p-1 ${width} ${
             align === 'right' ? 'right-0' : 'left-0'
           }`}
         >

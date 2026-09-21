@@ -154,7 +154,7 @@ export function ScreenTile({
       // foco deixou de ser `absolute inset-0`: com as outras telas ao lado, ele
       // é uma célula da grade como as demais, só que maior.
       data-role={role}
-      className={`group relative min-h-0 overflow-hidden bg-stage ${
+      className={`screen-tile group relative min-h-0 overflow-hidden bg-stage ${
         role === 'main'
           ? 'rounded-panel border border-accent/40'
           : 'rounded-panel border border-line'
@@ -209,7 +209,7 @@ export function ScreenTile({
         // base da janela, e sem esse respiro caía em cima do crachá e dos
         // botões. Na coluna lateral ela não passa, e o mesmo respiro deixava o
         // crachá boiando no meio do ladrilho (issue #7).
-        className={`pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-linear-to-t from-scrim to-transparent px-2 pt-2 ${
+        className={`pointer-events-none absolute inset-x-0 bottom-0 flex items-end bg-linear-to-t from-scrim to-transparent px-2 pt-2 ${
           role === 'rail' ? 'pb-2' : 'pb-16'
         }`}
       >
@@ -218,7 +218,7 @@ export function ScreenTile({
           // estreito o nome perdia: virava "8:" espremido contra os botões.
           // Some enquanto os controles estão à mostra e volta quando eles saem —
           // os dois nunca precisam ser lidos ao mesmo tempo.
-          className="chrome-fade flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-1/80 px-2 py-1 group-hover:opacity-0 group-focus-within:opacity-0"
+          className="tile-badge chrome-fade flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-1/80 px-2 py-1 group-hover:opacity-0 group-focus-within:opacity-0"
         >
           {isSelf ? (
             <span className="shrink-0 text-danger">
@@ -232,75 +232,81 @@ export function ScreenTile({
           <Elapsed since={owner?.publishing_since} />
         </div>
 
-        <Controls>
-          {!isSelf && screen?.hasAudio === true && (
-            <VolumeControl
-              identity={identity}
-              name={name}
-              volume={screen.volume}
-              silenced={silenced}
-            />
-          )}
+        {/* Fora do fluxo, e não ao lado do crachá: invisíveis, os controles
+            continuavam ocupando a linha, e num ladrilho estreito espremiam o
+            nome até sobrar "b..". Como o crachá some justamente quando eles
+            aparecem, os dois podem ocupar o mesmo lugar. */}
+        <div className={`absolute right-2 ${role === 'rail' ? 'bottom-2' : 'bottom-16'}`}>
+          <Controls>
+            {!isSelf && screen?.hasAudio === true && (
+              <VolumeControl
+                identity={identity}
+                name={name}
+                volume={screen.volume}
+                silenced={silenced}
+              />
+            )}
 
-          {isSelf ? (
+            {isSelf ? (
+              <IconButton
+                tipAlign="end"
+                icon="eye-off"
+                label="Ocultar minha tela"
+                onClick={() => {
+                  setShowSelfPreview(false);
+                }}
+              />
+            ) : (
+              <Popover icon="gear" label={`Qualidade da tela de ${name}`}>
+                {(close) => (
+                  <>
+                    <MenuLabel>Qualidade recebida</MenuLabel>
+                    {QUALITIES.map((option) => (
+                      <MenuItem
+                        key={option.value}
+                        selected={screen?.quality === option.value}
+                        hint={option.hint}
+                        onClick={() => {
+                          media.setQuality(identity, option.value);
+                          close();
+                        }}
+                      >
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </>
+                )}
+              </Popover>
+            )}
+
+            {!isSelf && (
+              <IconButton
+                tipAlign="end"
+                icon="eye-off"
+                label={`Sair da tela de ${name}`}
+                onClick={() => {
+                  media.setScreenSubscribed(identity, false);
+                }}
+              />
+            )}
+
             <IconButton
               tipAlign="end"
-              icon="eye-off"
-              label="Ocultar minha tela"
-              onClick={() => {
-                setShowSelfPreview(false);
-              }}
+              icon="detach"
+              label={detached ? 'Trazer de volta' : 'Destacar em outra janela'}
+              aria-pressed={detached}
+              onClick={onDetach}
             />
-          ) : (
-            <Popover icon="gear" label={`Qualidade da tela de ${name}`}>
-              {(close) => (
-                <>
-                  <MenuLabel>Qualidade recebida</MenuLabel>
-                  {QUALITIES.map((option) => (
-                    <MenuItem
-                      key={option.value}
-                      selected={screen?.quality === option.value}
-                      hint={option.hint}
-                      onClick={() => {
-                        media.setQuality(identity, option.value);
-                        close();
-                      }}
-                    >
-                      {option.label}
-                    </MenuItem>
-                  ))}
-                </>
-              )}
-            </Popover>
-          )}
 
-          {!isSelf && (
             <IconButton
               tipAlign="end"
-              icon="eye-off"
-              label={`Sair da tela de ${name}`}
-              onClick={() => {
-                media.setScreenSubscribed(identity, false);
-              }}
+              icon={focused ? 'grid' : 'fullscreen'}
+              label={focused ? 'Voltar para a grade' : 'Focar esta tela'}
+              aria-pressed={focused}
+              onClick={onFocus}
             />
-          )}
-
-          <IconButton
-            tipAlign="end"
-            icon="detach"
-            label={detached ? 'Trazer de volta' : 'Destacar em outra janela'}
-            aria-pressed={detached}
-            onClick={onDetach}
-          />
-
-          <IconButton
-            tipAlign="end"
-            icon={focused ? 'grid' : 'fullscreen'}
-            label={focused ? 'Voltar para a grade' : 'Focar esta tela'}
-            aria-pressed={focused}
-            onClick={onFocus}
-          />
-        </Controls>
+          </Controls>
+        </div>
       </div>
     </section>
   );
@@ -422,7 +428,7 @@ function Elapsed({ since }: { since: string | undefined }) {
   }
   const seconds = Math.max(0, Math.floor((Date.now() - started) / 1000));
   return (
-    <span className="shrink-0 font-mono text-xs text-text-muted" title="Tempo no ar">
+    <span className="tile-elapsed shrink-0 font-mono text-xs text-text-muted" title="Tempo no ar">
       {elapsed(seconds)}
     </span>
   );

@@ -73,28 +73,34 @@ function InRoom({ onShare, onStop }: RoomBodyProps) {
           return (
             <li key={id} className="flex items-center gap-2">
               <Avatar url={participant.user.avatar_url} name={participant.user.username} />
-              <span className="truncate text-text">
+              <span className="min-w-0 flex-1 truncate text-text">
                 {participant.user.display_name ?? participant.user.username}
               </span>
-              {participant.publishing &&
-                (screens[id]?.subscribed === false ? (
-                  // Saindo de todas as telas, a sala volta a esta lista — que
-                  // passa a ser o único caminho de volta (ADR-0036).
-                  <Button
-                    icon="eye"
-                    className="ml-auto py-0.5"
-                    onClick={() => {
-                      media.setScreenSubscribed(id, true);
-                    }}
-                  >
-                    Entrar
-                  </Button>
-                ) : (
-                  <span className="ml-auto flex items-center gap-1 text-danger">
-                    <Icon name="dot" size={12} />
-                    compartilhando
+              {participant.publishing && (
+                <>
+                  <span className="flex shrink-0 items-center gap-1 rounded-pill bg-danger-soft px-1.5 text-xs font-medium text-danger">
+                    <Icon name="dot" size={10} />
+                    AO VIVO
                   </span>
-                ))}
+                  {/* Saindo de todas as telas, a sala volta a esta lista — que
+                      passa a ser o único caminho de volta (ADR-0036). O botão
+                      fica em todas as transmissões, e não só nas recusadas:
+                      quem chega aqui com tudo no ar quer poder escolher uma. */}
+                  {screens[id]?.subscribed === false ? (
+                    <Button
+                      icon="eye"
+                      className="ml-auto shrink-0 py-0.5"
+                      onClick={() => {
+                        media.setScreenSubscribed(id, true);
+                      }}
+                    >
+                      Entrar
+                    </Button>
+                  ) : (
+                    <span className="ml-auto shrink-0 text-text-faint">assistindo</span>
+                  )}
+                </>
+              )}
             </li>
           );
         })}

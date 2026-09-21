@@ -41,7 +41,37 @@ code,
    sem uma linha de JavaScript e sem re-render do React.
    --------------------------------------------------------------------------- */
 .screen-stage {
-  container-type: size;
+  container: stage / size;
+}
+
+/* Cada ladrilho tambem e um container, e nomeado: o cracha precisa reagir a
+   largura DELE, que muda com o arraste da divisao do foco hibrido, e nao a da
+   janela, que nao mudou. Sem isto, a coluna lateral estreita mostrava o relogio
+   com a pilula cortando o numero no meio.
+
+   Nomeado porque `.screen-stage` tambem e container: sem nome, uma consulta
+   escrita para o ladrilho poderia cair no palco, que tem outra largura. */
+.screen-tile {
+  container: tile / inline-size;
+}
+
+/* Primeiro sai o relogio, que e o detalhe; depois o cracha inteiro, porque
+   abaixo disso nao cabe nem o nome truncado e sobra so a pilula vazia — um
+   fundo escuro cobrindo nada, que foi como o defeito apareceu.
+
+   Os limites vem de medicao, e valem depois de os controles sairem do fluxo:
+   com eles na linha, o nome era espremido a dois caracteres mesmo num ladrilho
+   de 13rem. Abaixo de 9rem nem o nome truncado diz alguma coisa. */
+@container tile (max-width: 16rem) {
+  .tile-elapsed {
+    display: none;
+  }
+}
+
+@container tile (max-width: 9rem) {
+  .tile-badge {
+    display: none;
+  }
 }
 
 .screen-grid {
@@ -56,7 +86,7 @@ code,
 
 /* Duas telas: lado a lado so quando ha largura para isso. Numa janela alta e
    estreita, empilhar da mais pixel a cada uma do que espremer as duas. */
-@container (min-aspect-ratio: 1/1) {
+@container stage (min-aspect-ratio: 1/1) {
   .screen-grid[data-count='2'] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
