@@ -8,6 +8,7 @@ import {
   UPDATE_CHECK_INTERVAL_MS,
 } from '../config';
 import { listen } from '@tauri-apps/api/event';
+import { chimeForShare, primeChime } from '../platform/chime';
 import { notifyShareStarted, shouldNotify } from '../platform/notify';
 import { GatewayClient } from '../gateway/client';
 import { log } from '../log';
@@ -45,6 +46,9 @@ export const gateway = new GatewayClient({
     }
     if (event.t === 'SHARE_START') {
       announceShare(event.d.user_id);
+    }
+    if (event.t === 'SHARE_STOP') {
+      chimeForShare('stop', event.d.user_id, useSessionStore.getState().user?.id);
     }
     useRoomStore.getState().apply(event);
   },
@@ -84,6 +88,8 @@ export async function start(): Promise<void> {
     log.info('sessão: troca de conta pedida pela bandeja');
     void signOut();
   });
+
+  primeChime();
 
   // ADR-0030: um ouvinte só, pela vida do processo. O elemento que recebe os
   // quadros entra e sai; a assinatura não.
@@ -219,13 +225,15 @@ function scheduleUpdateChecks(): void {
  */
 function announceShare(publisherId: string): void {
   const room = useRoomStore.getState();
-  if (
-    !shouldNotify({
-      publisherId,
-      selfId: useSessionStore.getState().user?.id,
-      windowFocused: document.hasFocus(),
-    })
-  ) {
+  const selfId = useSessionStore.getState().user?.id;
+
+  // O som toca mesmo com a janela em foco, e a notificação não: quem está com o
+  // aplicativo aberto costuma estar olhando para o jogo, não para a lista de
+  // ladrilhos. O aviso de sistema aí seria intrusão; o sino é a única forma de
+  // saber sem desviar o olhar.
+  chimeForShare('start', publisherId, selfId);
+
+  if (!shouldNotify({ publisherId, selfId, windowFocused: document.hasFocus() })) {
     return;
   }
   const participant = room.participants[publisherId];

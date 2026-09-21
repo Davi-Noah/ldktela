@@ -693,3 +693,20 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   servidor e cargos acima do bot não recebem tag e agora não têm sinal nenhum no Discord. Ver
   [ADR-0037](adr/0037-o-bot-nao-anuncia-no-canal.md).
 
+- **[S7] Aviso sonoro de tela que entra e de tela que sai (2026-09-21).** Duas notas em quinta
+  justa, **subindo** quando alguém começa a transmitir e **descendo** quando termina — a convenção
+  de porta que abre e porta que fecha, que dispensa aprender qual bipe é qual.
+  - **Sintetizado com Web Audio, não um arquivo.** Vinte linhas e zero bytes de mídia num
+    repositório público sob GPL, onde um som baixado traria uma licença junto para ninguém
+    conferir depois. Volume, altura e duração ficam no código, onde se discute o que incomoda.
+  - **Pico em 0,06 do ganho**, ataque de 12 ms e cauda exponencial: isto toca por cima de jogo,
+    voz e da tela de alguém. Sair é mais discreto que entrar, porque uma tela que acabou não pede
+    atenção.
+  - **Uma rajada vira um aviso só** (1,5 s). `SHARE_START` e `SHARE_STOP` entram no buffer de
+    retomada do gateway, então reconectar depois de uma queda entrega os eventos perdidos de uma
+    vez — sem a guarda, a volta tocaria uma sequência de sinos.
+  - **O som toca com a janela em foco; a notificação de sistema, não.** Quem está com o aplicativo
+    aberto costuma estar olhando para o jogo, e um aviso de sistema aí é intrusão (RF-27).
+  - O `AudioContext` é acordado no primeiro clique ou tecla: criado sem gesto do usuário ele nasce
+    suspenso, e o primeiro aviso — justamente o que apresenta o recurso — sairia mudo.
+
