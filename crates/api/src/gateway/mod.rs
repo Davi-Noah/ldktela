@@ -35,7 +35,13 @@ use crate::auth::token;
 use crate::state::AppState;
 
 /// The oldest client build the server still talks to (§8).
-const MIN_CLIENT_VERSION: (u32, u32, u32) = (0, 1, 0);
+///
+/// Subiu para 2.0.0 com a câmera (ADR-0038): `RoomParticipant` passou a carregar
+/// uma lista de publicações no lugar de `publishing`/`publishing_since`, e
+/// `SHARE_START`/`SHARE_STOP` ganharam `source`. Um cliente 1.x conecta e
+/// **entende errado** — ninguém aparece ao vivo, e os ladrilhos não abrem. Falha
+/// silenciosa é pior do que recusa: em 4010 o cliente se atualiza sozinho.
+const MIN_CLIENT_VERSION: (u32, u32, u32) = (2, 0, 0);
 
 pub fn router() -> Router<AppState> {
     Router::new().route("/gateway", get(upgrade))
@@ -386,8 +392,18 @@ mod tests {
             check_client_version(&old),
             Err((close_code::VERSION_TOO_OLD, "client too old"))
         );
+        // A quebra de fio da câmera (ADR-0038): o cliente da versão anterior
+        // conectaria e leria a sala errada, sem erro nenhum na tela.
+        let previous_major = ClientInfo {
+            version: "1.1.0".into(),
+            os: "windows".into(),
+        };
+        assert_eq!(
+            check_client_version(&previous_major),
+            Err((close_code::VERSION_TOO_OLD, "client too old"))
+        );
         let current = ClientInfo {
-            version: "0.1.0".into(),
+            version: "2.0.0".into(),
             os: "windows".into(),
         };
         assert!(check_client_version(&current).is_ok());

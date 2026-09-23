@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import pkg from '../../package.json';
+import { CLIENT_INFO } from '../config';
 
 /**
  * Guarda metade do par de versões do LiveKit (ADR-0019); a outra metade, a
@@ -26,5 +27,22 @@ describe('o par de versões do LiveKit', () => {
       `livekit-client está como "${declared}". Uma faixa deixa o cliente derivar ` +
         'para longe do servidor e quebra só a publicação. Ver ADR-0019.',
     ).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+/**
+ * O gateway recusa cliente abaixo de `MIN_CLIENT_VERSION` fechando com 4010, e
+ * é esse fechamento que dispara a atualização automática. A versão que o cliente
+ * declara precisa, então, ser a de verdade.
+ *
+ * Existe por causa de uma falha real: a constante ficou em `0.1.0` por duas
+ * versões enquanto o aplicativo já era 1.1.0. Ninguém percebeu porque o mínimo
+ * do servidor também era 0.1.0 — a mentira só apareceria na primeira vez que o
+ * mínimo subisse, trancando todo mundo para fora de uma vez.
+ */
+describe('a versão que o cliente declara ao gateway', () => {
+  it('é a do package.json, e não uma cópia escrita à mão', () => {
+    expect(CLIENT_INFO.version).toBe(pkg.version);
+    expect(CLIENT_INFO.version).toMatch(/^\d+\.\d+\.\d+$/);
   });
 });

@@ -1,4 +1,5 @@
 import type { ClientInfo } from './api/types/ClientInfo';
+import { version as packageVersion } from '../package.json';
 
 const DEFAULT_ORIGIN = 'http://127.0.0.1:8080';
 
@@ -18,10 +19,14 @@ export const API_BASE_URL = `${ORIGIN}/api/v1`;
 export const GATEWAY_URL = `${ORIGIN.replace(/^http/, 'ws')}/gateway?v=1`;
 
 /**
- * Keep `version` in sync with package.json: the gateway closes with 4010 when it
- * is below the minimum it supports, and that is what triggers the update flow.
+ * Sai do `package.json`, e não de uma constante escrita à mão.
+ *
+ * Escrita à mão ela derivou: ficou em `0.1.0` por duas versões enquanto o
+ * aplicativo já era 1.1.0. O gateway fecha com 4010 quem estiver abaixo do
+ * mínimo, e esse fechamento é o que dispara a atualização — uma versão mentida
+ * aqui tranca todo mundo para fora, ou deixa entrar quem não deveria.
  */
-export const CLIENT_INFO: ClientInfo = { version: '0.1.0', os: 'windows' };
+export const CLIENT_INFO: ClientInfo = { version: packageVersion, os: 'windows' };
 
 /** How often publisher stats are sampled. Never per frame (CLAUDE.md §7). */
 export const STATS_SAMPLE_INTERVAL_MS = 2000;
