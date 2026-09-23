@@ -228,11 +228,48 @@ voz dos outros participantes; o áudio não dessincroniza do vídeo em 30 min; s
 Discord rodando, a captura é do sistema inteiro e nada quebra; onde o process
 loopback não existir, cai para o sistema inteiro com aviso (RF-30).
 
+## S10 — Câmera (v2.0.0)
+
+Transmitir a câmera ao lado da tela, independente ou junto
+([ADR-0038](adr/0038-camera-e-uma-segunda-publicacao.md), que substitui a rejeição
+de câmera do [ADR-0012](adr/0012-midia-unidirecional.md)). É a fatia que troca a
+unidade do domínio: de **pessoa** para **publicação**, o par (pessoa, fonte).
+
+A fatia é grande e precisa entregar paridade completa de HUD — meia câmera é pior
+que nenhuma. Ordem obrigatória, cada etapa verde antes da seguinte:
+
+**S10.1 — Fio e backend.** `source` em `SHARE_START`/`SHARE_STOP`, `camera` em
+`can_publish_sources`, teto por fonte no ledger de admissão, sessão aberta por
+(canal, publicador, fonte). Inclui a migration que troca
+`idx_sessions_open_publisher` — destrutiva, exige aval humano (CLAUDE.md §10).
+
+**S10.2 — Captura.** `desktop/src-tauri/src/camera.rs`: enumeração de dispositivos,
+laço de captura e miniatura em Media Foundation, saída em NV12 para um segundo
+`NativeVideoSource`. O binding do libwebrtc não traz câmera; só `desktop_capturer`.
+Zona de revisão humana.
+
+**S10.3 — Publicação.** Segunda trilha de vídeo na mesma conexão `~pub`
+([ADR-0027](adr/0027-publicador-e-um-segundo-participante.md)), 720p30 `L1T3`,
+preview local espelhado ([ADR-0030](adr/0030-preview-da-propria-tela-e-local.md)),
+parada independente por fonte e no atalho global.
+
+**S10.4 — Espectador.** Re-chaveação do store por (pessoa, fonte) e o HUD inteiro
+em cima dela: ladrilhos, os três layouts, foco, destacar em popup, sair e voltar,
+qualidade, painel de pessoas, chime e notificação.
+
+**Aceite:** transmitir só a câmera funciona sem nunca abrir o seletor de tela;
+transmitir tela e câmera ao mesmo tempo produz dois ladrilhos independentes, que
+se pode focar, destacar e abandonar em separado; parar uma não para a outra;
+câmera ocupada por outro aplicativo dá mensagem que diz isso e não impede
+compartilhar a tela; o teto de câmeras por sala recusa a próxima com erro claro;
+quem assiste com a câmera escondida não baixa os quadros dela (RF-32); reconectar
+depois de uma queda restaura as duas publicações com o tempo no ar certo.
+
 ---
 
 ## O que deliberadamente não está aqui
 
-Chat, anexos, busca, DMs, microfone, câmera, gravação de sessão, controle remoto,
+Chat, anexos, busca, DMs, microfone, gravação de sessão, controle remoto,
 anotação sobre a tela, clientes móveis ou web, e link de compartilhamento avulso sem
 Discord. Cada um desses tem uma rejeição registrada em `docs/adr/`; se algum voltar à
 mesa, o caminho é um ADR novo que substitua o anterior, não uma issue.

@@ -1,6 +1,8 @@
 # ADR-0012 — Mídia unidirecional: sem microfone, câmera ou texto
 
-- **Status:** Aceito
+- **Status:** Aceito, **exceto quanto à câmera** — rejeição substituída pelo
+  [ADR-0038](0038-camera-e-uma-segunda-publicacao.md) em 2026-09-22. Sem microfone, sem
+  texto e sem publicação por quem assiste continua valendo.
 - **Data:** 2026-09-12
 
 ## Contexto
@@ -47,5 +49,8 @@ guard de câmera em `crates/api/src/voice.rs`.
   obriga o usuário a reconfigurar microfone, atalhos e volumes num segundo aplicativo.
 - **Câmera junto da tela.** Discord já faz, e cada publicador adicional multiplica o
   egress que é o único recurso escasso do produto.
+  > **Revertido em 2026-09-22 pelo [ADR-0038](0038-camera-e-uma-segunda-publicacao.md).** O
+  > "Discord já faz" não se sustentou: a câmera dele tem a mesma limitação de qualidade que
+  > o compartilhamento de tela. O argumento do egress sobreviveu, e virou teto por fonte.
 - **Chat mínimo "só para coordenar".** O Discord está aberto na tela ao lado. Um chat
   nosso seria um segundo lugar onde procurar a mesma conversa.

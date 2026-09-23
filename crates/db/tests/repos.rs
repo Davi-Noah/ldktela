@@ -4,6 +4,7 @@
 mod common;
 
 use common::{seed_user, TestDb};
+use protocol::room::PublicationSource;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
@@ -121,9 +122,12 @@ async fn moving_rooms_clears_the_publishing_flag() {
     db::repo::presence::join(&db.pool, user, 900)
         .await
         .expect("entrando");
-    db::repo::presence::set_publishing(&db.pool, user, true)
+    db::repo::presence::start_publication(&db.pool, user, PublicationSource::Screen)
         .await
         .expect("publicando");
+    db::repo::presence::start_publication(&db.pool, user, PublicationSource::Camera)
+        .await
+        .expect("com camera tambem");
     db::repo::presence::join(&db.pool, user, 901)
         .await
         .expect("mudando de sala");
@@ -133,6 +137,8 @@ async fn moving_rooms_clears_the_publishing_flag() {
         .expect("listando");
     assert_eq!(participants.len(), 1);
     assert!(!participants[0].publishing);
+    assert!(participants[0].screen_since.is_none());
+    assert!(participants[0].camera_since.is_none());
 }
 
 #[tokio::test]
@@ -163,11 +169,17 @@ async fn setting_publishing_on_an_absent_user_is_not_an_error() {
     // Um webhook do LiveKit pode chegar depois de o usuario ja ter saido.
     let db = TestDb::migrated().await;
     let user = seed_user(&db.pool, 1, "pessoa").await;
-    assert_eq!(
-        db::repo::presence::set_publishing(&db.pool, user, true)
+    assert!(
+        db::repo::presence::start_publication(&db.pool, user, PublicationSource::Screen)
             .await
-            .expect("webhook atrasado"),
-        None
+            .expect("webhook atrasado")
+            .is_none()
+    );
+    assert!(
+        db::repo::presence::stop_publication(&db.pool, user, PublicationSource::Camera)
+            .await
+            .expect("webhook atrasado")
+            .is_none()
     );
 }
 
@@ -181,16 +193,131 @@ async fn publisher_count_feeds_the_admission_guard() {
             .await
             .expect("entrando");
     }
-    db::repo::presence::set_publishing(&db.pool, a, true)
+    db::repo::presence::start_publication(&db.pool, a, PublicationSource::Screen)
         .await
-        .expect("a publica");
+        .expect("a publica a tela");
+    db::repo::presence::start_publication(&db.pool, b, PublicationSource::Camera)
+        .await
+        .expect("b publica a camera");
 
+    // Os tetos são por fonte (ADR-0038): contar as duas juntas faria uma câmera
+    // ocupar a vaga de uma tela.
     assert_eq!(
-        db::repo::presence::publisher_count(&db.pool, 900)
+        db::repo::presence::publisher_count(&db.pool, 900, PublicationSource::Screen)
             .await
-            .expect("contando"),
+            .expect("contando telas"),
         1
     );
+    assert_eq!(
+        db::repo::presence::publisher_count(&db.pool, 900, PublicationSource::Camera)
+            .await
+            .expect("contando cameras"),
+        1
+    );
+}
+
+#[tokio::test]
+async fn one_person_can_hold_a_screen_and_a_camera_at_once() {
+    // ADR-0038: as duas publicações são independentes, e cada uma tem o seu
+    // relógio. Parar uma não pode encostar na outra.
+    let db = TestDb::migrated().await;
+    let user = seed_user(&db.pool, 1, "pessoa").await;
+    db::repo::presence::join(&db.pool, user, 900)
+        .await
+        .expect("entrando");
+
+    let screen = db::repo::presence::start_publication(&db.pool, user, PublicationSource::Screen)
+        .await
+        .expect("tela")
+        .expect("na sala");
+    let camera = db::repo::presence::start_publication(&db.pool, user, PublicationSource::Camera)
+        .await
+        .expect("camera")
+        .expect("na sala");
+    assert_eq!(screen.discord_channel_id, 900);
+    assert_eq!(camera.discord_channel_id, 900);
+
+    let rows = db::repo::presence::list_by_channel(&db.pool, 900)
+        .await
+        .expect("listando");
+    let wire = rows[0].to_wire();
+    assert_eq!(wire.publications.len(), 2);
+    assert_eq!(
+        wire.publications[0].source,
+        PublicationSource::Screen,
+        "a ordem e fixa: tela antes de camera, ou a grade remexe sozinha"
+    );
+    assert_eq!(wire.publications[1].source, PublicationSource::Camera);
+
+    let stopped = db::repo::presence::stop_publication(&db.pool, user, PublicationSource::Camera)
+        .await
+        .expect("parando a camera")
+        .expect("na sala");
+    assert!(
+        stopped.still_publishing,
+        "a tela continua no ar, entao a sessao nao pode fechar"
+    );
+
+    let rows = db::repo::presence::list_by_channel(&db.pool, 900)
+        .await
+        .expect("listando de novo");
+    assert!(rows[0].publishing);
+    assert_eq!(rows[0].screen_since, Some(screen.since));
+    assert!(rows[0].camera_since.is_none());
+}
+
+#[tokio::test]
+async fn restarting_the_same_source_keeps_the_original_clock() {
+    // Trocar de janela ou de preset republica a mesma fonte (RF-34). Reiniciar o
+    // relógio diria a todo mundo que a transmissão acabou de começar.
+    let db = TestDb::migrated().await;
+    let user = seed_user(&db.pool, 1, "pessoa").await;
+    db::repo::presence::join(&db.pool, user, 900)
+        .await
+        .expect("entrando");
+
+    let first = db::repo::presence::start_publication(&db.pool, user, PublicationSource::Screen)
+        .await
+        .expect("primeira")
+        .expect("na sala");
+    let again = db::repo::presence::start_publication(&db.pool, user, PublicationSource::Screen)
+        .await
+        .expect("de novo")
+        .expect("na sala");
+
+    assert_eq!(first.since, again.since);
+}
+
+#[tokio::test]
+async fn a_dropped_publisher_reports_every_source_it_was_holding() {
+    // A conexão que publica caindo não gera webhook por trilha: quem avisa é o
+    // `participant_left`, e ele precisa dizer quais ladrilhos remover.
+    let db = TestDb::migrated().await;
+    let user = seed_user(&db.pool, 1, "pessoa").await;
+    db::repo::presence::join(&db.pool, user, 900)
+        .await
+        .expect("entrando");
+    for source in [PublicationSource::Screen, PublicationSource::Camera] {
+        db::repo::presence::start_publication(&db.pool, user, source)
+            .await
+            .expect("publicando");
+    }
+
+    let cleared = db::repo::presence::clear_publications(&db.pool, user)
+        .await
+        .expect("limpando")
+        .expect("na sala");
+    assert_eq!(cleared.discord_channel_id, 900);
+    assert_eq!(
+        cleared.sources(),
+        vec![PublicationSource::Screen, PublicationSource::Camera]
+    );
+
+    let rows = db::repo::presence::list_by_channel(&db.pool, 900)
+        .await
+        .expect("listando");
+    assert!(rows[0].to_wire().publications.is_empty());
+    assert!(!rows[0].publishing);
 }
 
 #[tokio::test]
@@ -302,8 +429,8 @@ async fn upserting_a_discord_profile_keeps_the_original_id() {
 
 #[tokio::test]
 async fn a_viewer_who_arrives_late_sees_the_real_time_on_air() {
-    // RF-34: o inicio vem da sessao, nao do momento em que o espectador entrou.
-    // Sem isto, quem chega aos vinte minutos ve "no ar ha 0s".
+    // RF-34: o inicio vem do servidor, nao do momento em que o espectador
+    // entrou. Sem isto, quem chega aos vinte minutos ve "no ar ha 0s".
     let db = TestDb::migrated().await;
     let publisher = seed_user(&db.pool, 1, "quem-publica").await;
     let latecomer = seed_user(&db.pool, 2, "quem-chega-depois").await;
@@ -311,12 +438,11 @@ async fn a_viewer_who_arrives_late_sees_the_real_time_on_air() {
     db::repo::presence::join(&db.pool, publisher, 900)
         .await
         .expect("publicador entra");
-    db::repo::presence::set_publishing(&db.pool, publisher, true)
-        .await
-        .expect("comeca a publicar");
-    let session = db::repo::sessions::open(&db.pool, Uuid::now_v7(), 900, publisher)
-        .await
-        .expect("sessao aberta");
+    let started =
+        db::repo::presence::start_publication(&db.pool, publisher, PublicationSource::Screen)
+            .await
+            .expect("comeca a publicar")
+            .expect("na sala");
 
     db::repo::presence::join(&db.pool, latecomer, 900)
         .await
@@ -330,9 +456,9 @@ async fn a_viewer_who_arrives_late_sees_the_real_time_on_air() {
         .find(|r| r.user_id == publisher)
         .expect("publicador na lista");
     assert_eq!(
-        publishing.publishing_since,
-        Some(session.started_at),
-        "o inicio precisa ser o da sessao"
+        publishing.screen_since,
+        Some(started.since),
+        "o inicio precisa ser o do servidor"
     );
 
     let viewer = rows
@@ -340,31 +466,38 @@ async fn a_viewer_who_arrives_late_sees_the_real_time_on_air() {
         .find(|r| r.user_id == latecomer)
         .expect("espectador na lista");
     assert!(
-        viewer.publishing_since.is_none(),
+        viewer.to_wire().publications.is_empty(),
         "quem nao publica nao tem inicio de transmissao"
     );
 }
 
 #[tokio::test]
-async fn a_closed_session_stops_reporting_time_on_air() {
+async fn a_stopped_publication_stops_reporting_time_on_air() {
     let db = TestDb::migrated().await;
     let publisher = seed_user(&db.pool, 1, "pessoa").await;
     db::repo::presence::join(&db.pool, publisher, 900)
         .await
         .expect("entrando");
-    db::repo::sessions::open(&db.pool, Uuid::now_v7(), 900, publisher)
+    db::repo::presence::start_publication(&db.pool, publisher, PublicationSource::Screen)
         .await
-        .expect("abrindo");
-    db::repo::sessions::close(&db.pool, 900, publisher, OffsetDateTime::now_utc())
-        .await
-        .expect("fechando");
+        .expect("publicando");
+
+    let stopped =
+        db::repo::presence::stop_publication(&db.pool, publisher, PublicationSource::Screen)
+            .await
+            .expect("parando")
+            .expect("na sala");
+    assert!(
+        !stopped.still_publishing,
+        "nada mais no ar: e aqui que a sessao fecha"
+    );
 
     let rows = db::repo::presence::list_by_channel(&db.pool, 900)
         .await
         .expect("listando");
     assert!(
-        rows[0].publishing_since.is_none(),
-        "sessao fechada nao pode continuar contando tempo"
+        rows[0].to_wire().publications.is_empty(),
+        "publicacao parada nao pode continuar contando tempo"
     );
 }
 
@@ -378,7 +511,7 @@ async fn two_publishers_in_one_room_each_keep_their_own_start() {
         db::repo::presence::join(&db.pool, user, 900)
             .await
             .expect("entrando");
-        db::repo::presence::set_publishing(&db.pool, user, true)
+        db::repo::presence::start_publication(&db.pool, user, PublicationSource::Screen)
             .await
             .expect("publicando");
     }
@@ -395,8 +528,7 @@ async fn two_publishers_in_one_room_each_keep_their_own_start() {
         .expect("listando");
     assert_eq!(rows.len(), 2);
     assert!(
-        rows.iter()
-            .all(|r| r.publishing && r.publishing_since.is_some()),
+        rows.iter().all(|r| r.publishing && r.screen_since.is_some()),
         "cada publicador precisa do proprio inicio"
     );
 }

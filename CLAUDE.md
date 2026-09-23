@@ -27,7 +27,7 @@ O Discord continua sendo a camada social: identidade, texto, voz, comunidade, pe
 
 Violar qualquer uma destas invalida o trabalho, mesmo que compile e passe nos testes.
 
-1. **Se o Discord já faz, não reimplemente — integre.** É a regra de escopo do produto. Chat, anexos, busca, DMs, microfone, câmera e cargos próprios estão fora, com rejeição registrada em `docs/adr/`. Reabrir qualquer um exige ADR novo que substitua o anterior, nunca uma issue ou um "só um pouquinho".
+1. **Se o Discord já faz, não reimplemente — integre.** É a regra de escopo do produto. Chat, anexos, busca, DMs, microfone e cargos próprios estão fora, com rejeição registrada em `docs/adr/`. **Câmera é a exceção, e tem história:** foi rejeitada pelo [ADR-0012](docs/adr/0012-midia-unidirecional.md) e voltou ao escopo pelo [ADR-0038](docs/adr/0038-camera-e-uma-segunda-publicacao.md), porque a câmera do Discord tem a mesma limitação de qualidade que o compartilhamento de tela dele. Reabrir qualquer um exige ADR novo que substitua o anterior, nunca uma issue ou um "só um pouquinho".
 2. **Toda decisão que restrinja trabalho futuro vira um ADR** em `docs/adr/NNNN-titulo.md`, antes de a tarefa ser dada como pronta. Ver [ADR-0007](docs/adr/0007-governanca-de-decisoes.md).
 3. **Nunca use `OFFSET` para paginar.** Paginação é sempre por keyset, com IDs UUIDv7.
 4. **Nunca gere IDs no banco.** IDs são criados na aplicação com `Uuid::now_v7()`. O schema não tem `DEFAULT` para chave primária.

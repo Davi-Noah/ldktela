@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO room_presence (user_id, discord_channel_id)\n        VALUES ($1, $2)\n        ON CONFLICT (user_id) DO UPDATE\n           SET discord_channel_id = EXCLUDED.discord_channel_id,\n               publishing         = FALSE,\n               screen_since       = NULL,\n               camera_since       = NULL,\n               joined_at          = NOW()\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6d22f880a611121a9b9487300f527703f0096a20f875b495e2c5e15d1a8c6601"
+}

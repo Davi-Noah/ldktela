@@ -279,7 +279,7 @@ pub struct Resumed {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::room::RoomLeaveReason;
+    use crate::room::{PublicationSource, RoomLeaveReason};
     use crate::scalars::{Snowflake, Timestamp};
 
     #[test]
@@ -289,12 +289,14 @@ mod tests {
             DispatchEvent::ShareStart(ShareStart {
                 discord_channel_id: Snowflake::new(42),
                 user_id: Uuid::nil(),
+                source: PublicationSource::Screen,
                 started_at: Timestamp::new(time::OffsetDateTime::UNIX_EPOCH),
             }),
         );
         let json = serde_json::to_value(&frame).unwrap();
         assert_eq!(json["op"], 0);
         assert_eq!(json["t"], "SHARE_START");
+        assert_eq!(json["d"]["source"], "screen");
         assert_eq!(json["s"], 4211);
         assert_eq!(json["d"]["user_id"], Uuid::nil().to_string());
         let mut keys: Vec<_> = json.as_object().unwrap().keys().cloned().collect();
@@ -310,6 +312,7 @@ mod tests {
             DispatchEvent::ShareStop(ShareStop {
                 discord_channel_id: Snowflake::new(9_007_199_254_740_993),
                 user_id: Uuid::nil(),
+                source: PublicationSource::Camera,
             }),
         );
         let json = serde_json::to_value(&frame).unwrap();
@@ -366,6 +369,7 @@ mod tests {
             DispatchEvent::ShareStart(ShareStart {
                 discord_channel_id: Snowflake::new(1),
                 user_id: Uuid::nil(),
+                source: PublicationSource::Screen,
                 started_at: Timestamp::new(time::OffsetDateTime::UNIX_EPOCH),
             }),
             DispatchEvent::RoomLeave(RoomLeave {

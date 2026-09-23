@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH before AS (\n            SELECT discord_channel_id, screen_since, camera_since\n              FROM room_presence\n             WHERE user_id = $1\n        ), cleared AS (\n            UPDATE room_presence\n               SET screen_since = NULL,\n                   camera_since = NULL,\n                   publishing   = FALSE\n             WHERE user_id = $1\n            RETURNING user_id\n        )\n        SELECT b.discord_channel_id,\n               (b.screen_since IS NOT NULL) AS \"had_screen!\",\n               (b.camera_since IS NOT NULL) AS \"had_camera!\"\n          FROM before b, cleared c\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "discord_channel_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "had_screen!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "had_camera!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "1719e9ddec9c24ab8b7993e38ba90c7f4a57bb78cab7bc174dc84b9aa323feba"
+}

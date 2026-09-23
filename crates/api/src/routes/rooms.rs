@@ -12,8 +12,8 @@ use axum::Router;
 use db::repo::{presence, sessions, users};
 use protocol::gateway::DispatchEvent;
 use protocol::room::{
-    RoomParticipantAdd, RoomParticipantRemove, RoomState, RoomTokenRequest, RoomTokenResponse,
-    ShareStart, ShareStop,
+    PublicationSource, RoomParticipantAdd, RoomParticipantRemove, RoomState, RoomTokenRequest,
+    RoomTokenResponse, ShareStart, ShareStop,
 };
 use protocol::scalars::{Snowflake, Timestamp};
 use time::OffsetDateTime;
@@ -78,23 +78,19 @@ async fn token(
     Path(discord_channel_id): Path<i64>,
     Json(body): Json<RoomTokenRequest>,
 ) -> Result<Json<RoomTokenResponse>, AppError> {
-    let access = if body.publish {
+    let publishes = !body.publish.is_empty();
+    let access = if publishes {
         permissions::publish_access(&state, caller.id, discord_channel_id).await?
     } else {
         permissions::room_access(&state, caller.id, discord_channel_id).await?
     };
 
-    if body.publish {
-        state
-            .rooms
-            .claim_publisher(discord_channel_id, caller.id)
-            .await?;
-    } else {
-        state
-            .rooms
-            .release_publisher(discord_channel_id, caller.id)
-            .await;
-    }
+    // Uma chamada só, mesmo para o espectador: a lista vazia devolve tudo o que
+    // a pessoa tinha, que é exatamente o que "parei de transmitir" significa.
+    state
+        .rooms
+        .claim_publications(discord_channel_id, caller.id, &body.publish)
+        .await?;
 
     let display = access
         .user
@@ -103,7 +99,7 @@ async fn token(
         .unwrap_or_else(|| access.user.username.clone());
     let token = state
         .rooms
-        .issue_token(discord_channel_id, caller.id, &display, body.publish)?;
+        .issue_token(discord_channel_id, caller.id, &display, publishes)?;
 
     Ok(Json(RoomTokenResponse {
         token,
@@ -149,10 +145,11 @@ async fn webhook(
             }
         }
         // Sair sem despublicar e como o core caindo aparece daqui. Encerra a
-        // transmissao, mas nao tira a pessoa da sala.
+        // transmissao, mas nao tira a pessoa da sala. Todas as fontes de uma
+        // vez: a conexao que caiu levava as duas (ADR-0038).
         "participant_left" if event.is_publisher_connection() => {
             if let Some(user) = event.user() {
-                on_share_stop(&state, channel, user).await?;
+                on_publisher_gone(&state, channel, user).await?;
             }
         }
         "participant_left" => {
@@ -160,14 +157,14 @@ async fn webhook(
                 on_leave(&state, channel, user).await?;
             }
         }
-        "track_published" if event.is_screen_video() => {
-            if let Some(user) = event.user() {
-                on_share_start(&state, channel, user).await?;
+        "track_published" => {
+            if let (Some(user), Some(source)) = (event.user(), event.published_source()) {
+                on_share_start(&state, channel, user, source).await?;
             }
         }
-        "track_unpublished" if event.is_screen_video() => {
-            if let Some(user) = event.user() {
-                on_share_stop(&state, channel, user).await?;
+        "track_unpublished" => {
+            if let (Some(user), Some(source)) = (event.user(), event.published_source()) {
+                on_share_stop(&state, channel, user, source).await?;
             }
         }
         "room_finished" => {
@@ -204,8 +201,7 @@ async fn on_join(state: &AppState, channel: i64, user_id: Uuid) -> Result<(), Ap
                     user: user.to_summary(),
                     // Quem acaba de entrar na sala ainda nao publica; o
                     // SHARE_START vem depois, com o inicio real.
-                    publishing: false,
-                    publishing_since: None,
+                    publications: Vec::new(),
                 },
             })),
         )
@@ -239,17 +235,20 @@ async fn on_leave(state: &AppState, channel: i64, user_id: Uuid) -> Result<(), A
     Ok(())
 }
 
-async fn on_share_start(state: &AppState, channel: i64, user_id: Uuid) -> Result<(), AppError> {
-    if presence::set_publishing(&state.pool, user_id, true)
-        .await?
-        .is_none()
-    {
+async fn on_share_start(
+    state: &AppState,
+    channel: i64,
+    user_id: Uuid,
+    source: PublicationSource,
+) -> Result<(), AppError> {
+    let Some(started) = presence::start_publication(&state.pool, user_id, source).await? else {
         // Webhook chegou depois de o usuario ja ter saido. Nao e erro.
         return Ok(());
-    }
+    };
     // `open` devolve a sessao ja existente quando a segunda track chega, entao
-    // `started_at` e o inicio real da transmissao e nao o da track de audio.
-    let session = sessions::open(&state.pool, Uuid::now_v7(), channel, user_id).await?;
+    // `started_at` e o inicio real da transmissao e nao o da track de audio nem
+    // o da segunda fonte. A sessao cobre a pessoa, nao a publicacao (ADR-0038).
+    sessions::open(&state.pool, Uuid::now_v7(), channel, user_id).await?;
     observe_room(state, channel).await?;
 
     state
@@ -260,17 +259,63 @@ async fn on_share_start(state: &AppState, channel: i64, user_id: Uuid) -> Result
             DispatchEvent::ShareStart(ShareStart {
                 discord_channel_id: Snowflake::new(channel),
                 user_id,
-                started_at: Timestamp::new(session.started_at),
+                source,
+                // De `room_presence`, e nao da sessao: cada fonte tem o seu
+                // relogio, e a sessao comeca na primeira delas.
+                started_at: Timestamp::new(started.since),
             }),
         )
         .await;
     Ok(())
 }
 
-async fn on_share_stop(state: &AppState, channel: i64, user_id: Uuid) -> Result<(), AppError> {
-    presence::set_publishing(&state.pool, user_id, false).await?;
+/// The publishing connection went away, taking every source with it.
+async fn on_publisher_gone(state: &AppState, channel: i64, user_id: Uuid) -> Result<(), AppError> {
+    let Some(cleared) = presence::clear_publications(&state.pool, user_id).await? else {
+        return Ok(());
+    };
     sessions::close(&state.pool, channel, user_id, OffsetDateTime::now_utc()).await?;
     state.rooms.release_publisher(channel, user_id).await;
+    observe_room(state, channel).await?;
+
+    // Um evento por fonte que estava no ar: o espectador remove um ladrilho por
+    // publicacao, e um aviso so deixaria o outro na tela para sempre.
+    for source in cleared.sources() {
+        state
+            .hub
+            .publish_to_room(
+                &state.pool,
+                channel,
+                DispatchEvent::ShareStop(ShareStop {
+                    discord_channel_id: Snowflake::new(channel),
+                    user_id,
+                    source,
+                }),
+            )
+            .await;
+    }
+    Ok(())
+}
+
+async fn on_share_stop(
+    state: &AppState,
+    channel: i64,
+    user_id: Uuid,
+    source: PublicationSource,
+) -> Result<(), AppError> {
+    let Some(stopped) = presence::stop_publication(&state.pool, user_id, source).await? else {
+        return Ok(());
+    };
+    // A sessao so fecha quando nada mais esta no ar: ela mede o periodo em que a
+    // pessoa transmitiu, e fecha-la ao parar a camera encerraria a tela que
+    // continua no ar (RNF-05).
+    if !stopped.still_publishing {
+        sessions::close(&state.pool, channel, user_id, OffsetDateTime::now_utc()).await?;
+    }
+    state
+        .rooms
+        .release_publication(channel, user_id, source)
+        .await;
     observe_room(state, channel).await?;
 
     state
@@ -281,6 +326,7 @@ async fn on_share_stop(state: &AppState, channel: i64, user_id: Uuid) -> Result<
             DispatchEvent::ShareStop(ShareStop {
                 discord_channel_id: Snowflake::new(channel),
                 user_id,
+                source,
             }),
         )
         .await;

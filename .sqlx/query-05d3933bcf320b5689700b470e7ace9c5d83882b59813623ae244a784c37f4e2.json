@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE room_presence\n                   SET camera_since = COALESCE(camera_since, NOW()),\n                       publishing   = TRUE\n                 WHERE user_id = $1\n                RETURNING discord_channel_id, camera_since AS \"since!\"\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "discord_channel_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "since!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "05d3933bcf320b5689700b470e7ace9c5d83882b59813623ae244a784c37f4e2"
+}

@@ -3,7 +3,7 @@
 //! Who is in which room right now. The table is `UNLOGGED`: without a socket
 //! there is no presence, so none of this should survive a crash.
 
-use protocol::room::RoomParticipant;
+use protocol::room::{Publication, PublicationSource, RoomParticipant};
 use protocol::scalars::{Snowflake, Timestamp};
 use protocol::user::UserSummary;
 use sqlx::{PgExecutor, PgPool};
@@ -22,12 +22,30 @@ pub struct ParticipantRow {
     pub avatar_url: Option<String>,
     pub publishing: bool,
     pub joined_at: OffsetDateTime,
-    /// When the open share session for this publisher started (RF-34).
-    pub publishing_since: Option<OffsetDateTime>,
+    /// When each publication went live (RF-34, ADR-0038). `None` when that
+    /// source is not on the air.
+    pub screen_since: Option<OffsetDateTime>,
+    pub camera_since: Option<OffsetDateTime>,
 }
 
 impl ParticipantRow {
     pub fn to_wire(&self) -> RoomParticipant {
+        // A ordem e fixa — tela, depois camera — porque ela chega ao espectador
+        // como ordem de ladrilho: variar por consulta remexeria a grade sem
+        // nada ter mudado.
+        let publications = [
+            (PublicationSource::Screen, self.screen_since),
+            (PublicationSource::Camera, self.camera_since),
+        ]
+        .into_iter()
+        .filter_map(|(source, since)| {
+            since.map(|since| Publication {
+                source,
+                since: Timestamp::new(since),
+            })
+        })
+        .collect();
+
         RoomParticipant {
             user: UserSummary {
                 id: self.user_id,
@@ -36,8 +54,7 @@ impl ParticipantRow {
                 display_name: self.display_name.clone(),
                 avatar_url: self.avatar_url.clone(),
             },
-            publishing: self.publishing,
-            publishing_since: self.publishing_since.map(Timestamp::new),
+            publications,
         }
     }
 }
@@ -58,6 +75,8 @@ pub async fn join<'e, E: PgExecutor<'e>>(
         ON CONFLICT (user_id) DO UPDATE
            SET discord_channel_id = EXCLUDED.discord_channel_id,
                publishing         = FALSE,
+               screen_since       = NULL,
+               camera_since       = NULL,
                joined_at          = NOW()
         "#,
         user_id,
@@ -80,27 +99,172 @@ pub async fn leave<'e, E: PgExecutor<'e>>(executor: E, user_id: Uuid) -> DbResul
     Ok(channel)
 }
 
-/// Flip the publishing flag. Returns the channel, or `None` if the user is not
-/// in a room — which happens when a LiveKit webhook arrives after the user
-/// already left, and is not an error.
-pub async fn set_publishing<'e, E: PgExecutor<'e>>(
+/// One publication going live. Returns the channel and the moment it started,
+/// or `None` if the user is not in a room — which happens when a LiveKit webhook
+/// arrives after the user already left, and is not an error.
+///
+/// `COALESCE` makes it idempotent: a publisher republishes the same source when
+/// switching window or preset, and resetting the clock would tell every viewer
+/// the transmission had just begun (RF-34).
+pub async fn start_publication<'e, E: PgExecutor<'e>>(
     executor: E,
     user_id: Uuid,
-    publishing: bool,
-) -> DbResult<Option<i64>> {
-    let channel = sqlx::query_scalar!(
+    source: PublicationSource,
+) -> DbResult<Option<StartedPublication>> {
+    // Duas consultas e nao uma com nome de coluna dinamico: a macro do SQLx so
+    // confere o que esta escrito, e um `format!` aqui abriria mao da conferencia
+    // em troca de quatro linhas.
+    let row = match source {
+        PublicationSource::Screen => {
+            sqlx::query_as!(
+                StartedPublication,
+                r#"
+                UPDATE room_presence
+                   SET screen_since = COALESCE(screen_since, NOW()),
+                       publishing   = TRUE
+                 WHERE user_id = $1
+                RETURNING discord_channel_id, screen_since AS "since!"
+                "#,
+                user_id,
+            )
+            .fetch_optional(executor)
+            .await?
+        }
+        PublicationSource::Camera => {
+            sqlx::query_as!(
+                StartedPublication,
+                r#"
+                UPDATE room_presence
+                   SET camera_since = COALESCE(camera_since, NOW()),
+                       publishing   = TRUE
+                 WHERE user_id = $1
+                RETURNING discord_channel_id, camera_since AS "since!"
+                "#,
+                user_id,
+            )
+            .fetch_optional(executor)
+            .await?
+        }
+    };
+    Ok(row)
+}
+
+/// The channel the publication belongs to, and when it went live.
+#[derive(Debug, Clone, Copy)]
+pub struct StartedPublication {
+    pub discord_channel_id: i64,
+    pub since: OffsetDateTime,
+}
+
+/// One publication ending. `still_publishing` says whether the person is still
+/// transmitting the *other* source, which is what decides if the share session
+/// closes and if the `[LIVE]` tag comes off (ADR-0024).
+pub async fn stop_publication<'e, E: PgExecutor<'e>>(
+    executor: E,
+    user_id: Uuid,
+    source: PublicationSource,
+) -> DbResult<Option<StoppedPublication>> {
+    let row = match source {
+        PublicationSource::Screen => {
+            sqlx::query_as!(
+                StoppedPublication,
+                r#"
+                UPDATE room_presence
+                   SET screen_since = NULL,
+                       publishing   = (camera_since IS NOT NULL)
+                 WHERE user_id = $1
+                RETURNING discord_channel_id, publishing AS "still_publishing!"
+                "#,
+                user_id,
+            )
+            .fetch_optional(executor)
+            .await?
+        }
+        PublicationSource::Camera => {
+            sqlx::query_as!(
+                StoppedPublication,
+                r#"
+                UPDATE room_presence
+                   SET camera_since = NULL,
+                       publishing   = (screen_since IS NOT NULL)
+                 WHERE user_id = $1
+                RETURNING discord_channel_id, publishing AS "still_publishing!"
+                "#,
+                user_id,
+            )
+            .fetch_optional(executor)
+            .await?
+        }
+    };
+    Ok(row)
+}
+
+/// The channel the publication belonged to, and whether anything is left.
+#[derive(Debug, Clone, Copy)]
+pub struct StoppedPublication {
+    pub discord_channel_id: i64,
+    pub still_publishing: bool,
+}
+
+/// Stops everything this person transmits, and says what was on the air.
+///
+/// It exists for the events that end a transmission without a per-track
+/// webhook: the publishing connection dropping, and access being revoked. The
+/// caller needs the list to emit one `SHARE_STOP` per source — a stop nobody
+/// announces leaves a tile on every viewer's screen forever.
+///
+/// `RETURNING` sees the **new** row, which is always empty here, so the previous
+/// state is read in a CTE that runs before the update.
+pub async fn clear_publications<'e, E: PgExecutor<'e>>(
+    executor: E,
+    user_id: Uuid,
+) -> DbResult<Option<ClearedPublications>> {
+    let row = sqlx::query_as!(
+        ClearedPublications,
         r#"
-        UPDATE room_presence
-           SET publishing = $2
-         WHERE user_id = $1
-        RETURNING discord_channel_id
+        WITH before AS (
+            SELECT discord_channel_id, screen_since, camera_since
+              FROM room_presence
+             WHERE user_id = $1
+        ), cleared AS (
+            UPDATE room_presence
+               SET screen_since = NULL,
+                   camera_since = NULL,
+                   publishing   = FALSE
+             WHERE user_id = $1
+            RETURNING user_id
+        )
+        SELECT b.discord_channel_id,
+               (b.screen_since IS NOT NULL) AS "had_screen!",
+               (b.camera_since IS NOT NULL) AS "had_camera!"
+          FROM before b, cleared c
         "#,
         user_id,
-        publishing,
     )
     .fetch_optional(executor)
     .await?;
-    Ok(channel)
+    Ok(row)
+}
+
+/// What the person was transmitting when everything was stopped at once.
+#[derive(Debug, Clone, Copy)]
+pub struct ClearedPublications {
+    pub discord_channel_id: i64,
+    pub had_screen: bool,
+    pub had_camera: bool,
+}
+
+impl ClearedPublications {
+    /// The sources that were live, in tile order.
+    pub fn sources(&self) -> Vec<PublicationSource> {
+        [
+            (PublicationSource::Screen, self.had_screen),
+            (PublicationSource::Camera, self.had_camera),
+        ]
+        .into_iter()
+        .filter_map(|(source, was_live)| was_live.then_some(source))
+        .collect()
+    }
 }
 
 pub async fn list_by_channel(
@@ -110,9 +274,9 @@ pub async fn list_by_channel(
     let rows = sqlx::query_as!(
         ParticipantRow,
         r#"
-        -- O inicio da transmissao vem da sessao aberta, nao de `room_presence`:
-        -- duplicar a coluna criaria uma segunda verdade para o mesmo fato, e e
-        -- a sessao que o relatorio de egress ja usa.
+        -- O inicio de cada publicacao vem de `room_presence`, e nao da sessao
+        -- aberta: desde o ADR-0038 sao duas fontes com relogios proprios, e a
+        -- sessao cobre o periodo inteiro em que a pessoa esteve ao vivo.
         SELECT p.user_id,
                u.discord_user_id,
                u.username,
@@ -120,13 +284,10 @@ pub async fn list_by_channel(
                u.avatar_url,
                p.publishing,
                p.joined_at,
-               s.started_at AS "publishing_since?"
+               p.screen_since,
+               p.camera_since
           FROM room_presence p
           JOIN users u ON u.id = p.user_id
-          LEFT JOIN share_sessions s
-                 ON s.discord_channel_id = p.discord_channel_id
-                AND s.publisher_id       = p.user_id
-                AND s.ended_at IS NULL
          WHERE p.discord_channel_id = $1
          ORDER BY p.joined_at
         "#,
@@ -148,18 +309,40 @@ pub async fn channel_of(pool: &PgPool, user_id: Uuid) -> DbResult<Option<i64>> {
     Ok(channel)
 }
 
-/// How many people are publishing in a room. Feeds the admission guard.
-pub async fn publisher_count(pool: &PgPool, discord_channel_id: i64) -> DbResult<i64> {
-    let count = sqlx::query_scalar!(
-        r#"
-        SELECT COUNT(*) AS "count!"
-          FROM room_presence
-         WHERE discord_channel_id = $1 AND publishing
-        "#,
-        discord_channel_id,
-    )
-    .fetch_one(pool)
-    .await?;
+/// How many publications of one source a room holds. Feeds the admission guard,
+/// which counts per source: the ceilings are separate because a face costs a
+/// fraction of a screen (ADR-0038).
+pub async fn publisher_count(
+    pool: &PgPool,
+    discord_channel_id: i64,
+    source: PublicationSource,
+) -> DbResult<i64> {
+    let count = match source {
+        PublicationSource::Screen => {
+            sqlx::query_scalar!(
+                r#"
+                SELECT COUNT(*) AS "count!"
+                  FROM room_presence
+                 WHERE discord_channel_id = $1 AND screen_since IS NOT NULL
+                "#,
+                discord_channel_id,
+            )
+            .fetch_one(pool)
+            .await?
+        }
+        PublicationSource::Camera => {
+            sqlx::query_scalar!(
+                r#"
+                SELECT COUNT(*) AS "count!"
+                  FROM room_presence
+                 WHERE discord_channel_id = $1 AND camera_since IS NOT NULL
+                "#,
+                discord_channel_id,
+            )
+            .fetch_one(pool)
+            .await?
+        }
+    };
     Ok(count)
 }
 

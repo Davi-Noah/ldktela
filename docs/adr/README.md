@@ -63,7 +63,7 @@ certas.
 | [0009](0009-identidade-por-pareamento.md) | Identidade por pareamento via bot do Discord | Aceito |
 | [0010](0010-autorizacao-derivada-do-discord.md) | Autorização derivada do Discord; RBAC próprio aposentado | Aceito |
 | [0011](0011-sala-e-o-canal-de-voz.md) | A sala é o canal de voz do Discord | Aceito |
-| [0012](0012-midia-unidirecional.md) | Mídia unidirecional: sem microfone, câmera ou texto | Aceito |
+| [0012](0012-midia-unidirecional.md) | Mídia unidirecional: sem microfone, câmera ou texto | Aceito; a câmera voltou pelo 0038 |
 | [0013](0013-turn-tls-443-primario.md) | TURN/TLS em 443 é caminho primário, não fallback | **Rebaixado pelo 0020** |
 | [0014](0014-audio-por-aplicativo.md) | Áudio por aplicativo via WASAPI, transportado por IPC | Aceito, refinado pelo 0025; o IPC caiu no 0026 |
 | [0015](0015-postgres-com-schema-reduzido.md) | Postgres mantido apesar do schema reduzido | Aceito |
@@ -89,3 +89,4 @@ certas.
 | [0035](0035-a-instancia-serve-servidores-nomeados.md) | A instância hospedada serve os servidores que ela nomeia | Aceito |
 | [0036](0036-assinar-uma-tela-e-escolha-de-quem-assiste.md) | Assinar uma tela é escolha de quem assiste | Aceito; corrigido em 2026-09-21 |
 | [0037](0037-o-bot-nao-anuncia-no-canal.md) | O bot não anuncia a transmissão no canal | Aceito |
+| [0038](0038-camera-e-uma-segunda-publicacao.md) | Câmera é uma segunda publicação, ao lado da tela | Aceito; substitui a rejeição de câmera do 0012 |

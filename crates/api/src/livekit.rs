@@ -15,6 +15,7 @@ use std::time::Duration;
 use livekit_api::access_token::{AccessToken, TokenVerifier, VideoGrants};
 use livekit_api::services::room::RoomClient;
 use livekit_api::webhooks::WebhookReceiver;
+use protocol::room::PublicationSource;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -28,17 +29,29 @@ pub struct RoomConfig {
     pub api_secret: String,
     /// RNF-06 caps this at 60 minutes.
     pub token_ttl_seconds: u64,
-    /// Simultaneous publishers per room (P-01, default 2).
+    /// Simultaneous screens per room (P-01, default 2).
     pub max_publishers: usize,
+    /// Simultaneous cameras per room (ADR-0038, default 4).
+    ///
+    /// Separate from the screen ceiling, and higher: a 720p30 face costs a
+    /// fraction of a 1080p60 screen, and one ceiling for both would let four
+    /// cameras eat the room's two screens.
+    pub max_cameras: usize,
 }
 
 /// The hard ceiling from RNF-06. A configuration above it is clamped rather
 /// than refused: a long-lived media token is a security property, not a taste.
 pub const MAX_TOKEN_TTL_SECONDS: u64 = 3600;
 
-/// LiveKit track sources this product ever publishes (ADR-0012). A viewer
-/// publishes nothing at all, and nobody ever publishes a camera or a microphone.
-const PUBLISHABLE_SOURCES: [&str; 2] = ["screen_share", "screen_share_audio"];
+/// LiveKit track sources this product ever publishes (ADR-0012, ADR-0038). A
+/// viewer publishes nothing at all, and nobody ever publishes a microphone.
+///
+/// A publish token carries **all** of them, even when the client says it is only
+/// starting the screen. The core holds one publishing connection (ADR-0027), so
+/// a token narrowed to the screen would make turning the camera on later require
+/// reconnecting — and reconnecting drops the screen that is already live.
+/// Narrowing is the admission ledger's job, per source, and it runs before this.
+const PUBLISHABLE_SOURCES: [&str; 3] = ["screen_share", "screen_share_audio", "camera"];
 
 /// Suffix that tells the publishing connection apart from the watching one.
 ///
@@ -87,13 +100,41 @@ pub struct Rooms {
     /// Server-side room control. Used for exactly one thing: throwing someone
     /// out the moment Discord says they may no longer be there (RF-08).
     client: RoomClient,
-    /// Who currently holds a publish grant, per Discord voice channel.
+    /// Who currently holds a publish grant, per Discord voice channel and per
+    /// source.
     ///
     /// This is admission control at token issue. LiveKit stays the authority on
     /// what is actually published, but by the time a third screen is live the
     /// egress is already spent. The process is a single instance (RNF-14), so
     /// the ledger lives in memory.
-    publisher_grants: RwLock<HashMap<i64, HashSet<Uuid>>>,
+    publisher_grants: RwLock<HashMap<i64, RoomSlots>>,
+}
+
+/// The publish slots of one room, counted per source (ADR-0038).
+#[derive(Debug, Default)]
+struct RoomSlots {
+    screens: HashSet<Uuid>,
+    cameras: HashSet<Uuid>,
+}
+
+impl RoomSlots {
+    fn holders(&self, source: PublicationSource) -> &HashSet<Uuid> {
+        match source {
+            PublicationSource::Screen => &self.screens,
+            PublicationSource::Camera => &self.cameras,
+        }
+    }
+
+    fn holders_mut(&mut self, source: PublicationSource) -> &mut HashSet<Uuid> {
+        match source {
+            PublicationSource::Screen => &mut self.screens,
+            PublicationSource::Camera => &mut self.cameras,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.screens.is_empty() && self.cameras.is_empty()
+    }
 }
 
 impl Rooms {
@@ -163,46 +204,100 @@ impl Rooms {
         self.config.max_publishers
     }
 
-    /// Reserves a publish slot, or reports the room is full.
+    pub fn max_cameras(&self) -> usize {
+        self.config.max_cameras
+    }
+
+    fn ceiling(&self, source: PublicationSource) -> usize {
+        match source {
+            PublicationSource::Screen => self.config.max_publishers,
+            PublicationSource::Camera => self.config.max_cameras,
+        }
+    }
+
+    /// Makes the ledger say exactly what the client declared it will have live.
     ///
-    /// Re-requesting a publish token while already holding a slot is not a new
-    /// publisher: the client renews silently before expiry (RNF-06), and
-    /// counting the renewal would lock a user out of their own screen share.
-    pub async fn claim_publisher(
+    /// Sources in `wanted` are claimed and everything else is given back, in one
+    /// pass under one lock: the request carries the whole intent (see
+    /// `RoomTokenRequest::publish`), so turning the camera off is expressed by
+    /// leaving it out, and nothing else has to remember to release it.
+    ///
+    /// Refuses **before** changing anything. A request for screen and camera
+    /// where only the camera is full must not quietly hand over half of what was
+    /// asked for and let the client discover the rest by failing to publish.
+    pub async fn claim_publications(
         &self,
         discord_channel_id: i64,
         user_id: Uuid,
+        wanted: &[PublicationSource],
     ) -> Result<(), AppError> {
         let mut grants = self.publisher_grants.write().await;
         let room = grants.entry(discord_channel_id).or_default();
-        if room.contains(&user_id) {
-            return Ok(());
+
+        for &source in wanted {
+            // Ja ter a vaga nao consome outra: o cliente renova o token a cada
+            // hora (RNF-06), e contar a renovacao trancaria a pessoa para fora
+            // da propria transmissao.
+            if room.holders(source).contains(&user_id) {
+                continue;
+            }
+            if room.holders(source).len() >= self.ceiling(source) {
+                return Err(AppError::RoomCapacity);
+            }
         }
-        if room.len() >= self.config.max_publishers {
-            return Err(AppError::RoomCapacity);
+
+        for source in [PublicationSource::Screen, PublicationSource::Camera] {
+            if wanted.contains(&source) {
+                room.holders_mut(source).insert(user_id);
+            } else {
+                room.holders_mut(source).remove(&user_id);
+            }
         }
-        room.insert(user_id);
+
+        if room.is_empty() {
+            grants.remove(&discord_channel_id);
+        }
         Ok(())
     }
 
-    /// Gives back a slot: the user stopped sharing, left, or asked for a viewer
-    /// token.
-    pub async fn release_publisher(&self, discord_channel_id: i64, user_id: Uuid) {
+    /// Gives back one source's slot: that publication stopped.
+    pub async fn release_publication(
+        &self,
+        discord_channel_id: i64,
+        user_id: Uuid,
+        source: PublicationSource,
+    ) {
         let mut grants = self.publisher_grants.write().await;
         if let Some(room) = grants.get_mut(&discord_channel_id) {
-            room.remove(&user_id);
+            room.holders_mut(source).remove(&user_id);
             if room.is_empty() {
                 grants.remove(&discord_channel_id);
             }
         }
     }
 
-    pub async fn publisher_slots_taken(&self, discord_channel_id: i64) -> usize {
+    /// Gives back every slot this person holds: they left, or lost access.
+    pub async fn release_publisher(&self, discord_channel_id: i64, user_id: Uuid) {
+        let mut grants = self.publisher_grants.write().await;
+        if let Some(room) = grants.get_mut(&discord_channel_id) {
+            room.screens.remove(&user_id);
+            room.cameras.remove(&user_id);
+            if room.is_empty() {
+                grants.remove(&discord_channel_id);
+            }
+        }
+    }
+
+    pub async fn publisher_slots_taken(
+        &self,
+        discord_channel_id: i64,
+        source: PublicationSource,
+    ) -> usize {
         self.publisher_grants
             .read()
             .await
             .get(&discord_channel_id)
-            .map_or(0, HashSet::len)
+            .map_or(0, |room| room.holders(source).len())
     }
 
     /// A room-scoped token.
@@ -334,14 +429,21 @@ impl WebhookEvent {
             .is_some_and(|id| id.ends_with(PUBLISHER_SUFFIX))
     }
 
-    /// Whether this event is about the screen video track.
+    /// Which publication this track event is about, if any (ADR-0038).
     ///
     /// Compared by equality, not by prefix: sharing a screen with audio
     /// publishes **two** tracks, `screen_share` and `screen_share_audio`. With a
     /// `contains` check, unpublishing only the audio would clear the sharing
     /// state of someone whose screen is still on everyone's display.
-    pub fn is_screen_video(&self) -> bool {
-        self.track_source.as_deref() == Some("screen_share")
+    ///
+    /// `None` for the audio track and for anything else LiveKit may report: the
+    /// audio rides along with the screen and has no publication of its own.
+    pub fn published_source(&self) -> Option<PublicationSource> {
+        match self.track_source.as_deref() {
+            Some("screen_share") => Some(PublicationSource::Screen),
+            Some("camera") => Some(PublicationSource::Camera),
+            _ => None,
+        }
     }
 }
 
@@ -358,6 +460,7 @@ mod tests {
             api_secret: "dev-only-not-a-real-key-0123456789abcdef".into(),
             token_ttl_seconds: 3600,
             max_publishers: 2,
+            max_cameras: 3,
         }
     }
 
@@ -415,8 +518,15 @@ mod tests {
         );
     }
 
+    /// O token cobre a tela e a câmera, e nunca o microfone.
+    ///
+    /// As duas fontes juntas não são generosidade: a publicação é uma conexão só
+    /// (ADR-0027), então um token estreitado à tela obrigaria a reconectar para
+    /// ligar a câmera — derrubando a tela que já está no ar. Quem limita é o
+    /// ledger, por fonte, antes daqui. O microfone continua fora por construção
+    /// (ADR-0012).
     #[test]
-    fn a_publisher_token_is_limited_to_the_screen() {
+    fn a_publisher_token_covers_both_video_sources_and_never_the_microphone() {
         let rooms = Rooms::new(config());
         let token = rooms
             .issue_token(CHANNEL, Uuid::nil(), "pessoa", true)
@@ -430,10 +540,10 @@ mod tests {
             .iter()
             .filter_map(|v| v.as_str())
             .collect();
-        assert_eq!(sources, vec!["screen_share", "screen_share_audio"]);
+        assert_eq!(sources, vec!["screen_share", "screen_share_audio", "camera"]);
         assert!(
-            !sources.contains(&"camera") && !sources.contains(&"microphone"),
-            "a topologia e unidirecional por construcao (ADR-0012): {video}"
+            !sources.contains(&"microphone"),
+            "a voz continua no Discord (ADR-0012): {video}"
         );
     }
 
@@ -464,6 +574,10 @@ mod tests {
         String::from_utf8(bytes).expect("payload utf-8")
     }
 
+    const SCREEN: [PublicationSource; 1] = [PublicationSource::Screen];
+    const CAMERA: [PublicationSource; 1] = [PublicationSource::Camera];
+    const BOTH: [PublicationSource; 2] = [PublicationSource::Screen, PublicationSource::Camera];
+
     #[tokio::test]
     async fn the_publisher_guard_refuses_beyond_the_ceiling() {
         let rooms = Rooms::new(config());
@@ -471,22 +585,155 @@ mod tests {
         let b = Uuid::now_v7();
         let c = Uuid::now_v7();
 
-        rooms.claim_publisher(CHANNEL, a).await.expect("primeiro");
-        rooms.claim_publisher(CHANNEL, b).await.expect("segundo");
+        rooms
+            .claim_publications(CHANNEL, a, &SCREEN)
+            .await
+            .expect("primeiro");
+        rooms
+            .claim_publications(CHANNEL, b, &SCREEN)
+            .await
+            .expect("segundo");
         assert!(
-            rooms.claim_publisher(CHANNEL, c).await.is_err(),
-            "o terceiro publicador deveria ser recusado"
+            rooms.claim_publications(CHANNEL, c, &SCREEN).await.is_err(),
+            "a terceira tela deveria ser recusada"
         );
-        assert_eq!(rooms.publisher_slots_taken(CHANNEL).await, 2);
+        assert_eq!(
+            rooms
+                .publisher_slots_taken(CHANNEL, PublicationSource::Screen)
+                .await,
+            2
+        );
+    }
+
+    /// O teto da câmera é outro (ADR-0038): a sala cheia de telas ainda aceita
+    /// rostos, que é o ponto de terem contas separadas.
+    #[tokio::test]
+    async fn a_full_room_of_screens_still_takes_cameras() {
+        let rooms = Rooms::new(config());
+        let a = Uuid::now_v7();
+        let b = Uuid::now_v7();
+        let c = Uuid::now_v7();
+        rooms
+            .claim_publications(CHANNEL, a, &SCREEN)
+            .await
+            .expect("tela a");
+        rooms
+            .claim_publications(CHANNEL, b, &SCREEN)
+            .await
+            .expect("tela b");
+
+        rooms
+            .claim_publications(CHANNEL, c, &CAMERA)
+            .await
+            .expect("camera passa com as telas cheias");
+        assert_eq!(
+            rooms
+                .publisher_slots_taken(CHANNEL, PublicationSource::Camera)
+                .await,
+            1
+        );
+    }
+
+    /// Pedir as duas com uma delas cheia não entrega metade: o cliente saberia
+    /// do problema só ao ver a publicação ser recusada pelo SFU.
+    #[tokio::test]
+    async fn a_refused_pair_claims_nothing() {
+        let rooms = Rooms::new(config());
+        let a = Uuid::now_v7();
+        let b = Uuid::now_v7();
+        let c = Uuid::now_v7();
+        rooms
+            .claim_publications(CHANNEL, a, &SCREEN)
+            .await
+            .expect("tela a");
+        rooms
+            .claim_publications(CHANNEL, b, &SCREEN)
+            .await
+            .expect("tela b");
+
+        assert!(rooms.claim_publications(CHANNEL, c, &BOTH).await.is_err());
+        assert_eq!(
+            rooms
+                .publisher_slots_taken(CHANNEL, PublicationSource::Camera)
+                .await,
+            0,
+            "a vaga de camera nao pode ficar reservada por um pedido recusado"
+        );
     }
 
     #[tokio::test]
     async fn renewing_does_not_consume_a_second_slot() {
         let rooms = Rooms::new(config());
         let a = Uuid::now_v7();
-        rooms.claim_publisher(CHANNEL, a).await.expect("primeiro");
-        rooms.claim_publisher(CHANNEL, a).await.expect("renovacao");
-        assert_eq!(rooms.publisher_slots_taken(CHANNEL).await, 1);
+        rooms
+            .claim_publications(CHANNEL, a, &SCREEN)
+            .await
+            .expect("primeiro");
+        rooms
+            .claim_publications(CHANNEL, a, &SCREEN)
+            .await
+            .expect("renovacao");
+        assert_eq!(
+            rooms
+                .publisher_slots_taken(CHANNEL, PublicationSource::Screen)
+                .await,
+            1
+        );
+    }
+
+    /// A lista é a intenção inteira: o que ela deixa de fora é devolvido. Sem
+    /// isto, desligar a câmera exigiria uma segunda chamada que alguém esquece.
+    #[tokio::test]
+    async fn the_declared_set_is_the_whole_intent() {
+        let rooms = Rooms::new(config());
+        let a = Uuid::now_v7();
+        rooms
+            .claim_publications(CHANNEL, a, &BOTH)
+            .await
+            .expect("as duas");
+        rooms
+            .claim_publications(CHANNEL, a, &SCREEN)
+            .await
+            .expect("so a tela");
+
+        assert_eq!(
+            rooms
+                .publisher_slots_taken(CHANNEL, PublicationSource::Camera)
+                .await,
+            0
+        );
+        assert_eq!(
+            rooms
+                .publisher_slots_taken(CHANNEL, PublicationSource::Screen)
+                .await,
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn asking_for_a_viewer_token_gives_everything_back() {
+        let rooms = Rooms::new(config());
+        let a = Uuid::now_v7();
+        rooms
+            .claim_publications(CHANNEL, a, &BOTH)
+            .await
+            .expect("as duas");
+        rooms
+            .claim_publications(CHANNEL, a, &[])
+            .await
+            .expect("espectador");
+        assert_eq!(
+            rooms
+                .publisher_slots_taken(CHANNEL, PublicationSource::Screen)
+                .await,
+            0
+        );
+        assert_eq!(
+            rooms
+                .publisher_slots_taken(CHANNEL, PublicationSource::Camera)
+                .await,
+            0
+        );
     }
 
     #[tokio::test]
@@ -495,11 +742,53 @@ mod tests {
         let a = Uuid::now_v7();
         let b = Uuid::now_v7();
         let c = Uuid::now_v7();
-        rooms.claim_publisher(CHANNEL, a).await.expect("a");
-        rooms.claim_publisher(CHANNEL, b).await.expect("b");
-        rooms.release_publisher(CHANNEL, a).await;
-        rooms.claim_publisher(CHANNEL, c).await.expect("c entra");
-        assert_eq!(rooms.publisher_slots_taken(CHANNEL).await, 2);
+        rooms
+            .claim_publications(CHANNEL, a, &SCREEN)
+            .await
+            .expect("a");
+        rooms
+            .claim_publications(CHANNEL, b, &SCREEN)
+            .await
+            .expect("b");
+        rooms
+            .release_publication(CHANNEL, a, PublicationSource::Screen)
+            .await;
+        rooms
+            .claim_publications(CHANNEL, c, &SCREEN)
+            .await
+            .expect("c entra");
+        assert_eq!(
+            rooms
+                .publisher_slots_taken(CHANNEL, PublicationSource::Screen)
+                .await,
+            2
+        );
+    }
+
+    /// Parar a câmera não pode derrubar a tela da mesma pessoa.
+    #[tokio::test]
+    async fn releasing_one_source_leaves_the_other() {
+        let rooms = Rooms::new(config());
+        let a = Uuid::now_v7();
+        rooms
+            .claim_publications(CHANNEL, a, &BOTH)
+            .await
+            .expect("as duas");
+        rooms
+            .release_publication(CHANNEL, a, PublicationSource::Camera)
+            .await;
+        assert_eq!(
+            rooms
+                .publisher_slots_taken(CHANNEL, PublicationSource::Screen)
+                .await,
+            1
+        );
+        assert_eq!(
+            rooms
+                .publisher_slots_taken(CHANNEL, PublicationSource::Camera)
+                .await,
+            0
+        );
     }
 
     #[tokio::test]
@@ -507,21 +796,46 @@ mod tests {
         let rooms = Rooms::new(config());
         let a = Uuid::now_v7();
         let b = Uuid::now_v7();
-        rooms.claim_publisher(CHANNEL, a).await.expect("a");
-        rooms.claim_publisher(CHANNEL, b).await.expect("b");
-        rooms.claim_publisher(999, a).await.expect("outra sala");
-        assert_eq!(rooms.publisher_slots_taken(999).await, 1);
+        rooms
+            .claim_publications(CHANNEL, a, &SCREEN)
+            .await
+            .expect("a");
+        rooms
+            .claim_publications(CHANNEL, b, &SCREEN)
+            .await
+            .expect("b");
+        rooms
+            .claim_publications(999, a, &SCREEN)
+            .await
+            .expect("outra sala");
+        assert_eq!(
+            rooms
+                .publisher_slots_taken(999, PublicationSource::Screen)
+                .await,
+            1
+        );
     }
 
     #[tokio::test]
     async fn forgetting_a_room_clears_its_ledger() {
         let rooms = Rooms::new(config());
         rooms
-            .claim_publisher(CHANNEL, Uuid::now_v7())
+            .claim_publications(CHANNEL, Uuid::now_v7(), &BOTH)
             .await
             .expect("claim");
         rooms.forget_room(CHANNEL).await;
-        assert_eq!(rooms.publisher_slots_taken(CHANNEL).await, 0);
+        assert_eq!(
+            rooms
+                .publisher_slots_taken(CHANNEL, PublicationSource::Screen)
+                .await,
+            0
+        );
+        assert_eq!(
+            rooms
+                .publisher_slots_taken(CHANNEL, PublicationSource::Camera)
+                .await,
+            0
+        );
     }
 
     #[test]
@@ -595,7 +909,7 @@ mod tests {
     }
 
     #[test]
-    fn screen_audio_is_not_mistaken_for_screen_video() {
+    fn each_track_maps_to_its_own_publication() {
         let video = WebhookEvent {
             event: "track_published".into(),
             room: Some(room_name(CHANNEL)),
@@ -606,11 +920,25 @@ mod tests {
             track_source: Some("screen_share_audio".into()),
             ..video.clone()
         };
-        assert!(video.is_screen_video());
-        assert!(
-            !audio.is_screen_video(),
+        let camera = WebhookEvent {
+            track_source: Some("camera".into()),
+            ..video.clone()
+        };
+        let microphone = WebhookEvent {
+            track_source: Some("microphone".into()),
+            ..video.clone()
+        };
+
+        assert_eq!(video.published_source(), Some(PublicationSource::Screen));
+        assert_eq!(camera.published_source(), Some(PublicationSource::Camera));
+        assert_eq!(
+            audio.published_source(),
+            None,
             "despublicar so o audio nao pode derrubar o estado da tela"
         );
+        // Ninguem publica microfone (ADR-0012), e se um aparecer ele nao vira
+        // publicacao nenhuma em vez de virar uma tela por engano.
+        assert_eq!(microphone.published_source(), None);
     }
 
     /// Guarda metade do par de versoes do LiveKit (ADR-0019); a outra metade, o

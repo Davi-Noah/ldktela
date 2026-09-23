@@ -121,6 +121,10 @@ impl Config {
             });
         }
 
+        // Zero é legítimo aqui, e não um erro como acima: uma instância pode
+        // querer telas sem câmeras (ADR-0038). O produto continua inteiro.
+        let max_cameras: usize = parse(source, "ROOM_MAX_CAMERAS")?;
+
         Ok(Self {
             app_env: match required(source, "APP_ENV")?.as_str() {
                 "development" => AppEnv::Development,
@@ -158,6 +162,7 @@ impl Config {
                 api_secret: required(source, "LIVEKIT_API_SECRET")?,
                 token_ttl_seconds: parse(source, "ROOM_TOKEN_TTL_SECONDS")?,
                 max_publishers,
+                max_cameras,
             },
         })
     }
@@ -252,6 +257,7 @@ mod tests {
             ),
             ("ROOM_TOKEN_TTL_SECONDS", "3600"),
             ("ROOM_MAX_PUBLISHERS", "2"),
+            ("ROOM_MAX_CAMERAS", "4"),
         ] {
             m.insert(k, v.to_string());
         }

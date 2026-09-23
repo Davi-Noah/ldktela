@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE room_presence\n                   SET screen_since = NULL,\n                       publishing   = (camera_since IS NOT NULL)\n                 WHERE user_id = $1\n                RETURNING discord_channel_id, publishing AS \"still_publishing!\"\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "discord_channel_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "still_publishing!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "3fe257459e585f84bbebf6cd7cb3bf5ba1e380b5455005b12770eb9965a0e304"
+}
