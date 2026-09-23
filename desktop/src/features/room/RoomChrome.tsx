@@ -1,6 +1,4 @@
-import { useState } from 'react';
 import type { RoomParticipant } from '../../api/types/RoomParticipant';
-import type { CameraDevice } from '../../media/native';
 import { media } from '../../app/runtime';
 import {
   isSelfPublication,
@@ -25,6 +23,7 @@ import { Icon } from '../../ui/Icon';
 import { IconButton } from '../../ui/IconButton';
 import { MenuItem, MenuLabel, Popover } from '../../ui/Popover';
 import { kbps } from './format';
+import { CameraControl } from './CameraControl';
 import { WatchButton } from './WatchButton';
 
 interface RoomChromeProps {
@@ -185,7 +184,7 @@ export function RoomChrome({ onShare, onStop, onToggleFullscreen, fullscreen }: 
           {/* A câmera é independente da tela (ADR-0038): fica ao lado, e não
               dentro dos ajustes da transmissão, porque ligá-la não exige estar
               compartilhando nada. */}
-          <CameraButton />
+          <CameraControl variant="chrome" />
 
           {focused !== null && tiles.length > 1 && (
             <>
@@ -288,113 +287,6 @@ function connectionLabel(state: string): string {
     default:
       return state;
   }
-}
-
-/**
- * Liga, desliga e troca a câmera (ADR-0038).
- *
- * Um botão com estado, e não um item de menu: a câmera entra e sai o tempo todo
- * numa conversa, e enterrá-la atrás de um popover cobraria dois cliques por vez.
- * A escolha de dispositivo é que fica no menu ao lado, porque quase ninguém tem
- * duas câmeras e quem tem escolhe uma vez.
- *
- * A lista é buscada ao abrir o menu, e não na montagem: enumerar câmeras abre o
- * Media Foundation, e pagar isso em toda sala que se entra seria gastar por um
- * recurso que a maioria não usa.
- */
-function CameraButton() {
-  const camera = useMediaStore((state) => state.camera);
-  const [devices, setDevices] = useState<CameraDevice[] | null>(null);
-
-  const load = () => {
-    void media
-      .listCameras()
-      .then(setDevices)
-      .catch(() => {
-        setDevices([]);
-      });
-  };
-
-  if (camera.publishing) {
-    return (
-      <>
-        <IconButton
-          icon="camera"
-          label={`Desligar a câmera${camera.deviceName === null ? '' : ` (${camera.deviceName})`}`}
-          aria-pressed
-          onClick={() => {
-            void media.stopCamera();
-          }}
-        />
-        <Popover icon="chevron" label="Escolher outra câmera" onOpen={load}>
-          {(close) => (
-            <CameraList
-              devices={devices}
-              selected={camera.deviceId}
-              onPick={(device) => {
-                void media.switchCamera(device);
-                close();
-              }}
-            />
-          )}
-        </Popover>
-      </>
-    );
-  }
-
-  return (
-    <Popover icon="camera" label="Ligar a câmera" onOpen={load} disabled={camera.starting}>
-      {(close) => (
-        <CameraList
-          devices={devices}
-          selected={null}
-          onPick={(device) => {
-            void media.startCamera(device);
-            close();
-          }}
-        />
-      )}
-    </Popover>
-  );
-}
-
-function CameraList({
-  devices,
-  selected,
-  onPick,
-}: {
-  devices: CameraDevice[] | null;
-  selected: string | null;
-  onPick: (device: CameraDevice) => void;
-}) {
-  if (devices === null) {
-    return <p className="px-2 py-1 text-text-muted">Procurando câmeras…</p>;
-  }
-  if (devices.length === 0) {
-    // Dito uma vez e por extenso: "nenhuma câmera" sem explicação manda a
-    // pessoa procurar defeito no aplicativo, e o motivo costuma ser o Windows.
-    return (
-      <p className="px-2 py-1 text-text-muted">
-        Nenhuma câmera encontrada. Verifique se ela está conectada e se o Windows permite o acesso.
-      </p>
-    );
-  }
-  return (
-    <>
-      <MenuLabel>Câmera</MenuLabel>
-      {devices.map((device) => (
-        <MenuItem
-          key={device.id}
-          selected={device.id === selected}
-          onClick={() => {
-            onPick(device);
-          }}
-        >
-          {device.name}
-        </MenuItem>
-      ))}
-    </>
-  );
 }
 
 /**

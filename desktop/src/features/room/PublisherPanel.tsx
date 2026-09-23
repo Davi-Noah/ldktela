@@ -5,6 +5,50 @@ import { Avatar } from '../../ui/Avatar';
 import { Icon } from '../../ui/Icon';
 import { kbps } from './format';
 
+/**
+ * A câmera no ar, com os números dela (ADR-0038).
+ *
+ * Separada do painel da tela, e não uma linha dentro dele: são duas publicações
+ * independentes, e quem transmite as duas precisa saber qual das duas está
+ * ruim. Os números de rede são da conexão, que é uma só — por isso aqui ficam
+ * os que são da câmera.
+ */
+export function CameraPanel() {
+  const camera = useMediaStore((state) => state.camera);
+  if (!camera.publishing) {
+    return null;
+  }
+  const stats = camera.stats;
+  return (
+    <div className="rounded-panel border border-border bg-surface-1">
+      <div className="flex items-center gap-2 border-b border-line px-3 py-2">
+        <span className="shrink-0 text-danger">
+          <Icon name="camera" size={14} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-semibold text-text">{camera.deviceName ?? 'Sua câmera'}</p>
+          <p className="truncate text-xs text-text-muted">720p · 30 fps · sem áudio</p>
+        </div>
+      </div>
+      <div className="px-3 py-2">
+        {stats !== null && stats.capturedFrames === 0 && (
+          // O contador é nosso e é um fato: a câmera abriu e não entregou
+          // quadro. Sem esta linha, o sintoma é um ladrilho preto com tempo no
+          // ar correndo.
+          <Notice>
+            <strong>Nenhum quadro está saindo da câmera.</strong> Ela abriu e não entregou imagem.
+            Costuma ser outro aplicativo usando a câmera ao mesmo tempo.
+          </Notice>
+        )}
+        <dl className="grid grid-cols-2 gap-x-2 gap-y-row font-mono">
+          <Stat label="Quadros" value={stats === null ? '—' : String(stats.capturedFrames)} />
+          <Stat label="Codificados" value={stats === null ? '—' : String(stats.encodedFrames)} />
+        </dl>
+      </div>
+    </div>
+  );
+}
+
 /** RF-21 and RF-22, for whoever is publishing. Numbers arrive on an interval. */
 export function PublisherPanel() {
   const stats = useMediaStore((state) => state.stats);

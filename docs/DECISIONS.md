@@ -710,3 +710,62 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   - O `AudioContext` é acordado no primeiro clique ou tecla: criado sem gesto do usuário ele nasce
     suspenso, e o primeiro aviso — justamente o que apresenta o recurso — sairia mudo.
 
+## S10 — Câmera
+
+- **[S10] A unidade do domínio virou a publicação (2026-09-22).** O par (pessoa, fonte), com fonte
+  em `screen` ou `camera`. Vale no fio, no banco, no ledger de admissão e no espectador. Antes a
+  pessoa era a chave em todos eles, e uma segunda fonte da mesma pessoa era **inexprimível**: um
+  ladrilho, um volume, um "sair desta tela". A chave no cliente é texto (`${ownerId}:${source}`),
+  e não um objeto, porque ela é chave de `Record`, de `key` de React e de `Map` — comparar objetos
+  em qualquer um dos três é defeito que só aparece quando a segunda fonte entra no ar. Ver
+  [ADR-0038](adr/0038-camera-e-uma-segunda-publicacao.md).
+
+- **[S10] O token de publicação cobre as duas fontes; quem estreita é o ledger.** A publicação é
+  uma conexão só (ADR-0027). Um token limitado à tela obrigaria a reconectar para ligar a câmera,
+  e reconectar derruba a tela que já está no ar. O `can_publish_sources` passa a trazer `camera`
+  sempre que houver publicação, e o teto por fonte é aplicado antes, na emissão. O microfone
+  continua fora, e há teste que falha se ele aparecer na lista.
+
+- **[S10] O pedido de token declara a intenção inteira, não o que está começando.** `publish` é
+  uma lista: o que está nela é reservado, o que ficou de fora é devolvido. Sem isso, pedir um
+  token só para a câmera devolveria a vaga da tela — e outra pessoa a tomaria no meio da
+  transmissão. Também é o que torna a renovação de hora em hora idempotente.
+
+- **[S10] A migration é só aditiva, e `share_sessions` ficou intacta.** O início de cada
+  publicação mora em `room_presence`, numa coluna por fonte. Uma sessão continua cobrindo o
+  período em que a **pessoa** esteve ao vivo, porque é o orçamento de egress (RNF-05) que ela
+  serve, e ele soma por pessoa. O preço: o histórico não distingue uma sessão só de câmera. Isso
+  evitou trocar `idx_sessions_open_publisher`, que seria migration destrutiva sobre tabela em uso.
+
+- **[S10] A sessão só fecha quando nada mais está no ar.** Parar a câmera com a tela transmitindo
+  encerraria uma sessão que continua acontecendo, e o relatório de egress passaria a contar duas
+  sessões onde houve uma.
+
+- **[S10] A captura de câmera é nossa, em Media Foundation.** O binding do libwebrtc que usamos
+  traz `desktop_capturer` e **não traz câmera**; não havia caminho pronto.
+  - **`MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING` faz a conversão.** Quase nenhuma webcam entrega
+    NV12: a maioria manda MJPEG, algumas YUY2. Com o processamento ligado, o leitor insere o
+    conversor e o encoder recebe NV12 sem decodificador nosso no caminho.
+  - **O pitch da origem é respeitado linha a linha.** Drivers alinham as linhas, e um quadro de
+    1280 de largura costuma chegar com stride de 1536. Copiar como se fosse colado inclina a
+    imagem na diagonal — que se lê como encoder quebrado, e não é. Há teste com pitch maior que a
+    largura justamente por isso.
+  - **A escolha de formato prefere o maior que **cabe** no teto**, e nunca estica: subir 480p para
+    720p gasta bitrate em pixels que o sensor nunca produziu. Entre taxas, 60 fps onde se pediu 30
+    é melhor que 24 — o encoder descarta o excesso, mas não inventa o que falta.
+  - **A câmera é aberta na thread de quem chamou**, antes de publicar. "Em uso por outro
+    aplicativo" precisa voltar como erro do botão, e não como uma publicação vazia que o servidor
+    já anunciou à sala inteira. Os `HRESULT` de ocupada, bloqueada pelo Windows e desconectada
+    viram mensagens diferentes, porque as três pedem ações diferentes de quem lê.
+  - **`is_screencast: false` na fonte da câmera**, ao contrário da tela: são as heurísticas de
+    câmera do encoder que valem para um rosto.
+
+- **[S10] O preview local é espelhado, e só ele.** É o que se espera de um espelho. A trilha que
+  sai não é espelhada, ou qualquer texto na frente da câmera chegaria invertido aos outros.
+
+- **[S10] A câmera tem botão próprio na barra, e não um item dentro dos ajustes da transmissão.**
+  Ligá-la não exige estar compartilhando nada, e ela entra e sai muitas vezes numa conversa;
+  enterrá-la num popover cobraria dois cliques por vez. A escolha de dispositivo é que fica no
+  menu ao lado, porque quase ninguém tem duas câmeras. A lista é buscada ao **abrir** o menu:
+  enumerar abre o Media Foundation, e pagar isso em toda sala que se entra seria cobrar por um
+  recurso que a maioria não usa.

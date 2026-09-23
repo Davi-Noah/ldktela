@@ -101,11 +101,19 @@ export async function start(): Promise<void> {
   // normal do aplicativo (RF-26) e justamente quando descobrir a tela errada no
   // ar é mais caro.
   void onStopRequested(() => {
-    if (!useMediaStore.getState().publishing) {
+    const state = useMediaStore.getState();
+    // Para as duas fontes (ADR-0038): quem usa o atalho para tirar a própria
+    // imagem do ar não espera que a câmera continue transmitindo.
+    if (!state.publishing && !state.camera.publishing) {
       return;
     }
-    log.info('compartilhamento: parada pedida de fora da janela');
-    void media.stopShare();
+    log.info('transmissão: parada pedida de fora da janela');
+    if (state.publishing) {
+      void media.stopShare();
+    }
+    if (state.camera.publishing) {
+      void media.stopCamera();
+    }
   });
 
   scheduleUpdateChecks();

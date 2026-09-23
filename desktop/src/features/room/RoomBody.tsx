@@ -7,7 +7,8 @@ import { useUiStore } from '../../store/ui';
 import { Avatar } from '../../ui/Avatar';
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
-import { PublisherPanel } from './PublisherPanel';
+import { CameraControl } from './CameraControl';
+import { CameraPanel, PublisherPanel } from './PublisherPanel';
 import { WatchButton } from './WatchButton';
 
 interface RoomBodyProps {
@@ -53,6 +54,7 @@ function InRoom({ onShare, onStop }: RoomBodyProps) {
   const participantIds = useRoomStore((state) => state.participantIds);
   const participants = useRoomStore((state) => state.participants);
   const publishing = useMediaStore((state) => state.publishing);
+  const cameraOn = useMediaStore((state) => state.camera.publishing);
   const starting = useMediaStore((state) => state.starting);
   const publications = useMediaStore((state) => state.publications);
   const fault = useMediaStore((state) => state.fault);
@@ -127,6 +129,22 @@ function InRoom({ onShare, onStop }: RoomBodyProps) {
         })}
       </ul>
 
+      {fault !== null || !cameraOn ? null : (
+        <div className="mt-group">
+          <CameraPanel />
+          <Button
+            variant="danger"
+            icon="camera"
+            onClick={() => {
+              void media.stopCamera();
+            }}
+            className="mt-row w-full py-2"
+          >
+            Desligar a câmera
+          </Button>
+        </div>
+      )}
+
       {fault !== null ? null : publishing ? (
         <div className="mt-group">
           <PublisherPanel />
@@ -149,15 +167,21 @@ function InRoom({ onShare, onStop }: RoomBodyProps) {
           </Button>
         </div>
       ) : (
-        <Button
-          variant="primary"
-          icon="monitor"
-          onClick={onShare}
-          disabled={starting}
-          className="mt-group w-full py-2"
-        >
-          {starting ? 'Conectando…' : 'Compartilhar tela'}
-        </Button>
+        <div className="mt-group flex items-center gap-2">
+          <Button
+            variant="primary"
+            icon="monitor"
+            onClick={onShare}
+            disabled={starting}
+            className="w-full py-2"
+          >
+            {starting ? 'Conectando…' : 'Compartilhar tela'}
+          </Button>
+          {/* Ao lado, e não dentro do seletor de tela: a câmera é uma
+              transmissão à parte, e quem quer só ela não passa pelo seletor
+              (ADR-0038). */}
+          {!cameraOn && <CameraControl variant="body" />}
+        </div>
       )}
     </div>
   );
