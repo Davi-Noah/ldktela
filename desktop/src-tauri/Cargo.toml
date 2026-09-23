@@ -53,6 +53,13 @@ windows = { version = "0.61", features = [
     # Camera (ADR-0038): o binding do libwebrtc traz capturador de tela e nao de
     # camera, entao a enumeracao e o laco de leitura sao nossos.
     "Win32_Media_MediaFoundation",
+    # Segundo caminho de camera (ADR-0039), para as cameras virtuais que o Media
+    # Foundation enumera e nao abre. `Graphics_Gdi` vem junto: o formato de video
+    # do DirectShow e descrito por um BITMAPINFOHEADER, e `System_Ole` idem, pelo
+    # VARIANT do saco de propriedades do moniker.
+    "Win32_Media_DirectShow",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Ole",
     "Win32_Security",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
