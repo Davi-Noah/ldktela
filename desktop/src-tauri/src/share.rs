@@ -119,13 +119,13 @@ impl Live {
         if self.screen.is_some() || self.camera.is_some() {
             return;
         }
+        // Fecha pelo `Arc`, e nao tomando posse: quem chama daqui costuma ainda
+        // segurar um clone — os caminhos de erro de `share_start` e de
+        // `camera_start` seguram. Exigir posse exclusiva deixaria uma conexao
+        // conectada e sem trilha nenhuma, que e um publicador fantasma
+        // ocupando a vaga de admissao ate o token expirar.
         if let Some(publisher) = self.publisher.take() {
-            match Arc::try_unwrap(publisher) {
-                Ok(owned) => owned.stop().await,
-                // Alguem ainda segura um clone: nao ha o que fechar com
-                // seguranca, e o proximo `close_if_idle` cuida.
-                Err(shared) => self.publisher = Some(shared),
-            }
+            publisher.stop().await;
         }
     }
 }
@@ -446,22 +446,24 @@ pub async fn camera_start(
         }
 
         let publisher = connect(&mut live, &app, &request.url, &request.token).await?;
-        let (preview, tap) = preview::start(app.clone(), Source::Camera);
-        let preview_control = preview.control();
-        preview_control.set(true, GRID_FPS, false);
 
-        // A camera e aberta antes de publicar: "em uso por outro aplicativo" tem
-        // de voltar como erro do botao, e nao como uma publicacao vazia que o
-        // servidor ja anunciou a sala inteira.
-        let lost = app.clone();
         let sink = match publisher.publish_camera().await {
             Ok(sink) => sink,
             Err(error) => {
-                preview.stop();
                 live.close_if_idle().await;
                 return Err(error.into());
             }
         };
+
+        // O preview so nasce depois de publicar, e nunca antes: `Preview::stop`
+        // espera a thread de codificacao terminar, e ela so termina quando o
+        // ultimo `Tap` e descartado. Criado antes, um caminho de erro que ainda
+        // segurasse o `Tap` travaria o processo aqui dentro.
+        let (preview, tap) = preview::start(app.clone(), Source::Camera);
+        let preview_control = preview.control();
+        preview_control.set(true, GRID_FPS, false);
+
+        let lost = app.clone();
         let capture = match crate::camera::start(
             &request.device_id,
             crate::publisher::CAMERA_SIZE,

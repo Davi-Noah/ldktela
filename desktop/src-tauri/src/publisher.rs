@@ -573,7 +573,7 @@ impl Publisher {
     /// Closing beats unpublishing track by track: the connection has no other
     /// purpose, and leaving is also what the server sees if the process dies, so
     /// there is one path to test instead of two.
-    pub async fn stop(self) {
+    pub async fn stop(&self) {
         if let Err(error) = self.room.close().await {
             eprintln!("publicacao: erro ao sair da sala: {error}");
         }
