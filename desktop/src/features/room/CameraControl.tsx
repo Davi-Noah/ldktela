@@ -41,16 +41,14 @@ export function CameraControl({ variant }: { variant: 'chrome' | 'body' }) {
     // raro, fica no menu ao lado.
     return (
       <>
-        {variant === 'chrome' ? (
-          <IconButton
-            icon="camera"
-            label={`Desligar a câmera${camera.deviceName === null ? '' : ` (${camera.deviceName})`}`}
-            aria-pressed
-            onClick={() => {
-              void media.stopCamera();
-            }}
-          />
-        ) : null}
+        <IconButton
+          icon="camera"
+          label={`Desligar a câmera${camera.deviceName === null ? '' : ` (${camera.deviceName})`}`}
+          aria-pressed
+          onClick={() => {
+            void media.stopCamera();
+          }}
+        />
         <Popover
           icon="chevron"
           label="Escolher outra câmera"

@@ -59,6 +59,7 @@ Premissa de projeto, não estimativa. Todo dimensionamento em §7 deriva daqui.
 | Comunidade por instância | 10 a 30 pessoas |
 | Uso central | Uma pessoa compartilha gameplay ou estudo em 1080p60; 4 a 10 assistem; sessões longas |
 | Publicadores simultâneos por sala | N, com teto configurável (`ROOM_MAX_PUBLISHERS`, padrão 10 desde 2026-09-17; era 2). Cada um multiplica o egress — ver RF-32 |
+| Câmeras simultâneas por sala | Teto próprio (`ROOM_MAX_CAMERAS`), separado do de telas: 720p30 custa uma fração de uma tela 1080p60, e um teto só deixaria rostos ocuparem o lugar de telas ([ADR-0038](adr/0038-camera-e-uma-segunda-publicacao.md)) |
 | Espectadores simultâneos por sala | Até 10 |
 | Plataforma dos clientes | Windows 10/11 x86_64 (100%) |
 | Rede alvo | Comum, sem requisitos especiais de transporte ([ADR-0020](adr/0020-transporte-comum-sem-adversario-de-rede.md)); o caso difícil é CGNAT, como em qualquer produto de WebRTC |
@@ -79,12 +80,18 @@ Premissa de projeto, não estimativa. Todo dimensionamento em §7 deriva daqui.
 ### 1.5 Fora de escopo, definitivamente
 
 Mensagens de texto, anexos, busca, conversas diretas, reações, menções, cargos próprios,
-convites, migração de histórico, ponte de mensagens, microfone, câmera, gravação de
+convites, migração de histórico, ponte de mensagens, microfone, gravação de
 sessão, controle remoto, anotação sobre a tela, clientes móveis ou web, e link de
 compartilhamento sem Discord.
 
 Cada item tem rejeição registrada em `docs/adr/`. Reabrir qualquer um exige ADR novo que
 substitua o anterior.
+
+**Câmera saiu desta lista em 2026-09-22.** Estava aqui por dois motivos, e um deles caiu:
+a câmera do Discord sofre a mesma limitação de qualidade que o compartilhamento de tela
+dele. O outro — cada publicador multiplica o egress — continua de pé e virou teto por
+fonte, e não recusa do recurso. Ver [ADR-0038](adr/0038-camera-e-uma-segunda-publicacao.md).
+O microfone continua fora, pelo [ADR-0012](adr/0012-midia-unidirecional.md).
 
 ---
 
@@ -226,6 +233,9 @@ ser N publicadores para N espectadores.
 
 | ID | Requisito | Descrição | Prioridade |
 |---|---|---|---|
+| RF-41 **[N]** | Transmissão de câmera | Quem está numa sala pode transmitir a câmera, **independente da tela**: só a câmera, só a tela, ou as duas ao mesmo tempo. Resolução fixa em 720p30, sem seletor de preset — é um rosto, e o egress é o recurso escasso. A câmera **nunca** carrega áudio; a voz continua no Discord ([ADR-0038](adr/0038-camera-e-uma-segunda-publicacao.md), que substitui a rejeição do [ADR-0012](adr/0012-midia-unidirecional.md)). | Must |
+| RF-42 **[N]** | Paridade de ladrilho | Cada publicação — tela ou câmera — é um ladrilho próprio, com foco, destacar em janela, volume quando houver áudio, escolha de qualidade, e sair e voltar em separado (RF-31 a RF-35 valem por publicação, e não por pessoa). | Must |
+| RF-43 **[N]** | Câmera indisponível é dita | Câmera em uso por outro aplicativo, bloqueada pela privacidade do Windows ou desconectada produzem mensagens diferentes, porque as três pedem ações diferentes de quem lê. A tela continua funcionando quando a câmera falha. | Must |
 | RF-38 **[N]** | Tag `[LIVE]` no apelido | Quem está transmitindo recebe o prefixo `[LIVE] ` no apelido do servidor, e o perde ao parar. Exige `MANAGE_NICKNAMES`. | Should |
 | RF-39 **[N]** | Guardas da marcação | Dono do servidor e membros com cargo acima do bot são pulados em silêncio — é limitação do Discord, sem contorno para o dono. O apelido anterior é salvo e restaurado **exatamente**, inclusive o caso de não haver apelido. Marcar e desmarcar são idempotentes. Ver [ADR-0024](adr/0024-tag-live-no-apelido.md). | Must |
 | RF-40 **[N]** | Limpeza no arranque | O servidor desmarca, ao subir, quem ficou marcado por uma queda, antes de aceitar sessão nova. Sem isto, um apelido alheio fica sujo até alguém notar. | Must |

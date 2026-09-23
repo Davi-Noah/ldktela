@@ -52,6 +52,11 @@ const E_ACCESSDENIED: i32 = -2147024891; // 0x80070005
 const MF_E_HW_MFT_FAILED_START_STREAMING: i32 = -1072873339; // 0xC00D3E85
 /// `MF_E_NO_MORE_TYPES`, the end of the format list. Not an error.
 const MF_E_NO_MORE_TYPES: i32 = -1072875847; // 0xC00D36B9
+/// The symbolic link no longer names a device: unplugged between listing and
+/// choosing, or a virtual camera whose source went away.
+const ERROR_FILE_NOT_FOUND: i32 = -2147024894; // 0x80070002
+const MF_E_NOT_FOUND: i32 = -1072875819; // 0xC00D36D5
+const E_INVALIDARG: i32 = -2147024809; // 0x80070057
 
 /// One camera the person can choose, as the picker shows it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -206,16 +211,14 @@ fn open_device(device_id: &str) -> Result<IMFMediaSource, CameraError> {
             .map_err(|e| CameraError::from_hresult(&e, "escolhendo a camera"))?;
 
         MFCreateDeviceSource(&attributes).map_err(|e| match e.code().0 {
-            // A camera foi desconectada entre listar e escolher.
-            code if code == ERROR_SHARING_VIOLATION => CameraError::Busy,
-            _ => {
-                let mapped = CameraError::from_hresult(&e, "abrindo a camera");
-                if matches!(mapped, CameraError::Platform(_)) {
-                    CameraError::Gone
-                } else {
-                    mapped
-                }
-            }
+            // Sumiu entre listar e escolher: desconectada, ou uma camera
+            // virtual cuja origem saiu do ar.
+            ERROR_FILE_NOT_FOUND | MF_E_NOT_FOUND | E_INVALIDARG => CameraError::Gone,
+            // Qualquer outro codigo sai por extenso, com o HRESULT. Traduzir
+            // tudo para "nao esta conectada" faria a interface mentir sobre a
+            // metade dos casos e esconderia justamente o numero com que se
+            // pesquisa o problema.
+            _ => CameraError::from_hresult(&e, "abrindo a camera"),
         })
     }
 }
@@ -732,6 +735,92 @@ mod tests {
         );
         assert_eq!(&uv[0..4], &[200, 201, 202, 203]);
         let _ = stride_uv;
+    }
+
+    /// Enumera de verdade, contra o Media Foundation desta maquina.
+    ///
+    /// `#[ignore]` porque depende de hardware: numa maquina sem camera ele passa
+    /// com a lista vazia, que tambem e um resultado valido. O que ele prova nao
+    /// e a lista — e que a travessia do array de `IMFActivate`, com
+    /// `ptr::read` e `CoTaskMemFree`, nao corrompe o heap. Uma alocacao depois
+    /// da chamada e onde isso apareceria.
+    ///
+    /// Rode com: `cargo test --lib camera -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn enumerating_cameras_does_not_corrupt_the_heap() {
+        let devices = list_cameras();
+        for device in &devices {
+            assert!(!device.id.is_empty(), "id vazio nao identifica dispositivo");
+            assert!(!device.name.is_empty());
+            println!("camera: {} ({})", device.name, device.id);
+        }
+        // Uma alocacao grande logo depois: heap corrompido pela travessia
+        // costuma estourar aqui, e nao na chamada.
+        let canary: Vec<u8> = vec![7; 4 * 1024 * 1024];
+        assert_eq!(canary[canary.len() - 1], 7);
+
+        // Duas vezes: `MFStartup`/`MFShutdown` sao contados por processo, e
+        // desbalancear o par so aparece na segunda chamada.
+        let again = list_cameras();
+        assert_eq!(again.len(), devices.len());
+    }
+
+    /// Abre a primeira camera desta maquina e conta quadros.
+    ///
+    /// `#[ignore]` e depende de hardware, como o teste de SFU real do
+    /// `publisher.rs`: e a unica forma de provar que a negociacao de formato e o
+    /// laco de leitura funcionam contra um driver de verdade, e nenhum teste sem
+    /// camera prova isso.
+    ///
+    /// Rode com: `cargo test --lib camera -- --ignored --nocapture`
+    /// `tokio::test` porque `NativeVideoSource` exige um reator: a fonte nativa
+    /// do libwebrtc agenda nele, e fora de um runtime ela entra em panico ao ser
+    /// criada.
+    #[tokio::test]
+    #[ignore]
+    async fn a_real_camera_delivers_frames() {
+        use livekit::webrtc::video_source::VideoResolution;
+        use std::time::Duration;
+
+        let Some(device) = list_cameras().into_iter().next() else {
+            eprintln!("sem camera nesta maquina; nada a provar");
+            return;
+        };
+
+        let ceiling = Size {
+            width: 1280,
+            height: 720,
+        };
+        let sink = NativeVideoSource::new(
+            VideoResolution {
+                width: ceiling.width,
+                height: ceiling.height,
+            },
+            false,
+        );
+
+        let capture = match start(&device.id, ceiling, 30, sink, None, || {
+            eprintln!("camera: a fonte sumiu durante o teste");
+        }) {
+            Ok(capture) => capture,
+            Err(error) => {
+                // Ocupada ou bloqueada e resultado legitimo do ambiente, e o
+                // caminho de erro tambem e o que se quer exercitar.
+                eprintln!("camera indisponivel nesta maquina: {error}");
+                return;
+            }
+        };
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let produced = capture.produced_frames();
+        capture.stop();
+
+        println!("camera {}: {produced} quadros em 2 s", device.name);
+        assert!(
+            produced > 0,
+            "a camera abriu e nao entregou quadro nenhum em 2 s"
+        );
     }
 
     #[test]
