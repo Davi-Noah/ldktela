@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { PublishPreset } from '../store/media';
+import type { PublicationSource } from './publication';
 
 /**
  * The publishing half of the client, which lives in the Rust core (ADR-0026).
@@ -122,9 +123,63 @@ export function onStopRequested(handler: () => void): Promise<() => void> {
   });
 }
 
-/** One preview frame, already a data URL an `<img>` can take (ADR-0030). */
-export function onPreviewFrame(handler: (dataUrl: string) => void): Promise<() => void> {
-  return listen<string>('share://preview', (event) => {
+/**
+ * One preview frame, already a data URL an `<img>` can take (ADR-0030).
+ *
+ * Carries the source since ADR-0038: com tela e câmera no ar ao mesmo tempo,
+ * dois fluxos de quadros chegam por este mesmo evento.
+ */
+export interface PreviewFrame {
+  source: PublicationSource;
+  image: string;
+}
+
+export function onPreviewFrame(handler: (frame: PreviewFrame) => void): Promise<() => void> {
+  return listen<PreviewFrame>('share://preview', (event) => {
     handler(event.payload);
   });
+}
+
+/** The cameras the core found (ADR-0038). Enumerated by Media Foundation. */
+export interface CameraDevice {
+  id: string;
+  name: string;
+}
+
+export function listCameras(): Promise<CameraDevice[]> {
+  return invoke<CameraDevice[]>('camera_list');
+}
+
+export interface StartCameraRequest {
+  url: string;
+  token: string;
+  deviceId: string;
+}
+
+/**
+ * Publishes the camera on the connection the core already holds, or opens one
+ * when the screen is not sharing (ADR-0038).
+ */
+export function startNativeCamera(request: StartCameraRequest): Promise<void> {
+  return invoke<void>('camera_start', {
+    request: {
+      url: request.url,
+      token: request.token,
+      device_id: request.deviceId,
+    },
+  });
+}
+
+export function stopNativeCamera(): Promise<void> {
+  return invoke<void>('camera_stop');
+}
+
+/**
+ * Turns the local camera preview on and off, exactly like the screen's.
+ *
+ * Espelhado só aqui, e nunca na trilha que sai: espelhar o que os outros veem
+ * inverteria qualquer texto na frente da câmera (ADR-0038).
+ */
+export function setCameraPreview(enabled: boolean, fps: number, focused: boolean): Promise<void> {
+  return invoke<void>('camera_preview', { enabled, fps, focused });
 }

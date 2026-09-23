@@ -8,6 +8,10 @@ mod vault;
 
 #[cfg(target_os = "windows")]
 mod audio;
+/// Câmera (ADR-0038). Só existe no Windows, como a captura de áudio: o Media
+/// Foundation é o caminho da plataforma, e não há segundo alvo hoje.
+#[cfg(target_os = "windows")]
+mod camera;
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -136,6 +140,11 @@ pub fn run() -> tauri::Result<()> {
             share::share_stop,
             share::share_stats,
             share::share_preview,
+            share::camera_list,
+            share::camera_start,
+            share::camera_stop,
+            share::camera_stats,
+            share::camera_preview,
             tray_set_sharing,
         ])
         .setup(move |app| {

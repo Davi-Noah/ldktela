@@ -1,8 +1,9 @@
 import { log } from '../log';
 import { onPreviewFrame } from './native';
+import type { PublicationSource } from './publication';
 
 /**
- * O preview da própria tela, do lado do WebView (ADR-0030).
+ * O preview da própria transmissão, do lado do WebView (ADR-0030).
  *
  * Não passa pelo React. O `<img>` é criado imperativamente pelo ladrilho e
  * registrado aqui; a chegada de um quadro troca o `src` e nada mais. A regra é
@@ -13,16 +14,31 @@ import { onPreviewFrame } from './native';
  * O último quadro fica guardado para que remontar o elemento — trocar de foco,
  * destacar para outra janela — não deixe um retângulo vazio até o próximo
  * chegar.
+ *
+ * **Um por fonte** desde o ADR-0038: tela e câmera podem estar no ar ao mesmo
+ * tempo, e os quadros chegam do core marcados com a fonte a que pertencem. Sem
+ * isso, o quadro da câmera apareceria dentro do ladrilho da tela.
  */
 
-let element: HTMLImageElement | null = null;
-let latest: string | null = null;
+interface Slot {
+  element: HTMLImageElement | null;
+  latest: string | null;
+}
+
+const slots: Record<PublicationSource, Slot> = {
+  screen: { element: null, latest: null },
+  camera: { element: null, latest: null },
+};
 let bridge: Promise<() => void> | null = null;
 
-export function registerPreviewElement(next: HTMLImageElement | null): void {
-  element = next;
-  if (next !== null && latest !== null) {
-    next.src = latest;
+export function registerPreviewElement(
+  source: PublicationSource,
+  next: HTMLImageElement | null,
+): void {
+  const slot = slots[source];
+  slot.element = next;
+  if (next !== null && slot.latest !== null) {
+    next.src = slot.latest;
   }
 }
 
@@ -31,10 +47,11 @@ export function startPreviewBridge(): void {
   if (bridge !== null) {
     return;
   }
-  bridge = onPreviewFrame((dataUrl) => {
-    latest = dataUrl;
-    if (element !== null) {
-      element.src = dataUrl;
+  bridge = onPreviewFrame((frame) => {
+    const slot = slots[frame.source];
+    slot.latest = frame.image;
+    if (slot.element !== null) {
+      slot.element.src = frame.image;
     }
   });
   void bridge.catch((error: unknown) => {
@@ -44,16 +61,17 @@ export function startPreviewBridge(): void {
 }
 
 /**
- * Esquece o último quadro. Chamado ao parar de compartilhar: sem isso, começar
- * de novo mostraria por um instante a tela da sessão anterior — que pode ser
- * justamente a que não se queria mostrar.
+ * Esquece o último quadro de uma fonte. Chamado ao parar de transmitir: sem
+ * isso, começar de novo mostraria por um instante a tela da sessão anterior —
+ * que pode ser justamente a que não se queria mostrar.
  */
-export function clearPreview(): void {
-  latest = null;
-  if (element !== null) {
+export function clearPreview(source: PublicationSource): void {
+  const slot = slots[source];
+  slot.latest = null;
+  if (slot.element !== null) {
     // Um pixel transparente, e não `removeAttribute`: tirar o `src` de uma
     // `<img>` que já tinha um deixa o ícone de imagem quebrada no lugar.
-    element.src = BLANK;
+    slot.element.src = BLANK;
   }
 }
 

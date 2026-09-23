@@ -26,6 +26,13 @@ use crate::capture::{fit, Size};
 /// Emitido a cada quadro de preview, como data URL pronta para `img.src`.
 const PREVIEW_EVENT: &str = "share://preview";
 
+/// Um quadro de preview e a fonte a que ele pertence (ADR-0038).
+#[derive(Debug, Clone, serde::Serialize)]
+struct PreviewFrame {
+    source: crate::publisher::Source,
+    image: String,
+}
+
 /// Teto do preview **na grade**, onde ele e um ladrilho entre outros.
 ///
 /// Era 480 px, pensado como "so para conferir a janela". So que numa grade de
@@ -206,7 +213,7 @@ impl Preview {
 }
 
 /// Abre o par: o controle fica com o comando, o `Tap` vai para a captura.
-pub fn start(app: AppHandle) -> (Preview, Tap) {
+pub fn start(app: AppHandle, source: crate::publisher::Source) -> (Preview, Tap) {
     // Profundidade 1: interessa o quadro mais recente, nunca uma fila deles.
     let (tx, rx) = sync_channel::<Raw>(1);
     let control = Arc::new(Control::new());
@@ -216,7 +223,10 @@ pub fn start(app: AppHandle) -> (Preview, Tap) {
         .spawn(move || {
             while let Ok(frame) = rx.recv() {
                 if let Some(url) = encode_data_url(&frame) {
-                    let _ = app.emit(PREVIEW_EVENT, url);
+                    // A fonte viaja com o quadro: tela e camera podem estar no
+                    // ar ao mesmo tempo, e sem ela o quadro de uma apareceria
+                    // dentro do ladrilho da outra (ADR-0038).
+                    let _ = app.emit(PREVIEW_EVENT, PreviewFrame { source, image: url });
                 }
             }
         })

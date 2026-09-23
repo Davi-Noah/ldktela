@@ -14,12 +14,22 @@ use tokio::sync::Mutex;
 
 use crate::capture::{self, Capture, ShareSource, SourceKind};
 use crate::preview::{self, Preview, GRID_FPS, THUMBNAIL_MAX};
-use crate::publisher::{Preset, Publisher, PublisherStats};
+use crate::publisher::{Preset, Publisher, PublisherStats, Source};
 
-/// Emitted when a share ends without the user asking: the SFU dropped us, or the
-/// window being shared was closed. The interface has to notice, because the
-/// button still says "stop sharing".
+/// Emitted when a publication ends without the user asking: the SFU dropped us,
+/// the window being shared was closed, or the camera was unplugged. The
+/// interface has to notice, because the button still says "stop".
+///
+/// Carries the source since ADR-0038: parar a camera nao pode apagar o botao da
+/// tela, que continua no ar.
 const ENDED_EVENT: &str = "share://ended";
+
+/// Why one publication ended, and which one.
+#[derive(Debug, Clone, Serialize)]
+pub struct ShareEnded {
+    pub source: Source,
+    pub reason: String,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct StartRequest {
@@ -58,6 +68,14 @@ pub enum ShareFailure {
     Capture(#[from] crate::capture::CaptureError),
     #[error(transparent)]
     Publish(#[from] crate::publisher::PublishError),
+    #[error("ja existe uma camera no ar")]
+    AlreadyOnCamera,
+    #[cfg(target_os = "windows")]
+    #[error(transparent)]
+    Camera(#[from] crate::camera::CameraError),
+    #[cfg(not(target_os = "windows"))]
+    #[error("camera so no Windows por enquanto")]
+    NoCameraHere,
 }
 
 /// Unlike the vault's error, this one is meant to be read: every variant is a
@@ -70,7 +88,7 @@ impl Serialize for ShareFailure {
 
 #[derive(Default)]
 pub struct Sharing {
-    active: Mutex<Option<Active>>,
+    live: Mutex<Live>,
     /// Uma miniatura por vez.
     ///
     /// O seletor pede todas de uma vez, e cada pedido abre um `DesktopCapturer`
@@ -80,8 +98,39 @@ pub struct Sharing {
     thumbnails: Mutex<()>,
 }
 
-struct Active {
-    publisher: Publisher,
+/// Uma conexao de publicacao, ate duas publicacoes em cima dela (ADR-0038).
+///
+/// O `Publisher` vive enquanto **qualquer** fonte estiver no ar: a camera entra
+/// por cima da sessao que a tela abriu, e vice-versa. Reconectar para ligar a
+/// segunda derrubaria a primeira, que e exatamente o que o ADR-0027 evita.
+#[derive(Default)]
+struct Live {
+    publisher: Option<Arc<Publisher>>,
+    screen: Option<ScreenActive>,
+    camera: Option<CameraActive>,
+}
+
+impl Live {
+    /// Fecha a conexao quando nada mais esta no ar.
+    ///
+    /// Sair da sala e o que devolve a vaga de admissao no servidor; deixar a
+    /// conexao aberta sem trilha nenhuma seguraria a vaga ate o token expirar.
+    async fn close_if_idle(&mut self) {
+        if self.screen.is_some() || self.camera.is_some() {
+            return;
+        }
+        if let Some(publisher) = self.publisher.take() {
+            match Arc::try_unwrap(publisher) {
+                Ok(owned) => owned.stop().await,
+                // Alguem ainda segura um clone: nao ha o que fechar com
+                // seguranca, e o proximo `close_if_idle` cuida.
+                Err(shared) => self.publisher = Some(shared),
+            }
+        }
+    }
+}
+
+struct ScreenActive {
     capture: Capture,
     preview: Preview,
     /// Guardado a parte do `Preview` para que ligar e desligar o preview nao
@@ -89,6 +138,21 @@ struct Active {
     preview_control: Arc<preview::Control>,
     #[cfg(target_os = "windows")]
     audio: Option<crate::audio::AudioCapture>,
+}
+
+#[cfg(target_os = "windows")]
+struct CameraActive {
+    capture: crate::camera::CameraCapture,
+    preview: Preview,
+    preview_control: Arc<preview::Control>,
+}
+
+/// Sem camera fora do Windows: o Media Foundation e o caminho da plataforma, e
+/// nao ha segundo alvo hoje (ADR-0038).
+#[cfg(not(target_os = "windows"))]
+struct CameraActive {
+    preview: Preview,
+    preview_control: Arc<preview::Control>,
 }
 
 /// What can be shared right now.
@@ -140,9 +204,9 @@ pub async fn share_preview(
     fps: u32,
     focused: bool,
 ) -> Result<(), ShareFailure> {
-    let active = state.active.lock().await;
-    if let Some(active) = active.as_ref() {
-        active.preview_control.set(enabled, fps, focused);
+    let live = state.live.lock().await;
+    if let Some(screen) = live.screen.as_ref() {
+        screen.preview_control.set(enabled, fps, focused);
     }
     Ok(())
 }
@@ -153,8 +217,8 @@ pub async fn share_start(
     state: State<'_, Sharing>,
     request: StartRequest,
 ) -> Result<StartedShare, ShareFailure> {
-    let mut active = state.active.lock().await;
-    if active.is_some() {
+    let mut live = state.live.lock().await;
+    if live.screen.is_some() {
         return Err(ShareFailure::AlreadySharing);
     }
 
@@ -163,20 +227,16 @@ pub async fn share_start(
         .parse()
         .map_err(|_| ShareFailure::BadSource)?;
 
-    let ended = app.clone();
-    let publisher = Publisher::start(
-        &request.url,
-        &request.token,
-        request.preset,
-        request.audio,
-        move |reason| {
-            eprintln!("compartilhamento: o servidor de midia encerrou ({reason})");
-            let _ = ended.emit(ENDED_EVENT, reason);
-        },
-    )
-    .await?;
+    let publisher = connect(&mut live, &app, &request.url, &request.token).await?;
+    let (video, audio_sink) = match publisher.publish_screen(request.preset, request.audio).await {
+        Ok(sinks) => sinks,
+        Err(error) => {
+            live.close_if_idle().await;
+            return Err(error.into());
+        }
+    };
 
-    let (preview, tap) = preview::start(app.clone());
+    let (preview, tap) = preview::start(app.clone(), Source::Screen);
     let preview_control = preview.control();
     preview_control.set(true, GRID_FPS, false);
 
@@ -186,26 +246,30 @@ pub async fn share_start(
         source_id,
         request.preset.ceiling(),
         request.preset.fps(),
-        publisher.video_sink(),
+        video,
         Some(tap),
         move || {
-            let _ = lost.emit(ENDED_EVENT, "fonte encerrada");
+            let _ = lost.emit(
+                ENDED_EVENT,
+                ShareEnded {
+                    source: Source::Screen,
+                    reason: "fonte encerrada".to_owned(),
+                },
+            );
         },
     ) {
         Ok(capture) => capture,
         Err(error) => {
-            // A sala ja esta aberta: sair dela e o que impede um publicador
-            // fantasma de segurar a vaga de admissao ate o token expirar.
             preview.stop();
-            publisher.stop().await;
+            publisher.unpublish(Source::Screen).await;
+            live.close_if_idle().await;
             return Err(error.into());
         }
     };
 
-    let audio = start_audio(&publisher, request.kind, source_id);
+    let audio = start_audio(audio_sink, request.kind, source_id);
 
-    *active = Some(Active {
-        publisher,
+    live.screen = Some(ScreenActive {
         capture,
         preview,
         preview_control,
@@ -215,61 +279,257 @@ pub async fn share_start(
     Ok(StartedShare { audio: audio.1 })
 }
 
+/// A conexao de publicacao, reaproveitada quando ja existe (ADR-0038).
+async fn connect(
+    live: &mut Live,
+    app: &AppHandle,
+    url: &str,
+    token: &str,
+) -> Result<Arc<Publisher>, ShareFailure> {
+    if let Some(publisher) = live.publisher.as_ref() {
+        return Ok(Arc::clone(publisher));
+    }
+    let ended = app.clone();
+    let publisher = Arc::new(
+        Publisher::connect(url, token, move |reason| {
+            eprintln!("compartilhamento: o servidor de midia encerrou ({reason})");
+            // A conexao caiu inteira, entao as duas fontes cairam com ela.
+            for source in [Source::Screen, Source::Camera] {
+                let _ = ended.emit(
+                    ENDED_EVENT,
+                    ShareEnded {
+                        source,
+                        reason: reason.clone(),
+                    },
+                );
+            }
+        })
+        .await?,
+    );
+    live.publisher = Some(Arc::clone(&publisher));
+    Ok(publisher)
+}
+
 /// Sampled by the interface on a timer. `None` when nothing is being shared.
 #[tauri::command]
 pub async fn share_stats(
     state: State<'_, Sharing>,
 ) -> Result<Option<PublisherStats>, ShareFailure> {
-    let active = state.active.lock().await;
-    let Some(active) = active.as_ref() else {
+    let live = state.live.lock().await;
+    let (Some(publisher), Some(screen)) = (live.publisher.as_ref(), live.screen.as_ref()) else {
         return Ok(None);
     };
-    let mut stats = active.publisher.stats().await;
-    stats.captured_frames = active.capture.produced_frames();
-    stats.encoded_frames = active.capture.delivered_frames();
-    stats.audio_samples = audio_samples(active);
+    let mut stats = publisher.stats().await;
+    stats.captured_frames = screen.capture.produced_frames();
+    stats.encoded_frames = screen.capture.delivered_frames();
+    stats.audio_samples = audio_samples(screen);
+    Ok(Some(stats))
+}
+
+/// O mesmo para a camera (ADR-0038).
+///
+/// Os numeros de rede sao da **conexao**, que e uma so: bitrate, RTT e transporte
+/// contam as duas publicacoes juntas, porque e assim que elas disputam a subida.
+/// Os contadores de quadro sao desta captura, e so dela.
+#[tauri::command]
+pub async fn camera_stats(
+    state: State<'_, Sharing>,
+) -> Result<Option<PublisherStats>, ShareFailure> {
+    let live = state.live.lock().await;
+    let (Some(publisher), Some(camera)) = (live.publisher.as_ref(), live.camera.as_ref()) else {
+        return Ok(None);
+    };
+    let mut stats = publisher.stats().await;
+    #[cfg(target_os = "windows")]
+    {
+        stats.captured_frames = camera.capture.produced_frames();
+        stats.encoded_frames = camera.capture.delivered_frames();
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = camera;
+    stats.audio_samples = None;
     Ok(Some(stats))
 }
 
 #[cfg(target_os = "windows")]
-fn audio_samples(active: &Active) -> Option<u64> {
-    active
+fn audio_samples(screen: &ScreenActive) -> Option<u64> {
+    screen
         .audio
         .as_ref()
         .map(crate::audio::AudioCapture::delivered_samples)
 }
 
 #[cfg(not(target_os = "windows"))]
-fn audio_samples(_active: &Active) -> Option<u64> {
+fn audio_samples(_screen: &ScreenActive) -> Option<u64> {
     None
 }
 
 #[tauri::command]
 pub async fn share_stop(state: State<'_, Sharing>) -> Result<(), ShareFailure> {
-    let taken = state.active.lock().await.take();
-    if let Some(active) = taken {
-        // A captura para antes da sala fechar: o contrario deixaria quadros
+    let mut live = state.live.lock().await;
+    if let Some(screen) = live.screen.take() {
+        // A captura para antes de despublicar: o contrario deixaria quadros
         // sendo empurrados para uma fonte que o encoder ja largou.
-        active.capture.stop();
+        screen.capture.stop();
         // Depois da captura, e nunca antes: e o fim da thread de captura que
         // descarta o `Tap` e fecha o canal que o trabalhador do preview espera.
-        active.preview.stop();
+        screen.preview.stop();
         #[cfg(target_os = "windows")]
-        if let Some(audio) = active.audio {
+        if let Some(audio) = screen.audio {
             audio.stop();
         }
-        active.publisher.stop().await;
+        if let Some(publisher) = live.publisher.as_ref() {
+            // Despublicar, e nao fechar a sala: a camera pode estar no ar na
+            // mesma conexao (ADR-0038).
+            publisher.unpublish(Source::Screen).await;
+        }
+    }
+    live.close_if_idle().await;
+    Ok(())
+}
+
+/// As cameras que o Windows enxerga (ADR-0038).
+#[tauri::command]
+pub async fn camera_list() -> Result<Vec<CameraDeviceReport>, ShareFailure> {
+    #[cfg(target_os = "windows")]
+    {
+        let devices = tauri::async_runtime::spawn_blocking(crate::camera::list_cameras)
+            .await
+            .unwrap_or_default();
+        Ok(devices
+            .into_iter()
+            .map(|device| CameraDeviceReport {
+                id: device.id,
+                name: device.name,
+            })
+            .collect())
+    }
+    #[cfg(not(target_os = "windows"))]
+    Ok(Vec::new())
+}
+
+/// Uma camera na lista do seletor.
+#[derive(Debug, Clone, Serialize)]
+pub struct CameraDeviceReport {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StartCameraRequest {
+    pub url: String,
+    pub token: String,
+    pub device_id: String,
+}
+
+/// Publishes the camera, on the connection the screen may already hold.
+#[tauri::command]
+pub async fn camera_start(
+    app: AppHandle,
+    state: State<'_, Sharing>,
+    request: StartCameraRequest,
+) -> Result<(), ShareFailure> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, state, request);
+        return Err(ShareFailure::NoCameraHere);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut live = state.live.lock().await;
+        if live.camera.is_some() {
+            return Err(ShareFailure::AlreadyOnCamera);
+        }
+
+        let publisher = connect(&mut live, &app, &request.url, &request.token).await?;
+        let (preview, tap) = preview::start(app.clone(), Source::Camera);
+        let preview_control = preview.control();
+        preview_control.set(true, GRID_FPS, false);
+
+        // A camera e aberta antes de publicar: "em uso por outro aplicativo" tem
+        // de voltar como erro do botao, e nao como uma publicacao vazia que o
+        // servidor ja anunciou a sala inteira.
+        let lost = app.clone();
+        let sink = match publisher.publish_camera().await {
+            Ok(sink) => sink,
+            Err(error) => {
+                preview.stop();
+                live.close_if_idle().await;
+                return Err(error.into());
+            }
+        };
+        let capture = match crate::camera::start(
+            &request.device_id,
+            crate::publisher::CAMERA_SIZE,
+            crate::publisher::CAMERA_FPS,
+            sink,
+            Some(tap),
+            move || {
+                let _ = lost.emit(
+                    ENDED_EVENT,
+                    ShareEnded {
+                        source: Source::Camera,
+                        reason: "camera encerrada".to_owned(),
+                    },
+                );
+            },
+        ) {
+            Ok(capture) => capture,
+            Err(error) => {
+                preview.stop();
+                publisher.unpublish(Source::Camera).await;
+                live.close_if_idle().await;
+                return Err(error.into());
+            }
+        };
+
+        live.camera = Some(CameraActive {
+            capture,
+            preview,
+            preview_control,
+        });
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub async fn camera_stop(state: State<'_, Sharing>) -> Result<(), ShareFailure> {
+    let mut live = state.live.lock().await;
+    if let Some(camera) = live.camera.take() {
+        #[cfg(target_os = "windows")]
+        camera.capture.stop();
+        camera.preview.stop();
+        if let Some(publisher) = live.publisher.as_ref() {
+            publisher.unpublish(Source::Camera).await;
+        }
+    }
+    live.close_if_idle().await;
+    Ok(())
+}
+
+/// O mesmo controle de preview da tela, para a camera (ADR-0030).
+#[tauri::command]
+pub async fn camera_preview(
+    state: State<'_, Sharing>,
+    enabled: bool,
+    fps: u32,
+    focused: bool,
+) -> Result<(), ShareFailure> {
+    let live = state.live.lock().await;
+    if let Some(camera) = live.camera.as_ref() {
+        camera.preview_control.set(enabled, fps, focused);
     }
     Ok(())
 }
 
 #[cfg(target_os = "windows")]
 fn start_audio(
-    publisher: &Publisher,
+    sink: Option<livekit::webrtc::audio_source::native::NativeAudioSource>,
     kind: SourceKind,
     source_id: u64,
 ) -> (Option<crate::audio::AudioCapture>, Option<AudioModeReport>) {
-    let Some(sink) = publisher.audio_sink() else {
+    let Some(sink) = sink else {
         return (None, None);
     };
     match crate::audio::start(sink, audio_target(kind, source_id)) {
@@ -309,7 +569,7 @@ fn audio_target(kind: SourceKind, source_id: u64) -> crate::audio::AudioTarget {
 
 #[cfg(not(target_os = "windows"))]
 fn start_audio(
-    _publisher: &Publisher,
+    _sink: Option<()>,
     _kind: SourceKind,
     _source_id: u64,
 ) -> ((), Option<AudioModeReport>) {

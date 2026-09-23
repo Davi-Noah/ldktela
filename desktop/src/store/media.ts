@@ -1,5 +1,13 @@
 import { create } from 'zustand';
 import type { AudioMode } from '../media/native';
+import {
+  ownerOfPublication,
+  publicationId,
+  SOURCE_ORDER,
+  sourceOfPublication,
+  type PublicationId,
+  type PublicationSource,
+} from '../media/publication';
 
 export type MediaConnection = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed';
 
@@ -55,21 +63,41 @@ export interface PublisherStats {
   audioSamples: number | null;
 }
 
-/** One screen being received, keyed by the publisher's LiveKit identity. */
-export interface ScreenState {
-  identity: string;
+/**
+ * One publication being received, keyed by `${ownerId}:${source}` (ADR-0038).
+ *
+ * Chaveado pela publicação, e não pela pessoa: quem transmite a tela e a câmera
+ * ao mesmo tempo tem dois ladrilhos, e o volume, a qualidade e o "saí desta
+ * tela" de um não podem alcançar o outro.
+ */
+export interface PublicationState {
+  id: PublicationId;
+  /** Quem transmite. É por aqui que se acha o nome e o avatar na sala. */
+  ownerId: string;
+  source: PublicationSource;
   hasVideo: boolean;
   hasAudio: boolean;
-  /** 0 to 1. Independent per screen (RF-35) and kept across focus changes. */
+  /** 0 to 1. Independent per publication (RF-35) and kept across focus changes. */
   volume: number;
   quality: QualityChoice;
   /**
-   * Whether this viewer wants this screen at all (ADR-0036, issue #6).
+   * Whether this viewer wants this publication at all (ADR-0036, issue #6).
    *
    * `false` mantém o ladrilho sem trilha nenhuma: sem ele, sair de uma tela
    * apagaria o único lugar de onde se pode voltar a entrar.
    */
   subscribed: boolean;
+}
+
+/** O que estamos transmitindo pela câmera, se estivermos (ADR-0038). */
+export interface CameraShare {
+  publishing: boolean;
+  /** O seletor está aberto ou o core ainda está abrindo o dispositivo. */
+  starting: boolean;
+  deviceId: string | null;
+  /** Como o Windows chama o dispositivo, para o painel dizer o que está no ar. */
+  deviceName: string | null;
+  stats: PublisherStats | null;
 }
 
 const DEFAULT_VOLUME = 1;
@@ -108,12 +136,14 @@ export interface MediaState {
    * mandaria áudio que a pessoa já tinha decidido não mandar.
    */
   shareAudio: boolean;
-  /** Screens being received, by publisher identity (RF-31). */
-  screens: Record<string, ScreenState>;
+  /** A câmera é uma publicação à parte, com estado próprio (ADR-0038). */
+  camera: CameraShare;
+  /** Publications being received, by publication id (RF-31, ADR-0038). */
+  publications: Record<PublicationId, PublicationState>;
   /** Arrival order, so the grid does not reshuffle on every render. */
-  screenOrder: string[];
-  /** Identity shown large. `null` means the grid. */
-  focused: string | null;
+  publicationOrder: PublicationId[];
+  /** Publication shown large. `null` means the grid. */
+  focused: PublicationId | null;
   /**
    * No foco, esconder as outras telas em vez de mostrá-las na lateral.
    *
@@ -122,8 +152,8 @@ export interface MediaState {
    * coisas que uma sala de telas precisa fazer, e a lateral serve à primeira.
    */
   solo: boolean;
-  /** Identity currently in the picture-in-picture window (RF-33). */
-  detached: string | null;
+  /** Publication currently in the picture-in-picture window (RF-33). */
+  detached: PublicationId | null;
   /** Identities connected to the media room, minus ourselves: the viewers. */
   viewerIds: string[];
   stats: PublisherStats | null;
@@ -140,20 +170,32 @@ interface MediaStore extends MediaState {
   setStarting: (starting: boolean) => void;
   setPublishPreset: (preset: PublishPreset) => void;
   setShareAudio: (shareAudio: boolean) => void;
-  addScreen: (identity: string, kind: 'video' | 'audio') => void;
-  removeScreen: (identity: string, kind: 'video' | 'audio') => void;
-  setVolume: (identity: string, volume: number) => void;
-  setQuality: (identity: string, quality: QualityChoice) => void;
-  setScreenSubscribed: (identity: string, subscribed: boolean) => void;
+  /** A câmera entrou ou saiu do ar. `null` no dispositivo é parar. */
+  setCameraPublishing: (device: { id: string; name: string } | null) => void;
+  setCameraStarting: (starting: boolean) => void;
+  setCameraStats: (stats: PublisherStats | null) => void;
+  addTrack: (id: PublicationId, kind: 'video' | 'audio') => void;
+  removeTrack: (id: PublicationId, kind: 'video' | 'audio') => void;
+  setVolume: (id: PublicationId, volume: number) => void;
+  setQuality: (id: PublicationId, quality: QualityChoice) => void;
+  setSubscribed: (id: PublicationId, subscribed: boolean) => void;
   /** Quem transmitia parou ou saiu: o ladrilho vai junto, tendo sido assinado ou não. */
-  dropScreen: (identity: string) => void;
-  focus: (identity: string | null) => void;
+  dropPublication: (id: PublicationId) => void;
+  focus: (id: PublicationId | null) => void;
   setSolo: (solo: boolean) => void;
-  setDetached: (identity: string | null) => void;
+  setDetached: (id: PublicationId | null) => void;
   setViewerIds: (ids: string[]) => void;
   setStats: (stats: PublisherStats | null) => void;
   reset: () => void;
 }
+
+const NO_CAMERA: CameraShare = {
+  publishing: false,
+  starting: false,
+  deviceId: null,
+  deviceName: null,
+  stats: null,
+};
 
 const INITIAL: MediaState = {
   connection: 'idle',
@@ -165,8 +207,9 @@ const INITIAL: MediaState = {
   audioMode: null,
   publishPreset: '1080p60',
   shareAudio: true,
-  screens: {},
-  screenOrder: [],
+  camera: NO_CAMERA,
+  publications: {},
+  publicationOrder: [],
   focused: null,
   solo: false,
   detached: null,
@@ -174,9 +217,11 @@ const INITIAL: MediaState = {
   stats: null,
 };
 
-function blank(identity: string): ScreenState {
+function blank(id: PublicationId): PublicationState {
   return {
-    identity,
+    id,
+    ownerId: ownerOfPublication(id),
+    source: sourceOfPublication(id),
     hasVideo: false,
     hasAudio: false,
     volume: DEFAULT_VOLUME,
@@ -186,17 +231,17 @@ function blank(identity: string): ScreenState {
 }
 
 /**
- * Video and audio of one screen arrive as two separate tracks and in no
- * guaranteed order, so the screen is created by whichever lands first and only
+ * Video and audio of one publication arrive as two separate tracks and in no
+ * guaranteed order, so it is created by whichever lands first and only
  * disappears when both are gone.
  */
 export function withTrack(
   state: MediaState,
-  identity: string,
+  id: PublicationId,
   kind: 'video' | 'audio',
 ): MediaState {
-  const existing = state.screens[identity] ?? blank(identity);
-  const updated: ScreenState = {
+  const existing = state.publications[id] ?? blank(id);
+  const updated: PublicationState = {
     ...existing,
     hasVideo: kind === 'video' ? true : existing.hasVideo,
     hasAudio: kind === 'audio' ? true : existing.hasAudio,
@@ -204,45 +249,46 @@ export function withTrack(
   if (
     existing.hasVideo === updated.hasVideo &&
     existing.hasAudio === updated.hasAudio &&
-    state.screens[identity] !== undefined
+    state.publications[id] !== undefined
   ) {
     return state;
   }
-  const known = state.screenOrder.includes(identity);
+  const known = state.publicationOrder.includes(id);
   return {
     ...state,
-    screens: { ...state.screens, [identity]: updated },
-    screenOrder: known ? state.screenOrder : [...state.screenOrder, identity],
+    publications: { ...state.publications, [id]: updated },
+    publicationOrder: known ? state.publicationOrder : [...state.publicationOrder, id],
   };
 }
 
 export function withoutTrack(
   state: MediaState,
-  identity: string,
+  id: PublicationId,
   kind: 'video' | 'audio',
 ): MediaState {
-  const existing = state.screens[identity];
+  const existing = state.publications[id];
   if (existing === undefined) {
     return state;
   }
-  const updated: ScreenState = {
+  const updated: PublicationState = {
     ...existing,
     hasVideo: kind === 'video' ? false : existing.hasVideo,
     hasAudio: kind === 'audio' ? false : existing.hasAudio,
   };
   if (updated.hasVideo || updated.hasAudio || !updated.subscribed) {
-    return { ...state, screens: { ...state.screens, [identity]: updated } };
+    return { ...state, publications: { ...state.publications, [id]: updated } };
   }
-  // Nada mais chegando desta pessoa: a tela sai, e o foco e o destaque saem com
-  // ela — apontar para uma tela que nao existe deixa a interface em branco.
-  const screens = { ...state.screens };
-  delete screens[identity];
+  // Nada mais chegando desta publicacao: o ladrilho sai, e o foco e o destaque
+  // saem com ele — apontar para uma tela que nao existe deixa a interface em
+  // branco.
+  const publications = { ...state.publications };
+  delete publications[id];
   return {
     ...state,
-    screens,
-    screenOrder: state.screenOrder.filter((id) => id !== identity),
-    focused: state.focused === identity ? null : state.focused,
-    detached: state.detached === identity ? null : state.detached,
+    publications,
+    publicationOrder: state.publicationOrder.filter((existing) => existing !== id),
+    focused: state.focused === id ? null : state.focused,
+    detached: state.detached === id ? null : state.detached,
   };
 }
 
@@ -281,53 +327,81 @@ export const useMediaStore = create<MediaStore>()((set) => ({
   setPublishPreset: (publishPreset) => {
     set({ publishPreset });
   },
-  addScreen: (identity, kind) => {
-    set((state) => withTrack(state, identity, kind));
+  setCameraPublishing: (device) => {
+    set((state) =>
+      device === null
+        ? {
+            camera: NO_CAMERA,
+            // O ladrilho do preview da câmera some junto; o foco nele deixaria a
+            // janela olhando para nada.
+            focused: state.focused === selfPublication('camera') ? null : state.focused,
+          }
+        : {
+            camera: {
+              publishing: true,
+              starting: false,
+              deviceId: device.id,
+              deviceName: device.name,
+              stats: state.camera.stats,
+            },
+          },
+    );
   },
-  removeScreen: (identity, kind) => {
-    set((state) => withoutTrack(state, identity, kind));
+  setCameraStarting: (starting) => {
+    set((state) => ({ camera: { ...state.camera, starting } }));
   },
-  setVolume: (identity, volume) => {
+  setCameraStats: (stats) => {
+    set((state) => ({ camera: { ...state.camera, stats } }));
+  },
+  addTrack: (id, kind) => {
+    set((state) => withTrack(state, id, kind));
+  },
+  removeTrack: (id, kind) => {
+    set((state) => withoutTrack(state, id, kind));
+  },
+  setVolume: (id, volume) => {
     set((state) => {
-      const screen = state.screens[identity];
-      if (screen === undefined) {
+      const publication = state.publications[id];
+      if (publication === undefined) {
         return state;
       }
       const clamped = Math.min(1, Math.max(0, volume));
-      return { screens: { ...state.screens, [identity]: { ...screen, volume: clamped } } };
+      return {
+        publications: { ...state.publications, [id]: { ...publication, volume: clamped } },
+      };
     });
   },
-  setQuality: (identity, quality) => {
+  setQuality: (id, quality) => {
     set((state) => {
-      const screen = state.screens[identity];
-      if (screen === undefined) {
+      const publication = state.publications[id];
+      if (publication === undefined) {
         return state;
       }
-      return { screens: { ...state.screens, [identity]: { ...screen, quality } } };
+      return { publications: { ...state.publications, [id]: { ...publication, quality } } };
     });
   },
-  setScreenSubscribed: (identity, subscribed) => {
+  setSubscribed: (id, subscribed) => {
     set((state) => {
-      const screen = state.screens[identity];
-      if (screen === undefined) {
+      const publication = state.publications[id];
+      if (publication === undefined) {
         return state;
       }
-      return { screens: { ...state.screens, [identity]: { ...screen, subscribed } } };
+      return { publications: { ...state.publications, [id]: { ...publication, subscribed } } };
     });
   },
 
-  dropScreen: (identity) => {
+  dropPublication: (id) => {
     set((state) => {
-      if (state.screens[identity] === undefined) {
+      if (state.publications[id] === undefined) {
         return state;
       }
-      const screens = { ...state.screens };
-      delete screens[identity];
+      const publications = { ...state.publications };
+      delete publications[id];
       return {
-        screens,
-        screenOrder: state.screenOrder.filter((id) => id !== identity),
-        focused: state.focused === identity ? null : state.focused,
-        detached: state.detached === identity ? null : state.detached,
+        publications,
+        publicationOrder: state.publicationOrder.filter((existing) => existing !== id),
+        focused: state.focused === id ? null : state.focused,
+        detached: state.detached === id ? null : state.detached,
       };
     });
   },
@@ -389,21 +463,31 @@ export function shouldSilenceOtherScreens(state: MediaState): boolean {
 }
 
 /**
- * A identidade do ladrilho da própria tela (ADR-0030).
+ * O dono dos ladrilhos de preview local (ADR-0030).
  *
  * Não é uma identidade do LiveKit e nunca chega ao servidor: a própria
  * publicação não é assinada, e o preview sai da captura local. O prefixo `~`
  * segue o mesmo formato do sufixo do publicador e garante que ela jamais colida
  * com um id de usuário do Discord, que é só dígitos.
  */
-export const SELF_ID = '~self';
+export const SELF_OWNER = '~self';
+
+/** O ladrilho local de uma das nossas fontes: `~self:screen` ou `~self:camera`. */
+export function selfPublication(source: PublicationSource): PublicationId {
+  return publicationId(SELF_OWNER, source);
+}
+
+export function isSelfPublication(id: PublicationId): boolean {
+  return ownerOfPublication(id) === SELF_OWNER;
+}
 
 /**
- * A ordem dos ladrilhos na grade, incluindo o da própria tela.
+ * A ordem dos ladrilhos na grade, incluindo os da própria transmissão.
  *
- * A própria tela entra **por último**: entrando na frente, começar a transmitir
+ * O que é nosso entra **por último**: entrando na frente, começar a transmitir
  * empurraria as telas dos outros de lugar no meio de uma sessão, e mudança de
  * posição sem motivo é a coisa que mais parece defeito numa grade de vídeo.
+ * Entre os nossos, a mesma ordem de sempre: tela e depois câmera.
  *
  * Quem foi deixado de fora não entra (ADR-0036): uma tela que não está sendo
  * assistida ocupando uma célula da grade — ou um lugar na coluna lateral do
@@ -411,16 +495,22 @@ export const SELF_ID = '~self';
  * lista de pessoas, que mostra a sala inteira, assistida ou não.
  */
 export function visibleTiles(
-  screenOrder: readonly string[],
-  screens: Record<string, ScreenState>,
-  publishing: boolean,
+  order: readonly PublicationId[],
+  publications: Record<PublicationId, PublicationState>,
+  mine: { screen: boolean; camera: boolean },
   showSelfPreview: boolean,
-): string[] {
-  const watched = screenOrder.filter((id) => screens[id]?.subscribed !== false);
-  return publishing && showSelfPreview ? [...watched, SELF_ID] : watched;
+): PublicationId[] {
+  const watched = order.filter((id) => publications[id]?.subscribed !== false);
+  if (!showSelfPreview) {
+    return watched;
+  }
+  const own = SOURCE_ORDER.filter((source) => mine[source]).map(selfPublication);
+  return [...watched, ...own];
 }
 
-/** Telas no ar que este espectador deixou de assistir, na ordem de chegada. */
-export function leftScreenIds(state: Pick<MediaState, 'screenOrder' | 'screens'>): string[] {
-  return state.screenOrder.filter((id) => state.screens[id]?.subscribed === false);
+/** Publicações no ar que este espectador deixou de assistir, na ordem de chegada. */
+export function leftPublicationIds(
+  state: Pick<MediaState, 'publicationOrder' | 'publications'>,
+): PublicationId[] {
+  return state.publicationOrder.filter((id) => state.publications[id]?.subscribed === false);
 }

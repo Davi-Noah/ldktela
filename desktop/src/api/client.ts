@@ -2,6 +2,7 @@ import type { AuthResponse } from './types/AuthResponse';
 import type { CurrentUser } from './types/CurrentUser';
 import type { FieldError } from './types/FieldError';
 import type { PairRequest } from './types/PairRequest';
+import type { PublicationSource } from './types/PublicationSource';
 import type { RefreshRequest } from './types/RefreshRequest';
 import type { RoomState } from './types/RoomState';
 import type { RoomTokenRequest } from './types/RoomTokenRequest';
@@ -161,8 +162,16 @@ export class ApiClient {
     });
   }
 
-  roomToken(discordChannelId: Snowflake, publish: boolean): Promise<RoomTokenResponse> {
-    const body: RoomTokenRequest = { publish };
+  /**
+   * `publish` é a intenção **inteira**, e não o que está começando agora
+   * (ADR-0038): o que ficar de fora tem a vaga devolvida no servidor. Quem só
+   * assiste manda a lista vazia.
+   */
+  roomToken(
+    discordChannelId: Snowflake,
+    publish: readonly PublicationSource[],
+  ): Promise<RoomTokenResponse> {
+    const body: RoomTokenRequest = { publish: [...publish] };
     return this.request<RoomTokenResponse>({
       method: 'POST',
       path: `/rooms/${encodeURIComponent(discordChannelId)}/token`,

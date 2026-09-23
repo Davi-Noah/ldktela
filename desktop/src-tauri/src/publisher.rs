@@ -23,6 +23,7 @@ use livekit::webrtc::stats::{
 };
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::VideoResolution;
+use livekit::id::TrackSid;
 use livekit::{Room, RoomEvent, RoomOptions};
 use serde::{Deserialize, Serialize};
 
@@ -212,28 +213,63 @@ impl NetworkPath {
     }
 }
 
+/// What the camera publishes, fixed (ADR-0038).
+///
+/// Sem seletor de preset: é um rosto, não texto de 9 px em movimento. 1080p numa
+/// webcam gasta egress para transmitir o grão do sensor, e 60 fps gasta o dobro
+/// para mostrar alguém sentado.
+pub const CAMERA_SIZE: Size = Size {
+    width: 1280,
+    height: 720,
+};
+pub const CAMERA_FPS: u32 = 30;
+/// Um rosto a 720p30 cabe folgado aqui; o mesmo número numa tela de jogo não
+/// caberia, e é por isso que a câmera tem o seu.
+const CAMERA_MAX_BITRATE: u64 = 1_600_000;
+
+/// Which publication a call is about (ADR-0038).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Source {
+    Screen,
+    Camera,
+}
+
+impl Source {
+    fn stream(self) -> &'static str {
+        match self {
+            Source::Screen => "screen",
+            Source::Camera => "camera",
+        }
+    }
+}
+
+/// The sids of what one source has published, so it can be taken down alone.
+#[derive(Default)]
+struct Published {
+    video: Option<TrackSid>,
+    audio: Option<TrackSid>,
+}
+
 pub struct Publisher {
     room: Arc<Room>,
-    video: NativeVideoSource,
-    audio: Option<NativeAudioSource>,
+    screen: StdMutex<Published>,
+    camera: StdMutex<Published>,
     /// Last (bytes_sent, instant) seen, so bitrate is a delta and not a total.
     last_sample: StdMutex<Option<(u64, Instant)>>,
 }
 
 impl Publisher {
-    /// Connects and publishes an (initially empty) screen track.
+    /// Connects without publishing anything.
     ///
-    /// The track is published before any frame arrives on purpose: it is what
-    /// produces the `track_published` webhook, and therefore `SHARE_START` and
-    /// the "on air" clock every viewer reads (RF-34).
-    pub async fn start(
+    /// Uma conexão, duas trilhas possíveis (ADR-0027 e ADR-0038): a câmera entra
+    /// e sai por cima da mesma sessão, e é por isso que conectar deixou de vir
+    /// junto com publicar.
+    pub async fn connect(
         url: &str,
         token: &str,
-        preset: Preset,
-        with_audio: bool,
         on_disconnect: impl Fn(String) + Send + 'static,
     ) -> Result<Self, PublishError> {
-        let ceiling = preset.ceiling();
         // `RoomOptions` e `non_exhaustive`: o SDK reserva o direito de acrescentar
         // campos, entao nao ha literal de struct possivel aqui.
         #[allow(clippy::field_reassign_with_default)]
@@ -254,6 +290,41 @@ impl Publisher {
             .map_err(|error| PublishError::Connect(error.to_string()))?;
         let room = Arc::new(room);
 
+        // O canal e ilimitado: sem alguem drenando, ele cresce enquanto a sessao
+        // durar. E e por aqui que se descobre que o SFU nos derrubou.
+        tokio::spawn(async move {
+            while let Some(event) = events.recv().await {
+                match event {
+                    RoomEvent::Disconnected { reason } => {
+                        on_disconnect(format!("{reason:?}"));
+                        return;
+                    }
+                    RoomEvent::Reconnecting => eprintln!("publicacao: reconectando"),
+                    RoomEvent::Reconnected => eprintln!("publicacao: reconectado"),
+                    _ => {}
+                }
+            }
+        });
+
+        Ok(Self {
+            room,
+            screen: StdMutex::new(Published::default()),
+            camera: StdMutex::new(Published::default()),
+            last_sample: StdMutex::new(None),
+        })
+    }
+
+    /// Publishes the screen, and its audio when asked.
+    ///
+    /// The track is published before any frame arrives on purpose: it is what
+    /// produces the `track_published` webhook, and therefore `SHARE_START` and
+    /// the "on air" clock every viewer reads (RF-34).
+    pub async fn publish_screen(
+        &self,
+        preset: Preset,
+        with_audio: bool,
+    ) -> Result<(NativeVideoSource, Option<NativeAudioSource>), PublishError> {
+        let ceiling = preset.ceiling();
         let video = NativeVideoSource::new(
             VideoResolution {
                 width: ceiling.width,
@@ -266,9 +337,11 @@ impl Publisher {
         let track =
             LocalVideoTrack::create_video_track("screen", RtcVideoSource::Native(video.clone()));
 
-        room.local_participant()
+        let publication = self
+            .room
+            .local_participant()
             .publish_track(
-                LocalTrack::Video(track.clone()),
+                LocalTrack::Video(track),
                 TrackPublishOptions {
                     source: TrackSource::Screenshare,
                     video_codec: VideoCodec::VP9,
@@ -296,12 +369,15 @@ impl Publisher {
                     // Aqui e jogo: movimento importa mais que nitidez, e a escolha
                     // veio junto do codigo que saiu do WebView.
                     degradation_preference: Some(DegradationPreference::MaintainFramerate),
-                    stream: "screen".to_owned(),
+                    stream: Source::Screen.stream().to_owned(),
                     ..Default::default()
                 },
             )
             .await
             .map_err(|error| PublishError::Publish(error.to_string()))?;
+        if let Ok(mut held) = self.screen.lock() {
+            held.video = Some(publication.sid());
+        }
 
         let audio = if with_audio {
             let source = NativeAudioSource::new(
@@ -322,7 +398,9 @@ impl Publisher {
                 "screen-audio",
                 RtcAudioSource::Native(source.clone()),
             );
-            room.local_participant()
+            let publication = self
+                .room
+                .local_participant()
                 .publish_track(
                     LocalTrack::Audio(track),
                     TrackPublishOptions {
@@ -331,40 +409,86 @@ impl Publisher {
                         // corte engole o ataque das notas.
                         dtx: false,
                         red: false,
-                        stream: "screen".to_owned(),
+                        stream: Source::Screen.stream().to_owned(),
                         ..Default::default()
                     },
                 )
                 .await
                 .map_err(|error| PublishError::Publish(error.to_string()))?;
+            if let Ok(mut held) = self.screen.lock() {
+                held.audio = Some(publication.sid());
+            }
             Some(source)
         } else {
             None
         };
 
-        // O canal e ilimitado: sem alguem drenando, ele cresce enquanto a sessao
-        // durar. E e por aqui que se descobre que o SFU nos derrubou.
-        tokio::spawn(async move {
-            while let Some(event) = events.recv().await {
-                match event {
-                    RoomEvent::Disconnected { reason } => {
-                        on_disconnect(format!("{reason:?}"));
-                        return;
-                    }
-                    RoomEvent::Reconnecting => eprintln!("publicacao: reconectando"),
-                    RoomEvent::Reconnected => eprintln!("publicacao: reconectado"),
-                    _ => {}
-                }
-            }
-        });
-
-        Ok(Self {
-            room,
-            video,
-            audio,
-            last_sample: StdMutex::new(None),
-        })
+        Ok((video, audio))
     }
+
+    /// Publishes the camera (ADR-0038). Nunca carrega audio: a voz e do Discord.
+    pub async fn publish_camera(&self) -> Result<NativeVideoSource, PublishError> {
+        let video = NativeVideoSource::new(
+            VideoResolution {
+                width: CAMERA_SIZE.width,
+                height: CAMERA_SIZE.height,
+            },
+            // `false`, ao contrario da tela: aqui as heuristicas de camera do
+            // encoder sao as certas — movimento continuo, ruido de sensor, e
+            // nada de texto parado para preservar.
+            false,
+        );
+        let track =
+            LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(video.clone()));
+
+        let publication = self
+            .room
+            .local_participant()
+            .publish_track(
+                LocalTrack::Video(track),
+                TrackPublishOptions {
+                    source: TrackSource::Camera,
+                    video_codec: VideoCodec::VP9,
+                    // A mesma escada temporal da tela, e pelo mesmo motivo
+                    // (ADR-0032): e a unica que esta pilha entrega de verdade.
+                    simulcast: false,
+                    scalability_mode: Some(SCALABILITY_MODE.to_owned()),
+                    video_encoding: Some(VideoEncoding {
+                        max_bitrate: CAMERA_MAX_BITRATE,
+                        max_framerate: f64::from(CAMERA_FPS),
+                    }),
+                    // Rosto: perder nitidez incomoda menos do que perder
+                    // fluidez, mesma escolha da tela.
+                    degradation_preference: Some(DegradationPreference::MaintainFramerate),
+                    stream: Source::Camera.stream().to_owned(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(|error| PublishError::Publish(error.to_string()))?;
+        if let Ok(mut held) = self.camera.lock() {
+            held.video = Some(publication.sid());
+        }
+        Ok(video)
+    }
+
+    /// Takes one source off the air, leaving the other one running.
+    pub async fn unpublish(&self, source: Source) {
+        let slot = match source {
+            Source::Screen => &self.screen,
+            Source::Camera => &self.camera,
+        };
+        let sids = match slot.lock() {
+            Ok(mut held) => (held.video.take(), held.audio.take()),
+            Err(_) => (None, None),
+        };
+        for sid in [sids.0, sids.1].into_iter().flatten() {
+            if let Err(error) = self.room.local_participant().unpublish_track(&sid).await {
+                eprintln!("publicacao: erro ao despublicar {sid}: {error}");
+            }
+        }
+    }
+
 
     /// Bitrate, frame rate and the resolution actually being encoded.
     ///
@@ -443,14 +567,6 @@ impl Publisher {
             encoded_frames: 0,
             audio_samples: None,
         }
-    }
-
-    pub fn video_sink(&self) -> NativeVideoSource {
-        self.video.clone()
-    }
-
-    pub fn audio_sink(&self) -> Option<NativeAudioSource> {
-        self.audio.clone()
     }
 
     /// Leaves the room, which unpublishes everything.
@@ -563,15 +679,17 @@ mod tests {
         });
 
         let preset = Preset::P720p30;
-        let publisher = Publisher::start(
+        let publisher = Publisher::connect(
             &sfu_url(),
             &dev_token(&room_name, "tester~pub", true),
-            preset,
-            false,
             |reason| eprintln!("publicacao encerrada: {reason}"),
         )
         .await
         .expect("o publicador deve conectar");
+        let (video_sink, _) = publisher
+            .publish_screen(preset, false)
+            .await
+            .expect("a tela deve publicar");
 
         let screen = capture::list_sources(&[])
             .into_iter()
@@ -582,7 +700,7 @@ mod tests {
             screen.id.parse().expect("id numerico"),
             preset.ceiling(),
             preset.fps(),
-            publisher.video_sink(),
+            video_sink.clone(),
             None,
             || eprintln!("fonte perdida"),
         )
@@ -682,15 +800,17 @@ mod tests {
             }
         });
 
-        let publisher = Publisher::start(
+        let publisher = Publisher::connect(
             &sfu_url(),
             &dev_token(&room_name, "medidor~pub", true),
-            preset,
-            false,
             |reason| eprintln!("publicacao encerrada: {reason}"),
         )
         .await
         .expect("o publicador deve conectar");
+        let (video_sink, _) = publisher
+            .publish_screen(preset, false)
+            .await
+            .expect("a tela deve publicar");
 
         let screen = capture::list_sources(&[])
             .into_iter()
@@ -701,7 +821,7 @@ mod tests {
             screen.id.parse().expect("id numerico"),
             preset.ceiling(),
             preset.fps(),
-            publisher.video_sink(),
+            video_sink.clone(),
             None,
             || eprintln!("fonte perdida"),
         )

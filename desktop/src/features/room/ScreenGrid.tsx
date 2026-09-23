@@ -1,6 +1,7 @@
 import { type CSSProperties, useCallback, useEffect, useRef } from 'react';
 import { detach, type DetachedWindow } from '../../media/pip';
-import { SELF_ID, useMediaStore, visibleTiles } from '../../store/media';
+import { isSelfPublication, useMediaStore, visibleTiles } from '../../store/media';
+import { ownerOfPublication, type PublicationId } from '../../media/publication';
 import { useRoomStore } from '../../store/room';
 import { useSessionStore } from '../../store/session';
 import { useUiStore } from '../../store/ui';
@@ -19,10 +20,11 @@ import { ScreenTile } from './ScreenTile';
  * is exactly what CLAUDE.md §7 asks us not to write.
  */
 export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
-  const screenOrder = useMediaStore((state) => state.screenOrder);
-  const screens = useMediaStore((state) => state.screens);
+  const publicationOrder = useMediaStore((state) => state.publicationOrder);
+  const publications = useMediaStore((state) => state.publications);
   const solo = useMediaStore((state) => state.solo);
   const publishing = useMediaStore((state) => state.publishing);
+  const cameraOn = useMediaStore((state) => state.camera.publishing);
   const focused = useMediaStore((state) => state.focused);
   const detached = useMediaStore((state) => state.detached);
   const participants = useRoomStore((state) => state.participants);
@@ -32,7 +34,12 @@ export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
   const detachedWindow = useRef<DetachedWindow | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
-  const tiles = visibleTiles(screenOrder, screens, publishing, showSelfPreview);
+  const tiles = visibleTiles(
+    publicationOrder,
+    publications,
+    { screen: publishing, camera: cameraOn },
+    showSelfPreview,
+  );
   const layout = focused === null ? 'grid' : solo ? 'solo' : 'hybrid';
 
   // Fechar a janela destacada quando o componente sai, ou ela fica órfã na tela.
@@ -43,9 +50,9 @@ export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
     };
   }, []);
 
-  const onDetach = useCallback((identity: string) => {
+  const onDetach = useCallback((id: PublicationId) => {
     const store = useMediaStore.getState();
-    if (store.detached === identity) {
+    if (store.detached === id) {
       detachedWindow.current?.close();
       detachedWindow.current = null;
       return;
@@ -61,7 +68,7 @@ export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
     detachedWindow.current = null;
 
     const element = document.querySelector<HTMLElement>(
-      `[data-screen="${identity}"] [data-screen-media]`,
+      `[data-screen="${id}"] [data-screen-media]`,
     );
     if (element === null) {
       return;
@@ -77,7 +84,7 @@ export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
       return;
     }
     detachedWindow.current = handle;
-    useMediaStore.getState().setDetached(identity);
+    useMediaStore.getState().setDetached(id);
   }, []);
 
   if (tiles.length === 0) {
@@ -98,26 +105,26 @@ export function ScreenGrid({ onFullscreen }: { onFullscreen: () => void }) {
       }
     >
       {layout === 'hybrid' && tiles.length > 1 && <Split gridRef={gridRef} />}
-      {tiles.map((identity) => (
+      {tiles.map((id) => (
         <ScreenTile
-          key={identity}
-          identity={identity}
-          // O ladrilho da própria tela lê o participante que é a gente: é dele
-          // que sai o `publishing_since` do servidor, e o relógio precisa ser o
-          // mesmo que os outros estão vendo (RF-34).
-          owner={participants[identity === SELF_ID ? (selfId ?? '') : identity]}
-          focused={focused === identity}
-          role={focused === null ? 'grid' : focused === identity ? 'main' : 'rail'}
+          key={id}
+          id={id}
+          // O ladrilho da própria transmissão lê o participante que é a gente: é
+          // dele que sai o início do servidor, e o relógio precisa ser o mesmo
+          // que os outros estão vendo (RF-34).
+          owner={participants[isSelfPublication(id) ? (selfId ?? '') : ownerOfPublication(id)]}
+          focused={focused === id}
+          role={focused === null ? 'grid' : focused === id ? 'main' : 'rail'}
           // No exclusivo as outras saem do documento, e não só da vista: oculto
           // é o que faz o `adaptiveStream` parar de baixar os quadros delas
           // (RF-32). Escondê-las com CSS continuaria pagando por todas.
-          hidden={layout === 'solo' && focused !== identity}
-          detached={detached === identity}
+          hidden={layout === 'solo' && focused !== id}
+          detached={detached === id}
           onFocus={() => {
-            useMediaStore.getState().focus(focused === identity ? null : identity);
+            useMediaStore.getState().focus(focused === id ? null : id);
           }}
           onDetach={() => {
-            onDetach(identity);
+            onDetach(id);
           }}
           onFullscreen={onFullscreen}
         />

@@ -13,6 +13,14 @@ import {
   shouldSilenceOtherScreens,
   useMediaStore,
 } from '../store/media';
+import {
+  ownerOfPublication,
+  publicationId,
+  SOURCE_ORDER,
+  sourceOfPublication,
+  type PublicationId,
+  type PublicationSource,
+} from './publication';
 import { useSessionStore } from '../store/session';
 import { useUiStore } from '../store/ui';
 import {
@@ -30,8 +38,8 @@ import { clearPreview } from './preview';
 import { invoke } from '@tauri-apps/api/core';
 import { applyQuality, DUPLICATE_IDENTITY_MESSAGE, shouldRejoin } from './tracks';
 
-/** Everything we hold for one remote screen, keyed by the publisher's user id. */
-interface RemoteScreen {
+/** Everything we hold for one remote publication, keyed by its id (ADR-0038). */
+interface RemotePublication {
   video: RemoteVideoTrack | null;
   audio: RemoteAudioTrack | null;
   publication: RemoteTrackPublication | null;
@@ -39,7 +47,7 @@ interface RemoteScreen {
   audioElement: HTMLAudioElement | null;
 }
 
-function emptyScreen(): RemoteScreen {
+function emptyPublication(): RemotePublication {
   return {
     video: null,
     audio: null,
@@ -47,6 +55,26 @@ function emptyScreen(): RemoteScreen {
     videoElement: null,
     audioElement: null,
   };
+}
+
+/**
+ * Qual publicação uma trilha do LiveKit alimenta.
+ *
+ * O áudio pertence à tela: ele é o som do que está sendo compartilhado, e a
+ * câmera nunca carrega áudio nenhum (ADR-0038). `null` para qualquer outra
+ * fonte — microfone não existe neste produto, e uma trilha inesperada é
+ * ignorada em vez de virar um ladrilho fantasma.
+ */
+function sourceOfTrack(source: Track.Source): PublicationSource | null {
+  switch (source) {
+    case Track.Source.ScreenShare:
+    case Track.Source.ScreenShareAudio:
+      return 'screen';
+    case Track.Source.Camera:
+      return 'camera';
+    default:
+      return null;
+  }
 }
 
 /** What the core needs to start a share; remembered so a preset change can redo it. */
@@ -84,7 +112,7 @@ export class MediaSession {
   private room: Room | null = null;
   private channelId: Snowflake | null = null;
   private sharing: ShareChoice | null = null;
-  private readonly remotes = new Map<string, RemoteScreen>();
+  private readonly remotes = new Map<PublicationId, RemotePublication>();
   private statsTimer: ReturnType<typeof setInterval> | null = null;
   private rejoinTimer: ReturnType<typeof setTimeout> | null = null;
   private rejoinAttempt = 0;
@@ -133,41 +161,41 @@ export class MediaSession {
     }
   }
 
-  private screen(owner: string): RemoteScreen {
-    const existing = this.remotes.get(owner);
+  private held(id: PublicationId): RemotePublication {
+    const existing = this.remotes.get(id);
     if (existing !== undefined) {
       return existing;
     }
-    const created = emptyScreen();
-    this.remotes.set(owner, created);
+    const created = emptyPublication();
+    this.remotes.set(id, created);
     return created;
   }
 
   /**
-   * The video element of one screen. Created once per screen and never
-   * remounted (CLAUDE.md §7) — moving it into the picture-in-picture window
-   * keeps the same element, and therefore the same decoder.
+   * The video element of one publication. Created once and never remounted
+   * (CLAUDE.md §7) — moving it into the picture-in-picture window keeps the same
+   * element, and therefore the same decoder.
    */
-  registerVideoElement(owner: string, element: HTMLVideoElement | null): void {
-    const screen = this.screen(owner);
-    if (screen.videoElement !== null && screen.video !== null) {
-      screen.video.detach(screen.videoElement);
+  registerVideoElement(id: PublicationId, element: HTMLVideoElement | null): void {
+    const held = this.held(id);
+    if (held.videoElement !== null && held.video !== null) {
+      held.video.detach(held.videoElement);
     }
-    screen.videoElement = element;
-    if (element !== null && screen.video !== null) {
-      screen.video.attach(element);
+    held.videoElement = element;
+    if (element !== null && held.video !== null) {
+      held.video.attach(element);
     }
   }
 
-  registerAudioElement(owner: string, element: HTMLAudioElement | null): void {
-    const screen = this.screen(owner);
-    if (screen.audioElement !== null && screen.audio !== null) {
-      screen.audio.detach(screen.audioElement);
+  registerAudioElement(id: PublicationId, element: HTMLAudioElement | null): void {
+    const held = this.held(id);
+    if (held.audioElement !== null && held.audio !== null) {
+      held.audio.detach(held.audioElement);
     }
-    screen.audioElement = element;
+    held.audioElement = element;
     if (element !== null) {
-      if (screen.audio !== null) {
-        screen.audio.attach(element);
+      if (held.audio !== null) {
+        held.audio.attach(element);
       }
       this.applyAudioPolicy();
     }
@@ -207,6 +235,28 @@ export class MediaSession {
   }
 
   /**
+   * Tudo o que vamos ter no ar, e não só o que está começando (ADR-0038).
+   *
+   * O servidor lê a lista como a intenção inteira: o que ficar de fora perde a
+   * vaga. Pedir um token só para a câmera enquanto a tela transmite devolveria
+   * a vaga da tela e deixaria outra pessoa tomá-la.
+   */
+  private publishIntent(adding?: PublicationSource): PublicationSource[] {
+    const state = useMediaStore.getState();
+    const live = new Set<PublicationSource>();
+    if (state.publishing) {
+      live.add('screen');
+    }
+    if (state.camera.publishing) {
+      live.add('camera');
+    }
+    if (adding !== undefined) {
+      live.add(adding);
+    }
+    return SOURCE_ORDER.filter((source) => live.has(source));
+  }
+
+  /**
    * Starts a share in the core.
    *
    * The publish token is fetched here and handed over, rather than letting the
@@ -226,7 +276,7 @@ export class MediaSession {
 
     let credentials;
     try {
-      credentials = await this.api.roomToken(channelId, true);
+      credentials = await this.api.roomToken(channelId, this.publishIntent('screen'));
     } catch (error) {
       log.error('compartilhamento: o servidor recusou o token', error);
       store.setStarting(false);
@@ -319,20 +369,27 @@ export class MediaSession {
    * banda e decodificação é a trilha chegando, então escondê-la não devolveria
    * nada a quem saiu. O ladrilho fica, sem trilha, porque é dele que se volta.
    */
-  setScreenSubscribed(owner: string, subscribed: boolean): void {
+  setPublicationSubscribed(id: PublicationId, subscribed: boolean): void {
     const store = useMediaStore.getState();
-    store.setScreenSubscribed(owner, subscribed);
+    store.setSubscribed(id, subscribed);
+    const owner = ownerOfPublication(id);
+    const source = sourceOfPublication(id);
     if (!subscribed) {
       // O ladrilho sai do layout (ADR-0036), então continuar em foco nele
       // deixaria a janela inteira vazia.
-      if (store.focused === owner) {
+      if (store.focused === id) {
         store.focus(null);
       }
       // Dito uma vez, e não desenhado para sempre: sem isto, a tela some e o
       // caminho de volta fica escondido atrás de um botão que ninguém abriu.
       useUiStore
         .getState()
-        .toast('info', 'Saiu da tela. Para voltar, abra a lista de pessoas no rodapé.');
+        .toast(
+          'info',
+          source === 'camera'
+            ? 'Saiu da câmera. Para voltar, abra a lista de pessoas no rodapé.'
+            : 'Saiu da tela. Para voltar, abra a lista de pessoas no rodapé.',
+        );
     }
     const room = this.room;
     if (room === null) {
@@ -343,20 +400,22 @@ export class MediaSession {
         continue;
       }
       for (const publication of participant.trackPublications.values()) {
-        if (
-          publication.source === Track.Source.ScreenShare ||
-          publication.source === Track.Source.ScreenShareAudio
-        ) {
+        // Só as trilhas desta fonte: sair da câmera de alguém não pode
+        // cancelar a assinatura da tela da mesma pessoa.
+        if (sourceOfTrack(publication.source) === source) {
           publication.setSubscribed(subscribed);
         }
       }
     }
-    log.info(subscribed ? 'sala: entrei numa tela' : 'sala: saí de uma tela', { de: owner });
+    log.info(subscribed ? 'sala: entrei numa publicação' : 'sala: saí de uma publicação', {
+      de: owner,
+      fonte: source,
+    });
   }
 
-  setQuality(owner: string, choice: QualityChoice): void {
-    useMediaStore.getState().setQuality(owner, choice);
-    const publication = this.remotes.get(owner)?.publication;
+  setQuality(id: PublicationId, choice: QualityChoice): void {
+    useMediaStore.getState().setQuality(id, choice);
+    const publication = this.remotes.get(id)?.publication;
     if (publication != null) {
       applyQuality(publication, choice);
     }
@@ -370,13 +429,13 @@ export class MediaSession {
   private applyAudioPolicy(): void {
     const state = useMediaStore.getState();
     const silence = shouldSilenceOtherScreens(state);
-    for (const [owner, screen] of this.remotes) {
-      const element = screen.audioElement;
+    for (const [id, held] of this.remotes) {
+      const element = held.audioElement;
       if (element === null) {
         continue;
       }
       element.muted = silence;
-      element.volume = state.screens[owner]?.volume ?? 1;
+      element.volume = state.publications[id]?.volume ?? 1;
     }
   }
 
@@ -399,7 +458,7 @@ export class MediaSession {
     log.debug('sala: pedindo token de espectador', { canal: channelId });
     let credentials;
     try {
-      credentials = await this.api.roomToken(channelId, false);
+      credentials = await this.api.roomToken(channelId, []);
     } catch (error) {
       log.error('sala: o servidor recusou o token', error, { canal: channelId });
       store.setConnection('failed', 'unreachable');
@@ -434,14 +493,19 @@ export class MediaSession {
       this.adoptPublication(publication, participant);
     });
     room.on(RoomEvent.TrackUnsubscribed, (_track, publication, participant) => {
-      this.dropPublication(publication, participant);
+      this.dropTrack(publication, participant);
     });
     room.on(RoomEvent.TrackUnpublished, (publication, participant) => {
       // Quem parou de transmitir leva o ladrilho junto, inclusive o de quem
       // tinha saído daquela tela: sem isto, sair de uma tela deixaria para
       // sempre um convite para entrar numa transmissão que acabou.
-      if (publication.source === Track.Source.ScreenShare) {
-        this.forget(ownerOf(participant.identity));
+      //
+      // Só o ladrilho daquela fonte: despublicar a câmera não pode apagar a
+      // tela que continua no ar (ADR-0038). O áudio não conta — ele vai e volta
+      // sozinho enquanto a tela segue.
+      const source = sourceOfTrack(publication.source);
+      if (source !== null && publication.source !== Track.Source.ScreenShareAudio) {
+        this.forget(publicationId(ownerOf(participant.identity), source));
         this.syncViewers();
       }
     });
@@ -449,7 +513,7 @@ export class MediaSession {
       this.syncViewers();
     });
     room.on(RoomEvent.ParticipantDisconnected, (participant) => {
-      this.forget(ownerOf(participant.identity));
+      this.forgetOwner(ownerOf(participant.identity));
       this.syncViewers();
     });
     room.on(RoomEvent.Reconnecting, () => {
@@ -499,82 +563,100 @@ export class MediaSession {
       return;
     }
     const track = publication.track;
+    const source = sourceOfTrack(publication.source);
+    if (source === null) {
+      return;
+    }
     const owner = ownerOf(participant.identity);
+    const id = publicationId(owner, source);
     const store = useMediaStore.getState();
 
-    if (publication.source === Track.Source.ScreenShare && track instanceof RemoteVideoTrack) {
-      const screen = this.screen(owner);
-      screen.video = track;
-      screen.publication = publication;
-      if (screen.videoElement !== null) {
-        track.attach(screen.videoElement);
+    if (publication.source !== Track.Source.ScreenShareAudio && track instanceof RemoteVideoTrack) {
+      const held = this.held(id);
+      held.video = track;
+      held.publication = publication;
+      if (held.videoElement !== null) {
+        track.attach(held.videoElement);
       }
-      store.addScreen(owner, 'video');
-      applyQuality(publication, store.screens[owner]?.quality ?? 'auto');
-      log.info('sala: tela recebida', { de: owner });
+      store.addTrack(id, 'video');
+      applyQuality(publication, store.publications[id]?.quality ?? 'auto');
+      log.info('sala: publicação recebida', { de: owner, fonte: source });
       this.syncViewers();
       return;
     }
 
     if (publication.source === Track.Source.ScreenShareAudio && track instanceof RemoteAudioTrack) {
-      const screen = this.screen(owner);
-      screen.audio = track;
-      if (screen.audioElement !== null) {
-        track.attach(screen.audioElement);
+      const held = this.held(id);
+      held.audio = track;
+      if (held.audioElement !== null) {
+        track.attach(held.audioElement);
       }
-      store.addScreen(owner, 'audio');
+      store.addTrack(id, 'audio');
       this.applyAudioPolicy();
     }
   }
 
-  private dropPublication(
-    publication: RemoteTrackPublication,
-    participant: RemoteParticipant,
-  ): void {
-    const owner = ownerOf(participant.identity);
-    const screen = this.remotes.get(owner);
-    if (screen === undefined) {
+  private dropTrack(publication: RemoteTrackPublication, participant: RemoteParticipant): void {
+    const source = sourceOfTrack(publication.source);
+    if (source === null) {
       return;
     }
-    if (publication.source === Track.Source.ScreenShare) {
-      if (screen.video !== null && screen.videoElement !== null) {
-        screen.video.detach(screen.videoElement);
-      }
-      screen.video = null;
-      screen.publication = null;
-      useMediaStore.getState().removeScreen(owner, 'video');
-      this.syncViewers();
+    const id = publicationId(ownerOf(participant.identity), source);
+    const held = this.remotes.get(id);
+    if (held === undefined) {
       return;
     }
     if (publication.source === Track.Source.ScreenShareAudio) {
-      if (screen.audio !== null && screen.audioElement !== null) {
-        screen.audio.detach(screen.audioElement);
+      if (held.audio !== null && held.audioElement !== null) {
+        held.audio.detach(held.audioElement);
       }
-      screen.audio = null;
-      useMediaStore.getState().removeScreen(owner, 'audio');
+      held.audio = null;
+      useMediaStore.getState().removeTrack(id, 'audio');
+      return;
     }
+    if (held.video !== null && held.videoElement !== null) {
+      held.video.detach(held.videoElement);
+    }
+    held.video = null;
+    held.publication = null;
+    useMediaStore.getState().removeTrack(id, 'video');
+    this.syncViewers();
   }
 
-  /** Everything belonging to one publisher is gone. */
-  private forget(owner: string): void {
-    const screen = this.remotes.get(owner);
-    if (screen !== undefined) {
-      if (screen.video !== null && screen.videoElement !== null) {
-        screen.video.detach(screen.videoElement);
+  /** One publication is gone for good. */
+  private forget(id: PublicationId): void {
+    const held = this.remotes.get(id);
+    if (held !== undefined) {
+      if (held.video !== null && held.videoElement !== null) {
+        held.video.detach(held.videoElement);
       }
-      if (screen.audio !== null && screen.audioElement !== null) {
-        screen.audio.detach(screen.audioElement);
+      if (held.audio !== null && held.audioElement !== null) {
+        held.audio.detach(held.audioElement);
       }
-      this.remotes.delete(owner);
+      this.remotes.delete(id);
     }
-    // `dropScreen`, e não `removeScreen`: o ladrilho de uma tela da qual se saiu
-    // sobrevive à perda das trilhas de propósito, e aqui a transmissão acabou.
-    useMediaStore.getState().dropScreen(owner);
+    // `dropPublication`, e não `removeTrack`: o ladrilho de uma tela da qual se
+    // saiu sobrevive à perda das trilhas de propósito, e aqui acabou de vez.
+    useMediaStore.getState().dropPublication(id);
+  }
+
+  /** Everything one person was transmitting is gone: as duas fontes vão junto. */
+  private forgetOwner(owner: string): void {
+    for (const id of [...this.remotes.keys()]) {
+      if (ownerOfPublication(id) === owner) {
+        this.forget(id);
+      }
+    }
+    // Mesmo sem trilha nenhuma recebida, pode haver ladrilho de quem saiu da
+    // tela (ADR-0036): o store guarda, e é aqui que ele sai.
+    for (const source of ['screen', 'camera'] as const) {
+      useMediaStore.getState().dropPublication(publicationId(owner, source));
+    }
   }
 
   private detachAll(): void {
-    for (const owner of [...this.remotes.keys()]) {
-      this.forget(owner);
+    for (const id of [...this.remotes.keys()]) {
+      this.forget(id);
     }
   }
 
