@@ -1,112 +1,124 @@
 import { describe, expect, it } from 'vitest';
 import {
-  leftScreenIds,
+  leftPublicationIds,
   type MediaState,
   ownerOf,
-  SELF_ID,
+  selfPublication,
+  SELF_OWNER,
   shouldSilenceOtherScreens,
   useMediaStore,
   visibleTiles,
   withoutTrack,
   withTrack,
 } from './media';
+import { publicationId } from '../media/publication';
+
+/** As publicações de tela de quem aparece nos testes, por extenso. */
+const ANA = publicationId('ana', 'screen');
+const ANA_CAM = publicationId('ana', 'camera');
+const BIA = publicationId('bia', 'screen');
+const BRUNO = publicationId('bruno', 'screen');
+
+/** Só a tela nossa, o caso de quase todo teste daqui. */
+const MINE = { screen: true, camera: false };
+const NOTHING_MINE = { screen: false, camera: false };
 
 function fresh() {
   useMediaStore.getState().reset();
   return useMediaStore.getState();
 }
 
-function leftScreen(state: MediaState, identity: string): MediaState {
+function leftScreen(state: MediaState, id: string): MediaState {
   useMediaStore.setState(state);
-  useMediaStore.getState().setScreenSubscribed(identity, false);
+  useMediaStore.getState().setSubscribed(id, false);
   return useMediaStore.getState();
 }
 
-function enteredScreen(state: MediaState, identity: string): MediaState {
+function enteredScreen(state: MediaState, id: string): MediaState {
   useMediaStore.setState(state);
-  useMediaStore.getState().setScreenSubscribed(identity, true);
+  useMediaStore.getState().setSubscribed(id, true);
   return useMediaStore.getState();
 }
 
 describe('screens', () => {
   it('creates a screen from whichever track lands first', () => {
     // Vídeo e áudio chegam como duas trilhas separadas e sem ordem garantida.
-    const audioFirst = withTrack(fresh(), 'ana', 'audio');
-    expect(audioFirst.screens.ana?.hasAudio).toBe(true);
-    expect(audioFirst.screens.ana?.hasVideo).toBe(false);
+    const audioFirst = withTrack(fresh(), ANA, 'audio');
+    expect(audioFirst.publications[ANA]?.hasAudio).toBe(true);
+    expect(audioFirst.publications[ANA]?.hasVideo).toBe(false);
 
-    const both = withTrack(audioFirst, 'ana', 'video');
-    expect(both.screens.ana?.hasVideo).toBe(true);
-    expect(both.screenOrder).toEqual(['ana']);
+    const both = withTrack(audioFirst, ANA, 'video');
+    expect(both.publications[ANA]?.hasVideo).toBe(true);
+    expect(both.publicationOrder).toEqual([ANA]);
   });
 
   it('keeps the screen while any track remains', () => {
-    let state = withTrack(fresh(), 'ana', 'video');
-    state = withTrack(state, 'ana', 'audio');
-    state = withoutTrack(state, 'ana', 'audio');
-    expect(state.screens.ana).toBeDefined();
-    expect(state.screens.ana?.hasVideo).toBe(true);
+    let state = withTrack(fresh(), ANA, 'video');
+    state = withTrack(state, ANA, 'audio');
+    state = withoutTrack(state, ANA, 'audio');
+    expect(state.publications[ANA]).toBeDefined();
+    expect(state.publications[ANA]?.hasVideo).toBe(true);
   });
 
   it('drops the screen only when the last track goes', () => {
-    let state = withTrack(fresh(), 'ana', 'video');
-    state = withoutTrack(state, 'ana', 'video');
-    expect(state.screens.ana).toBeUndefined();
-    expect(state.screenOrder).toEqual([]);
+    let state = withTrack(fresh(), ANA, 'video');
+    state = withoutTrack(state, ANA, 'video');
+    expect(state.publications[ANA]).toBeUndefined();
+    expect(state.publicationOrder).toEqual([]);
   });
 
   it('clears focus and detach when that screen disappears', () => {
     // Apontar para uma tela que não existe mais deixaria a interface em branco.
-    let state = withTrack(fresh(), 'ana', 'video');
-    state = { ...state, focused: 'ana', detached: 'ana' };
-    state = withoutTrack(state, 'ana', 'video');
+    let state = withTrack(fresh(), ANA, 'video');
+    state = { ...state, focused: ANA, detached: ANA };
+    state = withoutTrack(state, ANA, 'video');
     expect(state.focused).toBeNull();
     expect(state.detached).toBeNull();
   });
 
   it('leaves focus alone when a different screen disappears', () => {
-    let state = withTrack(fresh(), 'ana', 'video');
-    state = withTrack(state, 'bia', 'video');
-    state = { ...state, focused: 'ana' };
-    state = withoutTrack(state, 'bia', 'video');
-    expect(state.focused).toBe('ana');
+    let state = withTrack(fresh(), ANA, 'video');
+    state = withTrack(state, BIA, 'video');
+    state = { ...state, focused: ANA };
+    state = withoutTrack(state, BIA, 'video');
+    expect(state.focused).toBe(ANA);
   });
 
   it('preserves arrival order so the grid does not reshuffle', () => {
-    let state = withTrack(fresh(), 'ana', 'video');
-    state = withTrack(state, 'bia', 'video');
-    state = withTrack(state, 'ana', 'audio');
-    expect(state.screenOrder).toEqual(['ana', 'bia']);
+    let state = withTrack(fresh(), ANA, 'video');
+    state = withTrack(state, BIA, 'video');
+    state = withTrack(state, ANA, 'audio');
+    expect(state.publicationOrder).toEqual([ANA, BIA]);
   });
 
   it('returns the same object when nothing changed', () => {
-    const state = withTrack(fresh(), 'ana', 'video');
-    expect(withTrack(state, 'ana', 'video')).toBe(state);
-    expect(withoutTrack(state, 'quem-nao-existe', 'video')).toBe(state);
+    const state = withTrack(fresh(), ANA, 'video');
+    expect(withTrack(state, ANA, 'video')).toBe(state);
+    expect(withoutTrack(state, 'quem-nao-existe:screen', 'video')).toBe(state);
   });
 });
 
 describe('entrar e sair de uma tela (issue #6)', () => {
   it('mantém o ladrilho de quem eu deixei de ver, ou não haveria caminho de volta', () => {
-    let state = withTrack(fresh(), 'ana', 'video');
-    state = withTrack(state, 'ana', 'audio');
-    state = leftScreen(state, 'ana');
-    state = withoutTrack(state, 'ana', 'video');
-    state = withoutTrack(state, 'ana', 'audio');
+    let state = withTrack(fresh(), ANA, 'video');
+    state = withTrack(state, ANA, 'audio');
+    state = leftScreen(state, ANA);
+    state = withoutTrack(state, ANA, 'video');
+    state = withoutTrack(state, ANA, 'audio');
 
-    expect(state.screens.ana?.subscribed).toBe(false);
-    expect(state.screens.ana?.hasVideo).toBe(false);
-    expect(state.screenOrder).toEqual(['ana']);
+    expect(state.publications[ANA]?.subscribed).toBe(false);
+    expect(state.publications[ANA]?.hasVideo).toBe(false);
+    expect(state.publicationOrder).toEqual([ANA]);
   });
 
   it('tira o ladrilho quando quem transmitia parou, e não quando eu saí', () => {
-    let state = withTrack(fresh(), 'ana', 'video');
-    state = withoutTrack(state, 'ana', 'video');
-    expect(state.screens.ana).toBeUndefined();
+    let state = withTrack(fresh(), ANA, 'video');
+    state = withoutTrack(state, ANA, 'video');
+    expect(state.publications[ANA]).toBeUndefined();
   });
 
   it('começa assinada: sair é uma escolha, e não o padrão', () => {
-    expect(withTrack(fresh(), 'ana', 'video').screens.ana?.subscribed).toBe(true);
+    expect(withTrack(fresh(), ANA, 'video').publications[ANA]?.subscribed).toBe(true);
   });
 });
 
@@ -114,30 +126,30 @@ describe('volume', () => {
   it('is independent per screen and survives a focus change', () => {
     const store = useMediaStore.getState();
     store.reset();
-    store.addScreen('ana', 'audio');
-    store.addScreen('bia', 'audio');
-    store.setVolume('ana', 0.25);
-    store.focus('bia');
+    store.addTrack(ANA, 'audio');
+    store.addTrack(BIA, 'audio');
+    store.setVolume(ANA, 0.25);
+    store.focus(BIA);
 
-    expect(useMediaStore.getState().screens.ana?.volume).toBe(0.25);
-    expect(useMediaStore.getState().screens.bia?.volume).toBe(1);
+    expect(useMediaStore.getState().publications[ANA]?.volume).toBe(0.25);
+    expect(useMediaStore.getState().publications[BIA]?.volume).toBe(1);
   });
 
   it('clamps out-of-range values instead of trusting the input', () => {
     const store = useMediaStore.getState();
     store.reset();
-    store.addScreen('ana', 'audio');
-    store.setVolume('ana', 5);
-    expect(useMediaStore.getState().screens.ana?.volume).toBe(1);
-    store.setVolume('ana', -3);
-    expect(useMediaStore.getState().screens.ana?.volume).toBe(0);
+    store.addTrack(ANA, 'audio');
+    store.setVolume(ANA, 5);
+    expect(useMediaStore.getState().publications[ANA]?.volume).toBe(1);
+    store.setVolume(ANA, -3);
+    expect(useMediaStore.getState().publications[ANA]?.volume).toBe(0);
   });
 
   it('ignores a screen that is not there', () => {
     const store = useMediaStore.getState();
     store.reset();
     store.setVolume('fantasma', 0.5);
-    expect(useMediaStore.getState().screens.fantasma).toBeUndefined();
+    expect(useMediaStore.getState().publications.fantasma).toBeUndefined();
   });
 });
 
@@ -200,18 +212,22 @@ describe('o layout mostra só o que se assiste (issue #7)', () => {
   it('não gasta espaço com a tela de quem eu deixei de assistir', () => {
     // O ladrilho vazio ocupava uma célula inteira da grade — e, no foco
     // parcial, um lugar na coluna lateral — para dizer "aqui não tem nada".
-    let state = withTrack(withTrack(fresh(), 'ana', 'video'), 'bruno', 'video');
-    state = leftScreen(state, 'bruno');
-    expect(visibleTiles(state.screenOrder, state.screens, false, false)).toEqual(['ana']);
-    expect(leftScreenIds(state)).toEqual(['bruno']);
+    let state = withTrack(withTrack(fresh(), ANA, 'video'), BRUNO, 'video');
+    state = leftScreen(state, BRUNO);
+    expect(visibleTiles(state.publicationOrder, state.publications, NOTHING_MINE, false)).toEqual([
+      ANA,
+    ]);
+    expect(leftPublicationIds(state)).toEqual([BRUNO]);
   });
 
   it('devolve o ladrilho quando se entra de novo', () => {
-    let state = withTrack(fresh(), 'ana', 'video');
-    state = leftScreen(state, 'ana');
-    state = enteredScreen(state, 'ana');
-    expect(visibleTiles(state.screenOrder, state.screens, false, false)).toEqual(['ana']);
-    expect(leftScreenIds(state)).toEqual([]);
+    let state = withTrack(fresh(), ANA, 'video');
+    state = leftScreen(state, ANA);
+    state = enteredScreen(state, ANA);
+    expect(visibleTiles(state.publicationOrder, state.publications, NOTHING_MINE, false)).toEqual([
+      ANA,
+    ]);
+    expect(leftPublicationIds(state)).toEqual([]);
   });
 });
 
@@ -219,7 +235,7 @@ describe('foco exclusivo (issue #7)', () => {
   it('sair do foco volta para a grade inteira, e não para uma tela sozinha', () => {
     const store = useMediaStore.getState();
     store.reset();
-    store.focus('ana');
+    store.focus(ANA);
     store.setSolo(true);
     expect(useMediaStore.getState().solo).toBe(true);
 
@@ -232,34 +248,38 @@ describe('foco exclusivo (issue #7)', () => {
     // devolver a lateral no meio disso seria desfazer a escolha sozinho.
     const store = useMediaStore.getState();
     store.reset();
-    store.focus('ana');
+    store.focus(ANA);
     store.setSolo(true);
-    store.focus('bruno');
+    store.focus(BRUNO);
     expect(useMediaStore.getState().solo).toBe(true);
   });
 });
 
 describe('ladrilho da própria tela (ADR-0030)', () => {
   it('entra por último, para não empurrar as telas dos outros de lugar', () => {
-    expect(visibleTiles(['ana', 'bruno'], {}, true, true)).toEqual(['ana', 'bruno', SELF_ID]);
+    expect(visibleTiles([ANA, BRUNO], {}, MINE, true)).toEqual([
+      ANA,
+      BRUNO,
+      selfPublication('screen'),
+    ]);
   });
 
   it('não aparece quando não se está transmitindo', () => {
-    expect(visibleTiles(['ana'], {}, false, true)).toEqual(['ana']);
+    expect(visibleTiles([ANA], {}, NOTHING_MINE, true)).toEqual([ANA]);
   });
 
   it('some quando o usuário escolhe não se ver', () => {
-    expect(visibleTiles(['ana'], {}, true, false)).toEqual(['ana']);
+    expect(visibleTiles([ANA], {}, MINE, false)).toEqual([ANA]);
   });
 
   it('pode ser o único ladrilho da grade', () => {
     // Transmitindo sozinho, a sala deixa de ser uma lista de participantes e
     // passa a ser a própria tela — que é o que o Discord mostra.
-    expect(visibleTiles([], {}, true, true)).toEqual([SELF_ID]);
+    expect(visibleTiles([], {}, MINE, true)).toEqual([selfPublication('screen')]);
   });
 
   it('nunca colide com um id do Discord, que é só dígitos', () => {
-    expect(SELF_ID).not.toMatch(/^\d+$/);
+    expect(SELF_OWNER).not.toMatch(/^\d+$/);
   });
 });
 
@@ -268,8 +288,8 @@ describe('parar de transmitir', () => {
     const store = useMediaStore.getState();
     store.reset();
     store.setPublishing(true, false, null, 'Tela 1');
-    store.focus(SELF_ID);
-    expect(useMediaStore.getState().focused).toBe(SELF_ID);
+    store.focus(selfPublication('screen'));
+    expect(useMediaStore.getState().focused).toBe(selfPublication('screen'));
 
     store.setPublishing(false, false);
     expect(useMediaStore.getState().focused).toBeNull();
@@ -326,5 +346,103 @@ describe('o som do computador (issue #8)', () => {
     // um motivo, e descobriria pelo amigo do outro lado que ele voltou.
     useMediaStore.getState().setShareAudio(false);
     expect(useMediaStore.getState().shareAudio).toBe(false);
+  });
+});
+
+/**
+ * A câmera é uma publicação ao lado da tela (ADR-0038), e não um estado dela.
+ * Cada teste aqui existe porque a alternativa — tratar a pessoa como unidade —
+ * fazia uma fonte apagar a outra.
+ */
+describe('câmera ao lado da tela (ADR-0038)', () => {
+  it('dá ladrilhos separados para a tela e a câmera da mesma pessoa', () => {
+    let state = withTrack(fresh(), ANA, 'video');
+    state = withTrack(state, ANA_CAM, 'video');
+
+    expect(state.publicationOrder).toEqual([ANA, ANA_CAM]);
+    expect(state.publications[ANA]?.source).toBe('screen');
+    expect(state.publications[ANA_CAM]?.source).toBe('camera');
+    expect(state.publications[ANA_CAM]?.ownerId).toBe('ana');
+  });
+
+  it('sair da câmera de alguém deixa a tela da mesma pessoa no lugar', () => {
+    let state = withTrack(fresh(), ANA, 'video');
+    state = withTrack(state, ANA_CAM, 'video');
+    state = leftScreen(state, ANA_CAM);
+
+    expect(state.publications[ANA]?.subscribed).toBe(true);
+    expect(visibleTiles(state.publicationOrder, state.publications, NOTHING_MINE, false)).toEqual([
+      ANA,
+    ]);
+  });
+
+  it('o volume de uma não alcança a outra', () => {
+    const store = useMediaStore.getState();
+    store.reset();
+    store.addTrack(ANA, 'audio');
+    store.addTrack(ANA_CAM, 'video');
+    store.setVolume(ANA, 0.2);
+
+    expect(useMediaStore.getState().publications[ANA]?.volume).toBe(0.2);
+    expect(useMediaStore.getState().publications[ANA_CAM]?.volume).toBe(1);
+  });
+
+  it('a câmera que acaba não derruba a tela que continua', () => {
+    let state = withTrack(fresh(), ANA, 'video');
+    state = withTrack(state, ANA_CAM, 'video');
+    state = withoutTrack(state, ANA_CAM, 'video');
+
+    expect(state.publications[ANA_CAM]).toBeUndefined();
+    expect(state.publications[ANA]?.hasVideo).toBe(true);
+  });
+
+  it('mostra os dois ladrilhos próprios, tela antes de câmera', () => {
+    expect(visibleTiles([], {}, { screen: true, camera: true }, true)).toEqual([
+      selfPublication('screen'),
+      selfPublication('camera'),
+    ]);
+  });
+
+  it('mostra só a câmera quando é só ela que está no ar', () => {
+    expect(visibleTiles([], {}, { screen: false, camera: true }, true)).toEqual([
+      selfPublication('camera'),
+    ]);
+  });
+
+  it('parar a câmera solta o foco que estava nela, e não o da tela', () => {
+    const store = useMediaStore.getState();
+    store.reset();
+    store.setCameraPublishing({ id: 'cam-1', name: 'Logitech' });
+    store.focus(selfPublication('camera'));
+    store.setCameraPublishing(null);
+    expect(useMediaStore.getState().focused).toBeNull();
+
+    store.setPublishing(true, false, null, 'Tela 1');
+    store.setCameraPublishing({ id: 'cam-1', name: 'Logitech' });
+    store.focus(selfPublication('screen'));
+    store.setCameraPublishing(null);
+    expect(useMediaStore.getState().focused).toBe(selfPublication('screen'));
+  });
+
+  it('esquece o dispositivo ao desligar, para o painel não mentir', () => {
+    const store = useMediaStore.getState();
+    store.reset();
+    store.setCameraPublishing({ id: 'cam-1', name: 'Logitech' });
+    expect(useMediaStore.getState().camera.deviceName).toBe('Logitech');
+    store.setCameraPublishing(null);
+    expect(useMediaStore.getState().camera.publishing).toBe(false);
+    expect(useMediaStore.getState().camera.deviceName).toBeNull();
+  });
+
+  it('a câmera não mexe no silenciamento do áudio, que é da tela (ADR-0028)', () => {
+    // A câmera nunca carrega áudio, entao ligá-la não pode calar as telas
+    // alheias nem impedir que elas sejam caladas.
+    const store = useMediaStore.getState();
+    store.reset();
+    store.setCameraPublishing({ id: 'cam-1', name: 'Logitech' });
+    expect(shouldSilenceOtherScreens(useMediaStore.getState())).toBe(false);
+
+    store.setPublishing(true, true, 'excluding_discord');
+    expect(shouldSilenceOtherScreens(useMediaStore.getState())).toBe(true);
   });
 });

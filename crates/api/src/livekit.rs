@@ -540,7 +540,10 @@ mod tests {
             .iter()
             .filter_map(|v| v.as_str())
             .collect();
-        assert_eq!(sources, vec!["screen_share", "screen_share_audio", "camera"]);
+        assert_eq!(
+            sources,
+            vec!["screen_share", "screen_share_audio", "camera"]
+        );
         assert!(
             !sources.contains(&"microphone"),
             "a voz continua no Discord (ADR-0012): {video}"

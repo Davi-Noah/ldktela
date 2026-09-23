@@ -4,6 +4,7 @@ import {
   sendNotification,
 } from '@tauri-apps/plugin-notification';
 import { log } from '../log';
+import type { PublicationSource } from '../media/publication';
 
 /**
  * RF-27: a native notification when a screen goes live in the room you are in.
@@ -48,14 +49,24 @@ async function allowed(): Promise<boolean> {
   return permission;
 }
 
-export async function notifyShareStarted(publisherName: string, channelName: string | null) {
+export async function notifyShareStarted(
+  publisherName: string,
+  channelName: string | null,
+  source: PublicationSource = 'screen',
+) {
   if (!(await allowed())) {
     return;
   }
+  // O título diz o que começou (ADR-0038): "tela compartilhada" para uma câmera
+  // manda a pessoa procurar uma tela que não existe.
+  const what = source === 'camera' ? 'Câmera ligada' : 'Tela compartilhada';
   try {
     sendNotification({
-      title: channelName === null ? 'Tela compartilhada' : `Tela compartilhada em ${channelName}`,
-      body: `${publisherName} começou a compartilhar.`,
+      title: channelName === null ? what : `${what} em ${channelName}`,
+      body:
+        source === 'camera'
+          ? `${publisherName} ligou a câmera.`
+          : `${publisherName} começou a compartilhar.`,
     });
   } catch (error) {
     // Uma notificação que não aparece não vale derrubar nada.

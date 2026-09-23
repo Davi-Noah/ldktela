@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { media } from '../../app/runtime';
 import { CHROME_IDLE_MS, PREVIEW_FOCUS_FPS, PREVIEW_GRID_FPS } from '../../config';
 import type { ShareChoice } from '../../media/session';
-import { type PublishPreset, SELF_ID, useMediaStore } from '../../store/media';
+import { type PublishPreset, selfPublication, useMediaStore } from '../../store/media';
 import { useUiStore } from '../../store/ui';
 import { RoomBody } from './RoomBody';
 import { RoomChrome } from './RoomChrome';
@@ -16,9 +16,11 @@ export function RoomScreen() {
   // (ADR-0036), e com todas recusadas o que sobrava era um palco preto. Sem
   // vídeo, a sala volta a ser a lista de gente, que é onde se entra de novo.
   const screenCount = useMediaStore(
-    (state) => state.screenOrder.filter((id) => state.screens[id]?.subscribed !== false).length,
+    (state) =>
+      state.publicationOrder.filter((id) => state.publications[id]?.subscribed !== false).length,
   );
   const publishing = useMediaStore((state) => state.publishing);
+  const cameraOn = useMediaStore((state) => state.camera.publishing);
   const focused = useMediaStore((state) => state.focused);
   const showSelfPreview = useUiStore((state) => state.showSelfPreview);
   const [picker, setPicker] = useState(false);
@@ -27,7 +29,7 @@ export function RoomScreen() {
   // Mirrors the state so pointer moves do not touch React on every event.
   const chromeVisibleRef = useRef(true);
 
-  const hasVideo = screenCount > 0 || (publishing && showSelfPreview);
+  const hasVideo = screenCount > 0 || ((publishing || cameraOn) && showSelfPreview);
 
   useEffect(() => {
     if (!hasVideo) {
@@ -125,14 +127,24 @@ export function RoomScreen() {
    * core** — não é o elemento que some.
    */
   useEffect(() => {
-    const enabled = publishing && showSelfPreview;
-    // Sozinha na grade, a própria tela ocupa a janela inteira — o mesmo espaço
-    // do foco. Tratá-la como ladrilho ali a deixava reduzida numa área que não
-    // é de ladrilho (issue #2).
-    const large = focused === SELF_ID || (focused === null && screenCount === 0);
-    const fps = large ? PREVIEW_FOCUS_FPS : PREVIEW_GRID_FPS;
-    void media.setPreview(enabled, fps, large);
-  }, [publishing, showSelfPreview, focused, screenCount]);
+    // Um regime por fonte (ADR-0038): a tela pode estar em foco enquanto a
+    // câmera é um ladrilho, e mandar o mesmo relógio para as duas gastaria
+    // captura de preview em cheio onde ninguém está olhando.
+    for (const [source, live] of [
+      ['screen', publishing],
+      ['camera', cameraOn],
+    ] as const) {
+      const enabled = live && showSelfPreview;
+      // Sozinha na grade, a própria transmissão ocupa a janela inteira — o
+      // mesmo espaço do foco. Tratá-la como ladrilho ali a deixava reduzida
+      // numa área que não é de ladrilho (issue #2).
+      const large =
+        focused === selfPublication(source) ||
+        (focused === null && screenCount === 0 && !(publishing && cameraOn));
+      const fps = large ? PREVIEW_FOCUS_FPS : PREVIEW_GRID_FPS;
+      void media.setPreview(source, enabled, fps, large);
+    }
+  }, [publishing, cameraOn, showSelfPreview, focused, screenCount]);
 
   /**
    * Teclado, como em qualquer reprodutor: `Esc` desfaz um nível por vez — sai da

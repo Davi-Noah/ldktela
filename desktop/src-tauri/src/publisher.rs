@@ -12,6 +12,7 @@
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Instant;
 
+use livekit::id::TrackSid;
 use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
 use livekit::track::{LocalAudioTrack, LocalTrack, LocalVideoTrack, TrackSource};
 use livekit::webrtc::audio_source::native::NativeAudioSource;
@@ -23,7 +24,6 @@ use livekit::webrtc::stats::{
 };
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::VideoResolution;
-use livekit::id::TrackSid;
 use livekit::{Room, RoomEvent, RoomOptions};
 use serde::{Deserialize, Serialize};
 
@@ -488,7 +488,6 @@ impl Publisher {
             }
         }
     }
-
 
     /// Bitrate, frame rate and the resolution actually being encoded.
     ///

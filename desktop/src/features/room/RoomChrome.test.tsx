@@ -3,17 +3,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RoomParticipant } from '../../api/types/RoomParticipant';
 import { useMediaStore } from '../../store/media';
 import { useRoomStore } from '../../store/room';
+import { publicationId, type PublicationSource } from '../../media/publication';
 import { RoomChrome } from './RoomChrome';
 
 // O cromo importa o runtime só para trocar de preset, e o runtime abre canais do
 // Tauri ao ser carregado — que não existem fora do aplicativo.
-const setScreenSubscribed = vi.fn();
+const setPublicationSubscribed = vi.fn();
+const listCameras = vi.fn(() => Promise.resolve([]));
 vi.mock('../../app/runtime', () => ({
   media: {
     changePreset: vi.fn(),
-    setScreenSubscribed: (...args: unknown[]) => {
-      setScreenSubscribed(...args);
+    setPublicationSubscribed: (...args: unknown[]) => {
+      setPublicationSubscribed(...args);
     },
+    listCameras: () => listCameras(),
+    startCamera: vi.fn(),
+    stopCamera: vi.fn(),
+    switchCamera: vi.fn(),
   },
 }));
 
@@ -22,10 +28,10 @@ vi.mock('../../app/runtime', () => ({
  * lista de pessoas some — justamente quando se quer saber quem está do outro
  * lado da própria tela.
  */
-function participant(id: string, username: string, publishing = false): RoomParticipant {
+function participant(id: string, username: string, ...live: PublicationSource[]): RoomParticipant {
   return {
     user: { id, username, display_name: null, avatar_url: null },
-    publishing,
+    publications: live.map((source) => ({ source, since: '2026-09-14T12:00:00Z' })),
   } as RoomParticipant;
 }
 
@@ -36,7 +42,9 @@ function room(participants: RoomParticipant[]) {
     channelName: 'Geral',
     participantIds: participants.map((p) => p.user.id),
     participants: Object.fromEntries(participants.map((p) => [p.user.id, p])),
-    publisherIds: participants.filter((p) => p.publishing).map((p) => p.user.id),
+    publicationIds: participants.flatMap((p) =>
+      p.publications.map((publication) => publicationId(p.user.id, publication.source)),
+    ),
     lastLeaveReason: null,
   });
 }
@@ -52,7 +60,7 @@ function chrome() {
 describe('quem está na sala (issue #10)', () => {
   beforeEach(() => {
     useMediaStore.getState().reset();
-    room([participant('1', 'ana'), participant('2', 'bruno', true)]);
+    room([participant('1', 'ana'), participant('2', 'bruno', 'screen')]);
   });
 
   it('lista as pessoas mesmo com o vídeo ocupando a janela', () => {
@@ -89,25 +97,25 @@ describe('quem está na sala (issue #10)', () => {
 describe('o caminho de volta para uma tela que se deixou de assistir (issue #7)', () => {
   beforeEach(() => {
     useMediaStore.getState().reset();
-    setScreenSubscribed.mockClear();
-    room([participant('1', 'ana', true), participant('2', 'bruno', true)]);
+    setPublicationSubscribed.mockClear();
+    room([participant('1', 'ana', 'screen'), participant('2', 'bruno', 'screen')]);
   });
 
   it('está na lista de pessoas, que é o único lugar que mostra a sala inteira', () => {
     // O ladrilho de quem se deixou de assistir não existe mais (ADR-0036): sem
     // este botão, a tela sumiria sem caminho nenhum de volta.
-    useMediaStore.getState().addScreen('1', 'video');
-    useMediaStore.getState().setScreenSubscribed('1', false);
+    useMediaStore.getState().addTrack('1:screen', 'video');
+    useMediaStore.getState().setSubscribed('1:screen', false);
     chrome();
     fireEvent.click(screen.getByRole('button', { name: /Quem está aqui/ }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Entrar' }));
-    expect(setScreenSubscribed).toHaveBeenCalledWith('1', true);
+    expect(setPublicationSubscribed).toHaveBeenCalledWith('1:screen', true);
   });
 
   it('conta no cabeçalho quantas telas ficaram de fora', () => {
-    useMediaStore.getState().addScreen('1', 'video');
-    useMediaStore.getState().setScreenSubscribed('1', false);
+    useMediaStore.getState().addTrack('1:screen', 'video');
+    useMediaStore.getState().setSubscribed('1:screen', false);
     chrome();
     expect(screen.getByText(/1 fora/)).toBeDefined();
   });
@@ -116,20 +124,20 @@ describe('o caminho de volta para uma tela que se deixou de assistir (issue #7)'
 describe('foco exclusivo (issue #7)', () => {
   beforeEach(() => {
     useMediaStore.getState().reset();
-    room([participant('1', 'ana', true), participant('2', 'bruno', true)]);
+    room([participant('1', 'ana', 'screen'), participant('2', 'bruno', 'screen')]);
   });
 
   it('não é oferecido com uma tela só, porque não há o que esconder', () => {
-    useMediaStore.getState().addScreen('1', 'video');
-    useMediaStore.getState().focus('1');
+    useMediaStore.getState().addTrack('1:screen', 'video');
+    useMediaStore.getState().focus('1:screen');
     chrome();
     expect(screen.queryByRole('button', { name: /só esta tela/ })).toBeNull();
   });
 
   it('aparece assim que existe uma segunda tela', () => {
-    useMediaStore.getState().addScreen('1', 'video');
-    useMediaStore.getState().addScreen('2', 'video');
-    useMediaStore.getState().focus('1');
+    useMediaStore.getState().addTrack('1:screen', 'video');
+    useMediaStore.getState().addTrack('2:screen', 'video');
+    useMediaStore.getState().focus('1:screen');
     chrome();
     expect(screen.getByRole('button', { name: /só esta tela/ })).toBeDefined();
   });

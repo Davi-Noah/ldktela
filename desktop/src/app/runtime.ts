@@ -9,6 +9,7 @@ import {
 } from '../config';
 import { listen } from '@tauri-apps/api/event';
 import { chimeForShare, primeChime } from '../platform/chime';
+import type { PublicationSource } from '../media/publication';
 import { notifyShareStarted, shouldNotify } from '../platform/notify';
 import { GatewayClient } from '../gateway/client';
 import { log } from '../log';
@@ -45,7 +46,7 @@ export const gateway = new GatewayClient({
       useSessionStore.getState().signedIn(event.d.user);
     }
     if (event.t === 'SHARE_START') {
-      announceShare(event.d.user_id);
+      announceShare(event.d.user_id, event.d.source);
     }
     if (event.t === 'SHARE_STOP') {
       chimeForShare('stop', event.d.user_id, useSessionStore.getState().user?.id);
@@ -223,7 +224,7 @@ function scheduleUpdateChecks(): void {
  * RF-27. Reads the publisher's name from the room the event already updated, so
  * the notification says who rather than a bare id.
  */
-function announceShare(publisherId: string): void {
+function announceShare(publisherId: string, source: PublicationSource): void {
   const room = useRoomStore.getState();
   const selfId = useSessionStore.getState().user?.id;
 
@@ -238,5 +239,5 @@ function announceShare(publisherId: string): void {
   }
   const participant = room.participants[publisherId];
   const name = participant?.user.display_name ?? participant?.user.username ?? 'Alguém';
-  void notifyShareStarted(name, room.channelName);
+  void notifyShareStarted(name, room.channelName, source);
 }

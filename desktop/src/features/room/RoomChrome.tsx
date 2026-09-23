@@ -1,14 +1,22 @@
+import { useState } from 'react';
 import type { RoomParticipant } from '../../api/types/RoomParticipant';
+import type { CameraDevice } from '../../media/native';
 import { media } from '../../app/runtime';
 import {
-  leftScreenIds,
+  isSelfPublication,
+  leftPublicationIds,
   ownerOf,
   PUBLISH_PRESETS,
-  SELF_ID,
   useMediaStore,
   visibleTiles,
 } from '../../store/media';
-import { useRoomStore } from '../../store/room';
+import {
+  ownerOfPublication,
+  publicationId,
+  sourceLabel,
+  sourceOfPublication,
+} from '../../media/publication';
+import { publicationsOf, useRoomStore } from '../../store/room';
 import { useSessionStore } from '../../store/session';
 import { useUiStore } from '../../store/ui';
 import { Avatar } from '../../ui/Avatar';
@@ -46,8 +54,9 @@ export function RoomChrome({ onShare, onStop, onToggleFullscreen, fullscreen }: 
   const publishing = useMediaStore((state) => state.publishing);
   const starting = useMediaStore((state) => state.starting);
   const connection = useMediaStore((state) => state.connection);
-  const screenOrder = useMediaStore((state) => state.screenOrder);
-  const screens = useMediaStore((state) => state.screens);
+  const publicationOrder = useMediaStore((state) => state.publicationOrder);
+  const publications = useMediaStore((state) => state.publications);
+  const cameraOn = useMediaStore((state) => state.camera.publishing);
   const solo = useMediaStore((state) => state.solo);
   const viewers = useMediaStore((state) => state.viewerIds.length);
   const stats = useMediaStore((state) => state.stats);
@@ -57,8 +66,13 @@ export function RoomChrome({ onShare, onStop, onToggleFullscreen, fullscreen }: 
   const showSelfPreview = useUiStore((state) => state.showSelfPreview);
   const setShowSelfPreview = useUiStore((state) => state.setShowSelfPreview);
 
-  const tiles = visibleTiles(screenOrder, screens, publishing, showSelfPreview);
-  const left = leftScreenIds({ screenOrder, screens });
+  const tiles = visibleTiles(
+    publicationOrder,
+    publications,
+    { screen: publishing, camera: cameraOn },
+    showSelfPreview,
+  );
+  const left = leftPublicationIds({ publicationOrder, publications });
 
   return (
     <>
@@ -66,7 +80,7 @@ export function RoomChrome({ onShare, onStop, onToggleFullscreen, fullscreen }: 
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-medium text-text">{channelName ?? 'Canal de voz'}</span>
           <span className="shrink-0 text-text-muted">
-            {tiles.length === 1 ? '1 tela' : `${tiles.length} telas`}
+            {tiles.length === 1 ? '1 transmissão' : `${tiles.length} transmissões`}
             {/* Sair de uma tela tira o ladrilho do layout (ADR-0036). Sem esta
                 contagem, a transmissão de alguém simplesmente não estaria lá, e
                 procurar um defeito é a primeira reação a isso. */}
@@ -77,7 +91,7 @@ export function RoomChrome({ onShare, onStop, onToggleFullscreen, fullscreen }: 
           )}
         </div>
 
-        {publishing && (
+        {(publishing || cameraOn) && (
           <div className="ml-auto flex shrink-0 items-center gap-2">
             <span className="flex items-center gap-1 rounded-pill bg-surface-1/80 px-2 py-0.5 text-xs font-medium text-danger">
               <Icon name="dot" size={10} />
@@ -168,6 +182,11 @@ export function RoomChrome({ onShare, onStop, onToggleFullscreen, fullscreen }: 
             </Button>
           )}
 
+          {/* A câmera é independente da tela (ADR-0038): fica ao lado, e não
+              dentro dos ajustes da transmissão, porque ligá-la não exige estar
+              compartilhando nada. */}
+          <CameraButton />
+
           {focused !== null && tiles.length > 1 && (
             <>
               {/* Alternador, e não duas ações: o ícone é sempre o do arranjo
@@ -212,31 +231,44 @@ function FocusSwitcher({ tiles, focused }: { tiles: string[]; focused: string })
 
   return (
     <div className="mx-1 flex items-center gap-1 border-l border-line-soft pl-2">
-      {tiles.map((identity) => {
-        const participant = participants[identity];
-        const name =
-          identity === SELF_ID
-            ? 'Sua tela'
-            : (participant?.user.display_name ?? participant?.user.username ?? 'Alguém');
-        const active = identity === focused;
+      {tiles.map((id) => {
+        const mine = isSelfPublication(id);
+        const source = sourceOfPublication(id);
+        const participant = participants[ownerOfPublication(id)];
+        const person = participant?.user.display_name ?? participant?.user.username ?? 'Alguém';
+        // O rótulo diz a fonte porque a mesma pessoa pode aparecer duas vezes
+        // aqui, e dois avatares iguais lado a lado não se distinguem (ADR-0038).
+        const name = mine
+          ? source === 'camera'
+            ? 'Sua câmera'
+            : 'Sua tela'
+          : `${sourceLabel(source)} de ${person}`;
+        const active = id === focused;
         return (
           <button
-            key={identity}
+            key={id}
             type="button"
             aria-label={`Ver ${name}`}
             aria-pressed={active}
             title={name}
             onClick={() => {
-              useMediaStore.getState().focus(identity);
+              useMediaStore.getState().focus(id);
             }}
-            className={`rounded-pill p-0.5 ${active ? 'bg-accent' : 'hover:bg-surface-3'}`}
+            className={`relative rounded-pill p-0.5 ${active ? 'bg-accent' : 'hover:bg-surface-3'}`}
           >
-            {identity === SELF_ID ? (
+            {mine ? (
               <span className="flex h-6 w-6 items-center justify-center rounded-pill bg-surface-3 text-danger">
-                <Icon name="dot" size={12} />
+                <Icon name={source === 'camera' ? 'camera' : 'dot'} size={12} />
               </span>
             ) : (
-              <Avatar url={participant?.user.avatar_url ?? null} name={name} size={24} />
+              <Avatar url={participant?.user.avatar_url ?? null} name={person} size={24} />
+            )}
+            {/* Um selo de câmera sobre o avatar: sem ele, a tela e a câmera da
+                mesma pessoa são dois botões idênticos. */}
+            {!mine && source === 'camera' && (
+              <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-pill bg-surface-1 text-text">
+                <Icon name="camera" size={9} />
+              </span>
             )}
           </button>
         );
@@ -259,6 +291,113 @@ function connectionLabel(state: string): string {
 }
 
 /**
+ * Liga, desliga e troca a câmera (ADR-0038).
+ *
+ * Um botão com estado, e não um item de menu: a câmera entra e sai o tempo todo
+ * numa conversa, e enterrá-la atrás de um popover cobraria dois cliques por vez.
+ * A escolha de dispositivo é que fica no menu ao lado, porque quase ninguém tem
+ * duas câmeras e quem tem escolhe uma vez.
+ *
+ * A lista é buscada ao abrir o menu, e não na montagem: enumerar câmeras abre o
+ * Media Foundation, e pagar isso em toda sala que se entra seria gastar por um
+ * recurso que a maioria não usa.
+ */
+function CameraButton() {
+  const camera = useMediaStore((state) => state.camera);
+  const [devices, setDevices] = useState<CameraDevice[] | null>(null);
+
+  const load = () => {
+    void media
+      .listCameras()
+      .then(setDevices)
+      .catch(() => {
+        setDevices([]);
+      });
+  };
+
+  if (camera.publishing) {
+    return (
+      <>
+        <IconButton
+          icon="camera"
+          label={`Desligar a câmera${camera.deviceName === null ? '' : ` (${camera.deviceName})`}`}
+          aria-pressed
+          onClick={() => {
+            void media.stopCamera();
+          }}
+        />
+        <Popover icon="chevron" label="Escolher outra câmera" onOpen={load}>
+          {(close) => (
+            <CameraList
+              devices={devices}
+              selected={camera.deviceId}
+              onPick={(device) => {
+                void media.switchCamera(device);
+                close();
+              }}
+            />
+          )}
+        </Popover>
+      </>
+    );
+  }
+
+  return (
+    <Popover icon="camera" label="Ligar a câmera" onOpen={load} disabled={camera.starting}>
+      {(close) => (
+        <CameraList
+          devices={devices}
+          selected={null}
+          onPick={(device) => {
+            void media.startCamera(device);
+            close();
+          }}
+        />
+      )}
+    </Popover>
+  );
+}
+
+function CameraList({
+  devices,
+  selected,
+  onPick,
+}: {
+  devices: CameraDevice[] | null;
+  selected: string | null;
+  onPick: (device: CameraDevice) => void;
+}) {
+  if (devices === null) {
+    return <p className="px-2 py-1 text-text-muted">Procurando câmeras…</p>;
+  }
+  if (devices.length === 0) {
+    // Dito uma vez e por extenso: "nenhuma câmera" sem explicação manda a
+    // pessoa procurar defeito no aplicativo, e o motivo costuma ser o Windows.
+    return (
+      <p className="px-2 py-1 text-text-muted">
+        Nenhuma câmera encontrada. Verifique se ela está conectada e se o Windows permite o acesso.
+      </p>
+    );
+  }
+  return (
+    <>
+      <MenuLabel>Câmera</MenuLabel>
+      {devices.map((device) => (
+        <MenuItem
+          key={device.id}
+          selected={device.id === selected}
+          onClick={() => {
+            onPick(device);
+          }}
+        >
+          {device.name}
+        </MenuItem>
+      ))}
+    </>
+  );
+}
+
+/**
  * Quem está na sala, e quem está vendo a sua tela (issue #10).
  *
  * Com alguém transmitindo, o corpo da sala dá lugar ao vídeo e a lista de
@@ -272,8 +411,9 @@ function People() {
   const participantIds = useRoomStore((state) => state.participantIds);
   const participants = useRoomStore((state) => state.participants);
   const publishing = useMediaStore((state) => state.publishing);
+  const cameraOn = useMediaStore((state) => state.camera.publishing);
   const viewerIds = useMediaStore((state) => state.viewerIds);
-  const screens = useMediaStore((state) => state.screens);
+  const publications = useMediaStore((state) => state.publications);
   const me = useSessionStore((state) => state.user?.discord_user_id ?? null);
 
   // As conexões de quem publica já foram descartadas na origem; o `ownerOf`
@@ -298,48 +438,63 @@ function People() {
               if (participant === undefined) {
                 return null;
               }
+              const live = publicationsOf(participant);
               return (
-                <li key={id} className="flex items-center gap-2 px-2 py-1">
-                  <Avatar
-                    url={participant.user.avatar_url}
-                    name={participant.user.username}
-                    size={20}
-                  />
-                  <span className="min-w-0 flex-1 truncate text-text">
-                    {nameOf(participants, id)}
-                    {id === me && <span className="text-text-faint"> · você</span>}
-                  </span>
-                  {participant.publishing &&
-                    // Botão com texto, e não com dica: a dica de um botão de
-                    // ícone é um bloco posicionado, e dentro desta lista, que
-                    // rola, ela empurrava a largura do menu e ganhava uma barra
-                    // de rolagem horizontal — foi assim que o menu apareceu
-                    // torto e cortando o conteúdo.
-                    // `known` separa "está transmitindo e eu recebo" de "está
-                    // transmitindo e a trilha ainda não chegou": no segundo caso
-                    // não há do que sair, e um botão ali prometeria uma ação que
-                    // não acontece.
-                    (screens[id] === undefined ? (
+                <li key={id} className="px-2 py-1">
+                  <div className="flex items-center gap-2">
+                    <Avatar
+                      url={participant.user.avatar_url}
+                      name={participant.user.username}
+                      size={20}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-text">
+                      {nameOf(participants, id)}
+                      {id === me && <span className="text-text-faint"> · você</span>}
+                    </span>
+                    {live.length > 0 && publicationsWithTrack(live, id, publications) === 0 && (
+                      // Transmitindo, mas a trilha ainda não chegou: não há do
+                      // que sair, e um botão ali prometeria uma ação que não
+                      // acontece.
                       <span className="flex shrink-0 items-center gap-1 text-danger">
                         <Icon name="dot" size={10} />
                         no ar
                       </span>
-                    ) : (
-                      <WatchButton
-                        watching={screens[id].subscribed}
-                        onClick={() => {
-                          media.setScreenSubscribed(id, !screens[id]?.subscribed);
-                        }}
-                      />
-                    ))}
+                    )}
+                  </div>
+
+                  {/* Uma linha por publicação (ADR-0038). Botão com texto, e
+                      não com dica: a dica de um botão de ícone é um bloco
+                      posicionado, e dentro desta lista, que rola, ela empurrava
+                      a largura do menu e ganhava uma barra de rolagem
+                      horizontal — foi assim que o menu apareceu torto. */}
+                  {live.map((publication) => {
+                    const key = publicationId(id, publication.source);
+                    const state = publications[key];
+                    if (state === undefined) {
+                      return null;
+                    }
+                    return (
+                      <div key={key} className="mt-0.5 flex items-center gap-2 pl-7">
+                        <span className="min-w-0 flex-1 truncate text-text-muted">
+                          {sourceLabel(publication.source)}
+                        </span>
+                        <WatchButton
+                          watching={state.subscribed}
+                          onClick={() => {
+                            media.setPublicationSubscribed(key, !state.subscribed);
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
                 </li>
               );
             })}
           </ul>
 
-          {publishing && (
+          {(publishing || cameraOn) && (
             <>
-              <MenuLabel centered>Vendo a sua tela</MenuLabel>
+              <MenuLabel centered>Vendo você</MenuLabel>
               {watching.length === 0 ? (
                 <p className="px-2 pb-1 text-center text-text-muted">Ninguém ainda.</p>
               ) : (
@@ -374,4 +529,14 @@ function People() {
 function nameOf(participants: Record<string, RoomParticipant>, id: string): string {
   const user = participants[id]?.user;
   return user?.display_name ?? user?.username ?? 'Alguém';
+}
+
+/** Quantas publicações desta pessoa já têm trilha chegando aqui. */
+function publicationsWithTrack(
+  live: readonly { source: 'screen' | 'camera' }[],
+  ownerId: string,
+  publications: Record<string, unknown>,
+): number {
+  return live.filter((publication) => publications[publicationId(ownerId, publication.source)])
+    .length;
 }

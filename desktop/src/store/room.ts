@@ -153,7 +153,9 @@ function samePublications(known: RoomParticipant, fresh: RoomParticipant): boole
     return false;
   }
   return known.publications.every((publication) =>
-    fresh.publications.some((p) => p.source === publication.source && p.since === publication.since),
+    fresh.publications.some(
+      (p) => p.source === publication.source && p.since === publication.since,
+    ),
   );
 }
 

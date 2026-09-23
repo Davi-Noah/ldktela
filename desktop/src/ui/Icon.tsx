@@ -9,6 +9,7 @@
 
 export type IconName =
   | 'alert'
+  | 'camera'
   | 'check'
   | 'chevron'
   | 'close'
@@ -34,6 +35,12 @@ export type IconName =
 /** Traçado. A maioria; o desenho inteiro vive nesta tabela. */
 const STROKE: Record<string, string[]> = {
   alert: ['M12 3.5 21.5 20h-19z', 'M12 10v4.5'],
+  // Um corpo de câmera com a lente à frente: o mesmo peso de traço do
+  // `monitor`, porque os dois aparecem lado a lado no seletor e na barra.
+  camera: [
+    'M4 7.5h9a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 13 16.5H4A1.5 1.5 0 0 1 2.5 15V9A1.5 1.5 0 0 1 4 7.5z',
+    'M14.5 11.2l5-2.7v7l-5-2.7z',
+  ],
   check: ['M5 12.5 9.5 17 19 7.5'],
   chevron: ['M6 9.5l6 6 6-6'],
   close: ['M6 6l12 12', 'M18 6 6 18'],

@@ -30,8 +30,8 @@ use windows::core::{Interface, GUID, PWSTR};
 use windows::Win32::Media::MediaFoundation::{
     IMF2DBuffer, IMFActivate, IMFAttributes, IMFMediaSource, IMFMediaType, IMFSample,
     IMFSourceReader, MFCreateAttributes, MFCreateDeviceSource, MFCreateMediaType,
-    MFCreateSourceReaderFromMediaSource, MFEnumDeviceSources, MFShutdown, MFStartup,
-    MFMediaType_Video, MFSTARTUP_FULL, MFVideoFormat_NV12, MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME,
+    MFCreateSourceReaderFromMediaSource, MFEnumDeviceSources, MFMediaType_Video, MFShutdown,
+    MFStartup, MFVideoFormat_NV12, MFSTARTUP_FULL, MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME,
     MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID,
     MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE,
     MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE, MF_SOURCE_READERF_ENDOFSTREAM, MF_SOURCE_READERF_ERROR,
@@ -466,14 +466,7 @@ fn run(
         let mut sample: Option<IMFSample> = None;
         unsafe {
             reader
-                .ReadSample(
-                    stream,
-                    0,
-                    None,
-                    Some(&mut flags),
-                    None,
-                    Some(&mut sample),
-                )
+                .ReadSample(stream, 0, None, Some(&mut flags), None, Some(&mut sample))
                 .map_err(|e| CameraError::from_hresult(&e, "lendo um quadro"))?;
         }
 

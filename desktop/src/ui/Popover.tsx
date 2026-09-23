@@ -30,6 +30,13 @@ interface PopoverProps {
    * ou o item mais largo decide o tamanho do menu inteiro.
    */
   width?: string;
+  /**
+   * Chamado ao abrir. Existe para conteúdo que custa: a lista de câmeras abre o
+   * Media Foundation, e buscá-la na montagem cobraria isso de toda sala em que
+   * se entra, por um recurso que nem todo mundo usa (ADR-0038).
+   */
+  onOpen?: () => void;
+  disabled?: boolean;
 }
 
 /**
@@ -48,6 +55,8 @@ export function Popover({
   align = 'right',
   role = 'menu',
   width = 'w-max min-w-44',
+  onOpen,
+  disabled = false,
 }: PopoverProps) {
   const [open, setOpen] = useState(false);
   const holdChrome = useUiStore((state) => state.holdChrome);
@@ -90,10 +99,16 @@ export function Popover({
         aria-label={label}
         aria-expanded={open}
         aria-controls={open ? id : undefined}
+        disabled={disabled}
         onClick={() => {
-          setOpen((current) => !current);
+          setOpen((current) => {
+            if (!current) {
+              onOpen?.();
+            }
+            return !current;
+          });
         }}
-        className="inline-flex items-center justify-center rounded-pill bg-surface-2/85 p-2 text-text hover:bg-surface-3 aria-expanded:bg-surface-3"
+        className="inline-flex items-center justify-center rounded-pill bg-surface-2/85 p-2 text-text hover:bg-surface-3 disabled:opacity-50 aria-expanded:bg-surface-3"
       >
         <Icon name={icon} size={18} />
       </button>

@@ -105,8 +105,13 @@ export function stopNativeShare(): Promise<void> {
  * publishing connection, or the window being shared was closed. Without it the
  * button would keep saying "stop sharing" over a stream nobody is receiving.
  */
-export function onShareEnded(handler: (reason: string) => void): Promise<() => void> {
-  return listen<string>('share://ended', (event) => {
+export interface ShareEnded {
+  source: PublicationSource;
+  reason: string;
+}
+
+export function onShareEnded(handler: (ended: ShareEnded) => void): Promise<() => void> {
+  return listen<ShareEnded>('share://ended', (event) => {
     handler(event.payload);
   });
 }

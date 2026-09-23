@@ -3,11 +3,13 @@ import { media } from '../../app/runtime';
 import type { RoomParticipant } from '../../api/types/RoomParticipant';
 import { registerPreviewElement } from '../../media/preview';
 import {
+  isSelfPublication,
   type QualityChoice,
-  SELF_ID,
   shouldSilenceOtherScreens,
   useMediaStore,
 } from '../../store/media';
+import { type PublicationId, sourceOfPublication } from '../../media/publication';
+import { publicationSince } from '../../store/room';
 import { useUiStore } from '../../store/ui';
 import { Icon } from '../../ui/Icon';
 import { IconButton } from '../../ui/IconButton';
@@ -16,7 +18,7 @@ import { Slider } from '../../ui/Slider';
 import { elapsed } from './format';
 
 interface Props {
-  identity: string;
+  id: PublicationId;
   owner: RoomParticipant | undefined;
   focused: boolean;
   /** Hidden rather than unmounted: hiding is what stops adaptiveStream pulling
@@ -41,8 +43,8 @@ interface Props {
 const DOUBLE_CLICK_MS = 220;
 
 /**
- * One screen: someone else's, or — when `identity` is `SELF_ID` — our own
- * preview (ADR-0030).
+ * One publication: someone else's screen or camera, or — when the id is ours —
+ * our own local preview (ADR-0030, ADR-0038).
  *
  * The `<video>`, `<audio>` and `<img>` are created **imperatively** and appended
  * to a container, instead of being written in JSX. Two reasons, both
@@ -56,7 +58,7 @@ const DOUBLE_CLICK_MS = 220;
  * ran into the room's own bar at the bottom of the window (CLAUDE.md §8).
  */
 export function ScreenTile({
-  identity,
+  id,
   owner,
   focused,
   role,
@@ -68,9 +70,11 @@ export function ScreenTile({
 }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isSelf = identity === SELF_ID;
-  const screen = useMediaStore((state) => state.screens[identity]);
+  const isSelf = isSelfPublication(id);
+  const source = sourceOfPublication(id);
+  const screen = useMediaStore((state) => state.publications[id]);
   const sharingTitle = useMediaStore((state) => state.sharingTitle);
+  const cameraName = useMediaStore((state) => state.camera.deviceName);
   const silenced = useMediaStore(shouldSilenceOtherScreens);
   const setShowSelfPreview = useUiStore((state) => state.setShowSelfPreview);
 
@@ -87,11 +91,16 @@ export function ScreenTile({
       const image = document.createElement('img');
       image.alt = '';
       image.draggable = false;
-      image.className = 'h-full w-full bg-stage object-contain';
+      // Espelhado só aqui, no próprio preview: é o que a pessoa espera de um
+      // espelho. A trilha que sai não é espelhada, ou qualquer texto na frente
+      // da câmera chegaria invertido aos outros (ADR-0038).
+      image.className = `h-full w-full bg-stage object-contain${
+        source === 'camera' ? ' -scale-x-100' : ''
+      }`;
       mount.append(image);
-      registerPreviewElement(image);
+      registerPreviewElement(source, image);
       return () => {
-        registerPreviewElement(null);
+        registerPreviewElement(source, null);
         image.remove();
       };
     }
@@ -114,15 +123,15 @@ export function ScreenTile({
     audio.autoplay = true;
     mount.append(audio);
 
-    media.registerVideoElement(identity, video);
-    media.registerAudioElement(identity, audio);
+    media.registerVideoElement(id, video);
+    media.registerAudioElement(id, audio);
     return () => {
-      media.registerVideoElement(identity, null);
-      media.registerAudioElement(identity, null);
+      media.registerVideoElement(id, null);
+      media.registerAudioElement(id, null);
       video.remove();
       audio.remove();
     };
-  }, [identity, isSelf]);
+  }, [id, isSelf, source]);
 
   useEffect(() => {
     return () => {
@@ -139,16 +148,21 @@ export function ScreenTile({
   // "prévia" e não "sua tela": o preview é um JPEG local com relógio próprio
   // (ADR-0030), não a transmissão — quem julga uma pela outra conclui que o
   // produto está quebrado. Já aconteceu.
+  const person = owner?.user.display_name ?? owner?.user.username ?? 'Alguém';
   const name = isSelf
-    ? 'Prévia da sua tela'
-    : (owner?.user.display_name ?? owner?.user.username ?? 'Alguém');
-  const subtitle = isSelf ? sharingTitle : null;
+    ? source === 'camera'
+      ? 'Prévia da sua câmera'
+      : 'Prévia da sua tela'
+    : source === 'camera'
+      ? `Câmera de ${person}`
+      : person;
+  const subtitle = isSelf ? (source === 'camera' ? cameraName : sharingTitle) : null;
 
   return (
     <section
       // Âncora do ladrilho: é por aqui que a grade acha a mídia para destacar,
       // sem passar por uma ref que o React controla.
-      data-screen={identity}
+      data-screen={id}
       hidden={hidden}
       // Posição e tamanho são do CSS, por este papel (issue #7). O ladrilho em
       // foco deixou de ser `absolute inset-0`: com as outras telas ao lado, ele
@@ -229,7 +243,7 @@ export function ScreenTile({
           {subtitle !== null && (
             <span className="truncate text-xs text-text-muted">· {subtitle}</span>
           )}
-          <Elapsed since={owner?.publishing_since} />
+          <Elapsed since={publicationSince(owner, source) ?? undefined} />
         </div>
 
         {/* Fora do fluxo, e não ao lado do crachá: invisíveis, os controles
@@ -239,12 +253,7 @@ export function ScreenTile({
         <div className={`absolute right-2 ${role === 'rail' ? 'bottom-2' : 'bottom-16'}`}>
           <Controls>
             {!isSelf && screen?.hasAudio === true && (
-              <VolumeControl
-                identity={identity}
-                name={name}
-                volume={screen.volume}
-                silenced={silenced}
-              />
+              <VolumeControl id={id} name={name} volume={screen.volume} silenced={silenced} />
             )}
 
             {isSelf ? (
@@ -267,7 +276,7 @@ export function ScreenTile({
                         selected={screen?.quality === option.value}
                         hint={option.hint}
                         onClick={() => {
-                          media.setQuality(identity, option.value);
+                          media.setQuality(id, option.value);
                           close();
                         }}
                       >
@@ -285,7 +294,7 @@ export function ScreenTile({
                 icon="eye-off"
                 label={`Sair da tela de ${name}`}
                 onClick={() => {
-                  media.setScreenSubscribed(identity, false);
+                  media.setPublicationSubscribed(id, false);
                 }}
               />
             )}
@@ -341,7 +350,7 @@ function Controls({ children }: { children: ReactNode }) {
 }
 
 interface VolumeProps {
-  identity: string;
+  id: PublicationId;
   name: string;
   volume: number;
   silenced: boolean;
@@ -358,7 +367,7 @@ interface VolumeProps {
  * explicação existia, mas só dentro de um parágrafo do seletor, lido minutos
  * antes.
  */
-function VolumeControl({ identity, name, volume, silenced }: VolumeProps) {
+function VolumeControl({ id, name, volume, silenced }: VolumeProps) {
   const [remembered, setRemembered] = useState(1);
   const muted = volume === 0;
   const percent = Math.round(volume * 100);
@@ -379,11 +388,11 @@ function VolumeControl({ identity, name, volume, silenced }: VolumeProps) {
         disabled={silenced}
         onClick={() => {
           if (muted) {
-            media.setVolume(identity, remembered);
+            media.setVolume(id, remembered);
             return;
           }
           setRemembered(volume);
-          media.setVolume(identity, 0);
+          media.setVolume(id, 0);
         }}
       />
       {/* Fica escondido até o ponteiro chegar: um cursor de volume por tela,
@@ -393,7 +402,7 @@ function VolumeControl({ identity, name, volume, silenced }: VolumeProps) {
         disabled={silenced}
         label={`Volume da tela de ${name}`}
         onChange={(next) => {
-          media.setVolume(identity, next / 100);
+          media.setVolume(id, next / 100);
         }}
         className="chrome-fade w-0 opacity-0 group-hover/vol:w-20 group-hover/vol:opacity-100 group-focus-within/vol:w-20 group-focus-within/vol:opacity-100"
       />

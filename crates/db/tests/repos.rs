@@ -528,7 +528,8 @@ async fn two_publishers_in_one_room_each_keep_their_own_start() {
         .expect("listando");
     assert_eq!(rows.len(), 2);
     assert!(
-        rows.iter().all(|r| r.publishing && r.screen_since.is_some()),
+        rows.iter()
+            .all(|r| r.publishing && r.screen_since.is_some()),
         "cada publicador precisa do proprio inicio"
     );
 }

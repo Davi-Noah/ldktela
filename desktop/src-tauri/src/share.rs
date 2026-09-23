@@ -228,7 +228,10 @@ pub async fn share_start(
         .map_err(|_| ShareFailure::BadSource)?;
 
     let publisher = connect(&mut live, &app, &request.url, &request.token).await?;
-    let (video, audio_sink) = match publisher.publish_screen(request.preset, request.audio).await {
+    let (video, audio_sink) = match publisher
+        .publish_screen(request.preset, request.audio)
+        .await
+    {
         Ok(sinks) => sinks,
         Err(error) => {
             live.close_if_idle().await;

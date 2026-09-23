@@ -8,6 +8,7 @@ import { describeError, log } from '../log';
 import {
   ownerOf,
   PUBLISHER_SUFFIX,
+  type PublisherStats,
   type PublishPreset,
   type QualityChoice,
   shouldSilenceOtherScreens,
@@ -24,14 +25,19 @@ import {
 import { useSessionStore } from '../store/session';
 import { useUiStore } from '../store/ui';
 import {
+  type CameraDevice,
+  listCameras,
   listShareSources,
   onShareEnded,
+  setCameraPreview,
   setSharePreview,
   setTraySharing,
   type ShareSource,
   shareThumbnail,
   type SourceKind,
+  startNativeCamera,
   startNativeShare,
+  stopNativeCamera,
   stopNativeShare,
 } from './native';
 import { clearPreview } from './preview';
@@ -119,20 +125,38 @@ export class MediaSession {
 
   constructor(api: ApiClient) {
     this.api = api;
-    void onShareEnded((reason) => {
-      // O core parou sem nos pedir: o SFU derrubou, ou a janela compartilhada
-      // foi fechada. Sem isto o botao continuaria dizendo "parar".
-      log.warn('compartilhamento: encerrado pelo sistema', { motivo: reason });
+    void onShareEnded(({ source, reason }) => {
+      // O core parou sem nos pedir: o SFU derrubou, a janela compartilhada foi
+      // fechada, a câmera foi desconectada. Sem isto o botão continuaria
+      // dizendo "parar".
+      //
+      // Só a fonte que acabou: uma câmera desconectada não pode apagar a tela
+      // que continua no ar (ADR-0038).
+      log.warn('transmissão: encerrada pelo sistema', { motivo: reason, fonte: source });
+      const store = useMediaStore.getState();
+      if (source === 'camera') {
+        if (!store.camera.publishing) {
+          return;
+        }
+        store.setCameraPublishing(null);
+        clearPreview('camera');
+        useUiStore.getState().toast('warning', 'A câmera foi encerrada.');
+        this.stopStatsSamplingIfIdle();
+        return;
+      }
+      if (this.sharing === null) {
+        return;
+      }
       this.sharing = null;
-      this.stopStatsSampling();
-      useMediaStore.getState().setPublishing(false, false);
+      store.setPublishing(false, false);
       // Aviso e não erro: fechar a janela que estava sendo compartilhada é um
       // fim normal, e pintar isso de vermelho ensina o usuário a ignorar
       // vermelho.
       useUiStore.getState().toast('warning', 'O compartilhamento foi encerrado.');
-      clearPreview();
+      clearPreview('screen');
       setTraySharing(false, null);
       this.applyAudioPolicy();
+      this.stopStatsSamplingIfIdle();
     });
   }
 
@@ -153,11 +177,18 @@ export class MediaSession {
    * do `adaptiveStream` para as telas dos outros: o que não está sendo olhado
    * não é produzido.
    */
-  async setPreview(enabled: boolean, fps: number, focused: boolean): Promise<void> {
+  async setPreview(
+    source: PublicationSource,
+    enabled: boolean,
+    fps: number,
+    focused: boolean,
+  ): Promise<void> {
     try {
-      await setSharePreview(enabled, fps, focused);
+      await (source === 'camera'
+        ? setCameraPreview(enabled, fps, focused)
+        : setSharePreview(enabled, fps, focused));
     } catch (error) {
-      log.debug('preview: o core recusou o ajuste', { error });
+      log.debug('preview: o core recusou o ajuste', { error, fonte: source });
     }
   }
 
@@ -221,7 +252,7 @@ export class MediaSession {
     this.detachAll();
     if (this.sharing !== null) {
       this.sharing = null;
-      clearPreview();
+      clearPreview('screen');
       setTraySharing(false, null);
       await stopNativeShare().catch((error: unknown) => {
         log.error('compartilhamento: falha ao parar', error);
@@ -331,7 +362,7 @@ export class MediaSession {
     this.sharing = null;
     this.stopStatsSampling();
     useMediaStore.getState().setPublishing(false, false);
-    clearPreview();
+    clearPreview('screen');
     setTraySharing(false, null);
     this.applyAudioPolicy();
     try {
@@ -339,6 +370,77 @@ export class MediaSession {
     } catch (error) {
       log.error('compartilhamento: falha ao parar', error);
     }
+  }
+
+  /** As cameras que o core enxerga, para o seletor (ADR-0038). */
+  listCameras(): Promise<CameraDevice[]> {
+    return listCameras();
+  }
+
+  /**
+   * Liga a camera, por cima da tela se ela ja estiver no ar (ADR-0038).
+   *
+   * O token e pedido com a intencao inteira: com a tela transmitindo, pedir um
+   * token so de camera devolveria a vaga da tela no servidor.
+   */
+  async startCamera(device: CameraDevice): Promise<void> {
+    const store = useMediaStore.getState();
+    const channelId = this.channelId;
+    if (channelId === null || store.camera.publishing) {
+      return;
+    }
+    store.setCameraStarting(true);
+    log.info('camera: iniciando', { dispositivo: device.name });
+
+    let credentials;
+    try {
+      credentials = await this.api.roomToken(channelId, this.publishIntent('camera'));
+    } catch (error) {
+      log.error('camera: o servidor recusou o token', error);
+      store.setCameraStarting(false);
+      useUiStore.getState().toast('danger', publishMessage(error));
+      return;
+    }
+
+    try {
+      await startNativeCamera({
+        url: credentials.url,
+        token: credentials.token,
+        deviceId: device.id,
+      });
+      store.setCameraPublishing({ id: device.id, name: device.name });
+      log.info('camera: no ar', { dispositivo: device.name });
+      this.startStatsSampling();
+    } catch (error) {
+      log.error('camera: o core recusou', error);
+      store.setCameraStarting(false);
+      // A mensagem do core diz o que aconteceu — camera ocupada, bloqueada pelo
+      // Windows, desconectada — e e ela que a pessoa precisa ler.
+      useUiStore.getState().toast('danger', cameraMessage(error));
+    }
+  }
+
+  async stopCamera(): Promise<void> {
+    const store = useMediaStore.getState();
+    if (!store.camera.publishing) {
+      return;
+    }
+    store.setCameraPublishing(null);
+    clearPreview('camera');
+    try {
+      await stopNativeCamera();
+    } catch (error) {
+      log.error('camera: falha ao parar', error);
+    }
+    this.stopStatsSamplingIfIdle();
+  }
+
+  /** Troca de camera sem passar por "desligada": o ladrilho nao pisca. */
+  async switchCamera(device: CameraDevice): Promise<void> {
+    if (useMediaStore.getState().camera.publishing) {
+      await this.stopCamera();
+    }
+    await this.startCamera(device);
   }
 
   /**
@@ -693,31 +795,20 @@ export class MediaSession {
 
   /** Sampled on an interval, never in the media path (CLAUDE.md §7). */
   private async sampleStats(): Promise<void> {
-    if (this.sharing === null) {
-      return;
+    const store = useMediaStore.getState();
+    if (this.sharing !== null) {
+      store.setStats(await readStats('share_stats'));
     }
-    try {
-      const stats = await invoke<NativeStats | null>('share_stats');
-      useMediaStore.getState().setStats(
-        stats === null
-          ? null
-          : {
-              bitrateKbps: stats.bitrate_kbps,
-              fps: stats.fps,
-              width: stats.width,
-              height: stats.height,
-              hardwareEncoder: stats.hardware_encoder,
-              limitedBy: stats.limited_by,
-              transport: stats.transport,
-              rttMs: stats.rtt_ms,
-              availableKbps: stats.available_kbps,
-              capturedFrames: stats.captured_frames,
-              encodedFrames: stats.encoded_frames,
-              audioSamples: stats.audio_samples,
-            },
-      );
-    } catch {
-      // Uma leitura que falha nao vale um erro na tela; o proximo tique tenta.
+    if (store.camera.publishing) {
+      store.setCameraStats(await readStats('camera_stats'));
+    }
+  }
+
+  /** Para a amostragem quando nenhuma das duas fontes está no ar. */
+  private stopStatsSamplingIfIdle(): void {
+    const store = useMediaStore.getState();
+    if (this.sharing === null && !store.camera.publishing) {
+      this.stopStatsSampling();
     }
   }
 
@@ -726,7 +817,9 @@ export class MediaSession {
       clearInterval(this.statsTimer);
       this.statsTimer = null;
     }
-    useMediaStore.getState().setStats(null);
+    const store = useMediaStore.getState();
+    store.setStats(null);
+    store.setCameraStats(null);
   }
 
   private scheduleRejoin(): void {
@@ -773,6 +866,50 @@ interface NativeStats {
   captured_frames: number;
   encoded_frames: number;
   audio_samples: number | null;
+}
+
+async function readStats(command: 'share_stats' | 'camera_stats'): Promise<PublisherStats | null> {
+  try {
+    const stats = await invoke<NativeStats | null>(command);
+    if (stats === null) {
+      return null;
+    }
+    return {
+      bitrateKbps: stats.bitrate_kbps,
+      fps: stats.fps,
+      width: stats.width,
+      height: stats.height,
+      hardwareEncoder: stats.hardware_encoder,
+      limitedBy: stats.limited_by,
+      transport: stats.transport,
+      rttMs: stats.rtt_ms,
+      availableKbps: stats.available_kbps,
+      capturedFrames: stats.captured_frames,
+      encodedFrames: stats.encoded_frames,
+      audioSamples: stats.audio_samples,
+    };
+  } catch {
+    // Uma leitura que falha nao vale um erro na tela; o proximo tique tenta.
+    return null;
+  }
+}
+
+/**
+ * O core já explica o que houve — câmera ocupada, bloqueada pelo Windows,
+ * desconectada — e é essa frase que a pessoa precisa ler. Só o que não vem dele
+ * ganha texto nosso.
+ */
+function cameraMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 409) {
+      return 'A sala já está com o número máximo de câmeras ligadas.';
+    }
+    return publishMessage(error);
+  }
+  if (typeof error === 'string' && error.trim() !== '') {
+    return error;
+  }
+  return `Não foi possível ligar a câmera. (${describeError(error)})`;
 }
 
 function publishMessage(error: unknown): string {
