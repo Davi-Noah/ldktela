@@ -140,7 +140,9 @@ export class MediaSession {
         }
         store.setCameraPublishing(null);
         clearPreview('camera');
-        useUiStore.getState().toast('warning', 'A câmera foi encerrada.');
+        // O motivo vem junto, e não é enfeite: uma câmera que morre sozinha sem
+        // dizer por quê não deixa nem quem usa nem nós com o que trabalhar.
+        useUiStore.getState().toast('warning', `A câmera foi encerrada: ${reason}`);
         this.stopStatsSamplingIfIdle();
         return;
       }

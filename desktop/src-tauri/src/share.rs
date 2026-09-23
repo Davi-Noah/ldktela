@@ -251,15 +251,7 @@ pub async fn share_start(
         request.preset.fps(),
         video,
         Some(tap),
-        move || {
-            let _ = lost.emit(
-                ENDED_EVENT,
-                ShareEnded {
-                    source: Source::Screen,
-                    reason: "fonte encerrada".to_owned(),
-                },
-            );
-        },
+        move || give_up(&lost, Source::Screen, "fonte encerrada".to_owned()),
     ) {
         Ok(capture) => capture,
         Err(error) => {
@@ -282,6 +274,55 @@ pub async fn share_start(
     Ok(StartedShare { audio: audio.1 })
 }
 
+/// Desfaz, no core, uma publicacao que morreu sozinha.
+///
+/// Avisar a interface nao basta, e foi exatamente esse o defeito: o React
+/// apagava o botao e o Rust continuava achando que a fonte estava no ar. A
+/// proxima tentativa batia em "ja existe uma camera no ar", a trilha seguia
+/// publicada, e a sala inteira ficava olhando um ladrilho preto com o cronometro
+/// correndo, porque o servidor nunca recebeu o `SHARE_STOP`.
+///
+/// Chamada **de dentro da thread de captura**, entao ela agenda e volta na hora.
+/// Bloquear aqui seria pedir para a tarefa agendada dar `join` nesta mesma
+/// thread enquanto ela espera.
+fn give_up(app: &AppHandle, source: Source, reason: String) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Some(state) = app.try_state::<Sharing>() {
+            let mut live = state.live.lock().await;
+            release(&mut live, source).await;
+        }
+        let _ = app.emit(ENDED_EVENT, ShareEnded { source, reason });
+    });
+}
+
+/// Para a captura e despublica uma fonte, se ela ainda estiver de pe.
+async fn release(live: &mut Live, source: Source) {
+    match source {
+        Source::Screen => {
+            if let Some(screen) = live.screen.take() {
+                screen.capture.stop();
+                screen.preview.stop();
+                #[cfg(target_os = "windows")]
+                if let Some(audio) = screen.audio {
+                    audio.stop();
+                }
+            }
+        }
+        Source::Camera => {
+            if let Some(camera) = live.camera.take() {
+                #[cfg(target_os = "windows")]
+                camera.capture.stop();
+                camera.preview.stop();
+            }
+        }
+    }
+    if let Some(publisher) = live.publisher.as_ref() {
+        publisher.unpublish(source).await;
+    }
+    live.close_if_idle().await;
+}
+
 /// A conexao de publicacao, reaproveitada quando ja existe (ADR-0038).
 async fn connect(
     live: &mut Live,
@@ -296,14 +337,18 @@ async fn connect(
     let publisher = Arc::new(
         Publisher::connect(url, token, move |reason| {
             eprintln!("compartilhamento: o servidor de midia encerrou ({reason})");
-            // A conexao caiu inteira, entao as duas fontes cairam com ela.
+            // A conexao caiu inteira, entao as duas fontes cairam com ela — e as
+            // duas precisam ser desfeitas aqui, ou ligar de novo esbarra num
+            // compartilhamento que so existe na nossa cabeca.
             for source in [Source::Screen, Source::Camera] {
-                let _ = ended.emit(
-                    ENDED_EVENT,
-                    ShareEnded {
-                        source,
-                        reason: reason.clone(),
-                    },
+                // Dito como "conexao", e nao so o motivo cru do LiveKit: no
+                // aviso que a pessoa le, isto precisa ser distinguivel de uma
+                // camera que o Windows derrubou. Sao subsistemas diferentes, e
+                // a mesma frase para os dois nao deixa ninguem investigar nada.
+                give_up(
+                    &ended,
+                    source,
+                    format!("a conexao de transmissao caiu ({reason})"),
                 );
             }
         })
@@ -370,24 +415,7 @@ fn audio_samples(_screen: &ScreenActive) -> Option<u64> {
 #[tauri::command]
 pub async fn share_stop(state: State<'_, Sharing>) -> Result<(), ShareFailure> {
     let mut live = state.live.lock().await;
-    if let Some(screen) = live.screen.take() {
-        // A captura para antes de despublicar: o contrario deixaria quadros
-        // sendo empurrados para uma fonte que o encoder ja largou.
-        screen.capture.stop();
-        // Depois da captura, e nunca antes: e o fim da thread de captura que
-        // descarta o `Tap` e fecha o canal que o trabalhador do preview espera.
-        screen.preview.stop();
-        #[cfg(target_os = "windows")]
-        if let Some(audio) = screen.audio {
-            audio.stop();
-        }
-        if let Some(publisher) = live.publisher.as_ref() {
-            // Despublicar, e nao fechar a sala: a camera pode estar no ar na
-            // mesma conexao (ADR-0038).
-            publisher.unpublish(Source::Screen).await;
-        }
-    }
-    live.close_if_idle().await;
+    release(&mut live, Source::Screen).await;
     Ok(())
 }
 
@@ -470,15 +498,7 @@ pub async fn camera_start(
             crate::publisher::CAMERA_FPS,
             sink,
             Some(tap),
-            move || {
-                let _ = lost.emit(
-                    ENDED_EVENT,
-                    ShareEnded {
-                        source: Source::Camera,
-                        reason: "camera encerrada".to_owned(),
-                    },
-                );
-            },
+            move |reason| give_up(&lost, Source::Camera, reason),
         ) {
             Ok(capture) => capture,
             Err(error) => {
@@ -501,15 +521,7 @@ pub async fn camera_start(
 #[tauri::command]
 pub async fn camera_stop(state: State<'_, Sharing>) -> Result<(), ShareFailure> {
     let mut live = state.live.lock().await;
-    if let Some(camera) = live.camera.take() {
-        #[cfg(target_os = "windows")]
-        camera.capture.stop();
-        camera.preview.stop();
-        if let Some(publisher) = live.publisher.as_ref() {
-            publisher.unpublish(Source::Camera).await;
-        }
-    }
-    live.close_if_idle().await;
+    release(&mut live, Source::Camera).await;
     Ok(())
 }
 

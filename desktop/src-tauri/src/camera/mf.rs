@@ -32,7 +32,7 @@ use windows::Win32::System::Com::{
 };
 
 use super::convert::nv12_into;
-use super::{choose_format, CameraDevice, CameraError, Format, Frames};
+use super::{choose_format, CameraDevice, CameraError, Format, Frames, OnLost};
 use crate::capture::Size;
 
 /// `HRESULT` of "another application already has the camera".
@@ -321,7 +321,7 @@ pub(super) fn start(
     ceiling: Size,
     fps: u32,
     frames: Frames,
-    on_lost: impl Fn() + Send + 'static,
+    on_lost: OnLost,
 ) -> Result<Capture, CameraError> {
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = Arc::clone(&stop);
@@ -332,7 +332,7 @@ pub(super) fn start(
         .spawn(move || {
             if let Err(error) = run(&device, ceiling, fps, frames, &thread_stop) {
                 eprintln!("camera: captura interrompida: {error}");
-                on_lost();
+                on_lost(error.to_string());
             }
         })
         .map_err(|_| CameraError::Platform("nao consegui criar a thread".into()))?;

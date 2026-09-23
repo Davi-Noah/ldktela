@@ -52,7 +52,7 @@ use windows::Win32::System::Com::{
 use windows::Win32::System::Variant::VariantClear;
 
 use super::convert::{Converter, Pixels, PREFERENCE};
-use super::{choose_format, CameraError, Format, Frames};
+use super::{choose_format, CameraError, Format, Frames, OnLost};
 use crate::capture::Size;
 
 /// `CLSID_SystemDeviceEnum`, `CLSID_VideoInputDeviceCategory`, `CLSID_FilterGraph`.
@@ -451,6 +451,12 @@ struct Graph {
     events: IMediaEvent,
     capture: IBaseFilter,
     sink: IBaseFilter,
+    /// What we negotiated, in words, to put in the failure the person sees.
+    ///
+    /// A camera that dies a second after starting says nothing by itself; the
+    /// same failure with `YUY2 1280x720` attached says which negotiation to go
+    /// look at, and whether two machines chose differently.
+    negotiated: String,
     /// Declarado por último de propósito: os campos são largados na ordem em que
     /// aparecem, e nenhum objeto COM pode sobreviver ao apartamento.
     _com: ComSession,
@@ -498,6 +504,11 @@ fn build(
 
         let source = output_pin(&capture)?;
         let shape = negotiate(&source, ceiling, fps)?;
+        let negotiated = format!(
+            "{:?} {}x{}",
+            shape.kind, shape.size.width, shape.size.height
+        );
+        eprintln!("camera: DirectShow negociou {negotiated}");
 
         let (sink, sink_pin) = SinkFilter::build(frames, shape);
         graph
@@ -526,6 +537,7 @@ fn build(
             events,
             capture,
             sink,
+            negotiated,
             _com: com,
         })
     }
@@ -533,8 +545,8 @@ fn build(
 
 /// Waits for the stop request, watching for the device going away.
 ///
-/// Returns whether the camera was lost rather than stopped.
-fn pump(graph: &Graph, stop: &AtomicBool) -> bool {
+/// Returns why the camera was lost, or `None` when it was simply stopped.
+fn pump(graph: &Graph, stop: &AtomicBool) -> Option<String> {
     while !stop.load(Ordering::Relaxed) {
         let (mut code, mut first, mut second) = (0i32, 0isize, 0isize);
         // 200 ms: curto o bastante para o pedido de parada não ficar pendurado,
@@ -551,12 +563,17 @@ fn pump(graph: &Graph, stop: &AtomicBool) -> bool {
         let _ = unsafe { graph.events.FreeEventParams(code, first, second) };
         match code as u32 {
             // `second == 1` é a câmera **voltando**, e não indo embora.
-            EC_DEVICE_LOST if second != 1 => return true,
-            EC_ERRORABORT => return true,
+            EC_DEVICE_LOST if second != 1 => return Some("a camera foi desconectada".to_owned()),
+            EC_ERRORABORT => {
+                return Some(format!(
+                    "o Windows interrompeu a camera ({first:#010x}, em {})",
+                    graph.negotiated
+                ))
+            }
             _ => {}
         }
     }
-    false
+    None
 }
 
 /// A running DirectShow capture.
@@ -585,7 +602,7 @@ pub(super) fn start(
     ceiling: Size,
     fps: u32,
     frames: Frames,
-    on_lost: impl Fn() + Send + 'static,
+    on_lost: OnLost,
 ) -> Result<Capture, CameraError> {
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = Arc::clone(&stop);
@@ -602,8 +619,8 @@ pub(super) fn start(
                 let _ = ready.send(Ok(()));
                 let lost = pump(&graph, &thread_stop);
                 graph.teardown();
-                if lost {
-                    on_lost();
+                if let Some(reason) = lost {
+                    on_lost(reason);
                 }
             }
         })

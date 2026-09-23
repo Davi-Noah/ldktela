@@ -275,6 +275,15 @@ impl CameraCapture {
     }
 }
 
+/// Told when a capture dies on its own, with the reason in the person's words.
+///
+/// `Arc`, and not a plain closure, because Media Foundation may hand the whole
+/// attempt over to DirectShow and both need the same callback. `Fn(String)`,
+/// and not `Fn()`, because the reason is the only thing that tells the person —
+/// and us — *why* a camera that was working stopped. Without it every failure
+/// reads "a câmera foi encerrada", which names no cause and points nowhere.
+pub(crate) type OnLost = Arc<dyn Fn(String) + Send + Sync>;
+
 /// Opens `device_id` and starts pushing frames into `sink`.
 ///
 /// Media Foundation is tried first, and a device it enumerated but will not open
@@ -292,7 +301,7 @@ pub fn start(
     fps: u32,
     sink: NativeVideoSource,
     preview: Option<crate::preview::Tap>,
-    on_lost: impl Fn() + Send + 'static,
+    on_lost: impl Fn(String) + Send + Sync + 'static,
 ) -> Result<CameraCapture, CameraError> {
     let produced = Arc::new(AtomicU64::new(0));
     let delivered = Arc::new(AtomicU64::new(0));
@@ -308,6 +317,7 @@ pub fn start(
         produced,
         delivered,
     };
+    let on_lost: OnLost = Arc::new(on_lost);
 
     if is_directshow(device_id) {
         return dshow::start(device_id, ceiling, fps, frames, on_lost)
@@ -528,8 +538,8 @@ mod tests {
                 },
                 false,
             );
-            let capture = match start(&device.id, ceiling, 30, sink, None, || {
-                eprintln!("camera: a fonte sumiu durante o teste");
+            let capture = match start(&device.id, ceiling, 30, sink, None, |reason| {
+                eprintln!("camera: a fonte sumiu durante o teste: {reason}");
             }) {
                 Ok(capture) => capture,
                 Err(error) => {

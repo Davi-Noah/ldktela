@@ -792,3 +792,19 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   hardware, e por isso é a que tem teste de unidade — inclusive para o preenchimento de linha do
   RGB24 e para o RGB ser lido de baixo para cima, que são os dois jeitos silenciosos de entregar
   uma imagem inclinada ou de cabeça para baixo.
+
+- **[S10] Quem desfaz uma publicação que morreu sozinha é o core, não a interface.** Até aqui o
+  `on_lost` só emitia `share://ended`, e o React apagava o botão. O Rust continuava com a fonte em
+  `Live`, a trilha continuava publicada e o servidor nunca recebia o `SHARE_STOP`: a próxima
+  tentativa batia em "já existe uma câmera no ar" e a sala inteira ficava olhando um ladrilho preto
+  com o cronômetro correndo. O caminho de "a captura morreu" e o de "a pessoa pediu para parar"
+  passam pelo **mesmo** `release`, porque manter dois caminhos de desmontagem foi exatamente o que
+  deixou um deles pela metade. Ele agenda e volta na hora: é chamado de dentro da thread de
+  captura, e bloquear ali seria pedir para a tarefa agendada dar `join` nessa mesma thread.
+
+- **[S10] O motivo de uma captura ter morrido chega até quem está usando.** "A câmera foi
+  encerrada" não nomeia causa nenhuma, e em compilação de release o `eprintln` não vai a lugar
+  algum — então um defeito em máquina de usuário não deixava nada para investigar. O `on_lost`
+  passa a carregar texto: o `HRESULT` do Media Foundation, `EC_DEVICE_LOST` ou `EC_ERRORABORT` com
+  o formato negociado no DirectShow, ou o motivo da conexão ter caído. São subsistemas diferentes,
+  e a mesma frase para todos não deixa ninguém distinguir qual falhou.
