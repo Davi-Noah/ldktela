@@ -243,10 +243,13 @@ que nenhuma. Ordem obrigatória, cada etapa verde antes da seguinte:
 (canal, publicador, fonte). Inclui a migration que troca
 `idx_sessions_open_publisher` — destrutiva, exige aval humano (CLAUDE.md §10).
 
-**S10.2 — Captura.** `desktop/src-tauri/src/camera.rs`: enumeração de dispositivos,
-laço de captura e miniatura em Media Foundation, saída em NV12 para um segundo
-`NativeVideoSource`. O binding do libwebrtc não traz câmera; só `desktop_capturer`.
-Zona de revisão humana.
+**S10.2 — Captura.** `desktop/src-tauri/src/camera/`: enumeração de dispositivos,
+laço de captura e miniatura, saída em NV12 para um segundo `NativeVideoSource`. O
+binding do libwebrtc não traz câmera; só `desktop_capturer`. **Dois caminhos**
+([ADR-0039](adr/0039-a-camera-tem-dois-caminhos-de-captura.md)): Media Foundation
+na frente, DirectShow atrás dele com um filtro de destino nosso, porque as câmeras
+virtuais que este público usa aparecem no MF e não abrem por ele. Zona de revisão
+humana.
 
 **S10.3 — Publicação.** Segunda trilha de vídeo na mesma conexão `~pub`
 ([ADR-0027](adr/0027-publicador-e-um-segundo-participante.md)), 720p30 `L1T3`,
@@ -261,7 +264,9 @@ qualidade, painel de pessoas, chime e notificação.
 transmitir tela e câmera ao mesmo tempo produz dois ladrilhos independentes, que
 se pode focar, destacar e abandonar em separado; parar uma não para a outra;
 câmera ocupada por outro aplicativo dá mensagem que diz isso e não impede
-compartilhar a tela; o teto de câmeras por sala recusa a próxima com erro claro;
+compartilhar a tela; **uma câmera virtual — DroidCam, OBS — aparece uma vez só na
+lista e transmite**, igual às físicas; o teto de câmeras por sala recusa a próxima
+com erro claro;
 quem assiste com a câmera escondida não baixa os quadros dela (RF-32); reconectar
 depois de uma queda restaura as duas publicações com o tempo no ar certo.
 

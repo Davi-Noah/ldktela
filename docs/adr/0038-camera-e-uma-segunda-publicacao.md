@@ -56,6 +56,10 @@ projeto**: aparece como teto por fonte, e não como ausência do recurso.
    que usamos traz `desktop_capturer` e **não** traz câmera, então não há caminho pronto.
    Entra na zona de revisão humana junto com o resto de `desktop/src-tauri/`.
 
+   > Alterado pelo [ADR-0039](0039-a-camera-tem-dois-caminhos-de-captura.md): a captura
+   > continua nossa, mas tem dois caminhos. O Media Foundation segue na frente; o DirectShow
+   > atende as câmeras virtuais que o MF enumera e não abre.
+
 9. **O preview da própria câmera é local** ([ADR-0030](0030-preview-da-propria-tela-e-local.md)),
    nunca pelo SFU, e é **espelhado apenas no preview**. A trilha que sai não é espelhada:
    espelhar o que os outros veem inverteria qualquer texto na frente da câmera.

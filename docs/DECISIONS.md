@@ -769,3 +769,26 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   menu ao lado, porque quase ninguém tem duas câmeras. A lista é buscada ao **abrir** o menu:
   enumerar abre o Media Foundation, e pagar isso em toda sala que se entra seria cobrar por um
   recurso que a maioria não usa.
+
+- **[S10] A captura de câmera tem dois caminhos, e a escolha é no abrir, não no listar**
+  ([ADR-0039](adr/0039-a-camera-tem-dois-caminhos-de-captura.md)). O Media Foundation enumera as
+  câmeras virtuais e recusa abri-las com `E_INVALIDARG`; o aplicativo **Câmera** do Windows, que
+  também é só MF, falha do mesmo jeito. O DirectShow abre todas. A lista é uma só — as duas
+  enumerações fundidas pela instância de hardware, e depois pelo nome — e um dispositivo que o MF
+  recusa cai para o DirectShow sem avisar ninguém. Medido nesta máquina: 4 câmeras listadas, as
+  mesmas 4 que o Google Meet mostra, e as 4 entregando quadros.
+
+- **[S10] O destino do grafo DirectShow é um filtro nosso, não o `ISampleGrabber`.** O sample
+  grabber seria dez vezes menor e mora no `qedit.dll`, que faz parte do Media Feature Pack e pode
+  não estar na máquina. Trocar uma câmera que não abre por uma câmera que não abre em Windows N
+  não é conserto. As três interfaces (`IBaseFilter`, `IPin`, `IMemInputPin`) são implementadas com
+  `#[implement]` do windows-rs; o que não dá para errar é a contagem de referência: o filtro é dono
+  do pino, e o pino aponta de volta para o filtro e para o grafo **sem** referência, ou o ciclo
+  mantém a câmera aberta para sempre.
+
+- **[S10] A conversão de cor do caminho DirectShow é nossa, e é onde estão os testes.** Sem o
+  `MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING` não há conversor de graça, então `convert.rs` leva
+  NV12, I420/IYUV, YUY2, UYVY, RGB32 e RGB24 até NV12. É a metade do trabalho que se prova sem
+  hardware, e por isso é a que tem teste de unidade — inclusive para o preenchimento de linha do
+  RGB24 e para o RGB ser lido de baixo para cima, que são os dois jeitos silenciosos de entregar
+  uma imagem inclinada ou de cabeça para baixo.
