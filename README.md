@@ -6,8 +6,8 @@
 [![Core](https://img.shields.io/badge/core-Rust-b7410e)]()
 [![Deploy](https://img.shields.io/badge/deploy-Docker%20Compose-2496ed)]()
 
-Prova de conceito de um sistema distribuído de mídia em tempo real: captura nativa de tela,
-codificação de vídeo e distribuição por um SFU WebRTC, com pareamento de sessão delegado a um
+Prova de conceito de um sistema distribuído de mídia em tempo real: captura nativa de tela e de
+câmera, codificação de vídeo e distribuição por um SFU WebRTC, com pareamento de sessão delegado a um
 bot do Discord. Projeto experimental, pensado para execução self-hosted em rede controlada.
 
 > **Sem afiliação com a Discord Inc.** Este é um projeto independente, de estudo, que usa as
@@ -45,7 +45,7 @@ mesmo cenário sustenta 1080p a ~59,5 fps. O raciocínio e os números estão no
 ## O aplicativo em uso
 
 O cliente passa a maior parte do tempo na bandeja; a janela existe para parear, escolher o que
-transmitir e assistir. O vídeo ocupa a tela e o restante da interface sai da frente. O fluxo
+transmitir — a tela, a câmera ou as duas — e assistir. O vídeo ocupa a tela e o restante da interface sai da frente. O fluxo
 completo, do primeiro uso à transmissão:
 
 **1. Pareamento.** No primeiro uso não há login: a pessoa roda `/tela` no Discord, recebe do
@@ -79,6 +79,15 @@ transmissões simultâneas.
 
 ![Transmissão no ar com preview local da própria tela ao lado da tela de outro participante](images/Screenshot_5.png)
 
+**6. Câmera.** Ao lado de compartilhar tela fica o botão da câmera, que funciona inclusive numa
+sala em que ninguém está transmitindo. Tela e câmera são independentes: dá para transmitir uma,
+a outra ou as duas ao mesmo tempo, e parar uma não interrompe a outra. A câmera vai a 720p a
+30 fps e sem áudio, porque a voz continua no Discord. Para quem assiste ela é um ladrilho
+próprio, com os mesmos controles da tela: foco, layouts, destacar em janela, sair e voltar, e
+escolha de qualidade. Câmeras virtuais, como DroidCam e OBS Virtual Camera, funcionam como
+webcams comuns. Quem transmite vê a própria câmera espelhada; quem assiste recebe a imagem sem
+espelhamento, para que um texto na frente da câmera não chegue invertido.
+
 ---
 
 ## Arquitetura do sistema
@@ -98,7 +107,7 @@ flowchart LR
     end
 
     subgraph Cliente Windows
-        CORE[Core nativo<br/>captura · codificação · publicação]
+        CORE[Core nativo<br/>captura de tela e câmera · codificação · publicação]
         UI[WebView<br/>apenas assiste]
     end
 
@@ -152,7 +161,7 @@ sequenceDiagram
     A->>A: computa permissões contra a réplica
     A-->>C: JWT de sala com escopo de publicação
     C->>S: handshake (SDP, candidatos ICE)
-    C->>S: quadros VP9, camadas temporais L1T3
+    C->>S: quadros VP9, camadas temporais L1T3<br/>uma trilha por fonte: tela e câmera
     S->>V: encaminha por assinante, com escolha de camada
     A-->>S: desconexão forçada quando a autorização muda
 ```
@@ -193,6 +202,24 @@ da interface.
 O *preview* da própria tela é local, gerado a partir do mesmo buffer de captura e reduzido por
 libyuv, em vez de trafegar pelo SFU: a própria tela nunca sai da máquina duas vezes.
 
+### Câmera: uma segunda publicação, dois caminhos de captura
+
+A câmera não é um modo da tela: é uma **segunda publicação** da mesma pessoa, na mesma conexão
+de publicação. A unidade do domínio deixou de ser a pessoa e passou a ser o par (pessoa, fonte),
+no protocolo, no backend e no espectador. Cada sala tem um teto de câmeras separado do teto de
+telas, porque o egress é o recurso escasso e um teto único deixaria quatro rostos ocuparem o
+lugar de duas telas ([ADR-0038](docs/adr/0038-camera-e-uma-segunda-publicacao.md)).
+
+O binding do libwebrtc traz capturador de tela e não de câmera, então a captura é própria, com
+dois caminhos no Windows ([ADR-0039](docs/adr/0039-a-camera-tem-dois-caminhos-de-captura.md)).
+O **Media Foundation** vem primeiro: é o caminho atual da plataforma, e o leitor de fonte dele
+entrega NV12 convertendo o que a webcam emitir. Câmeras virtuais, porém, aparecem na enumeração
+do Media Foundation e se recusam a abrir. Para elas existe o caminho **DirectShow**, com um
+filtro de destino próprio (`IBaseFilter`, `IPin`, `IMemInputPin`) no lugar do `ISampleGrabber`
+aposentado, e com a conversão de cor feita no core: NV12, I420, YUY2, UYVY, RGB32 e RGB24. As
+duas enumerações são fundidas numa lista só, e o caminho é escolhido ao abrir o dispositivo — a
+interface nunca sabe que existem dois.
+
 ### Latência, jitter e escolha de camada
 
 O SFU encaminha por assinante, e cada espectador escolhe a camada temporal que sua rede
@@ -210,7 +237,7 @@ remontar derruba o decodificador e custa segundos de tela preta.
 | Persistência | PostgreSQL 16 · SQLx (consultas verificadas em tempo de compilação) |
 | Integração com o Discord | serenity |
 | SFU WebRTC | LiveKit (`v1.13.6`) |
-| Core do cliente | Rust · SDK Rust do LiveKit · WASAPI (`windows`) · Tauri 2 |
+| Core do cliente | Rust · SDK Rust do LiveKit · WASAPI, Media Foundation e DirectShow (`windows`) · Tauri 2 |
 | Interface do cliente | React 19 · TypeScript estrito · Vite · Tailwind · zustand |
 | Empacotamento e deploy | Docker Compose · instalador MSI com atualização assinada |
 
@@ -257,6 +284,7 @@ Preencha o `.env.remote`. As variáveis que exigem decisão:
 | `LIVEKIT_NODE_IP` | IP público do host, anunciado nos candidatos ICE |
 | `LIVEKIT_URL` / `PUBLIC_BASE_URL` | endereços públicos do SFU e da API |
 | `API_PORT` | porta da API no host (padrão `8090`) |
+| `ROOM_MAX_CAMERAS` | câmeras simultâneas por sala, com teto próprio; `0` desliga a câmera na instância |
 
 Suba a infraestrutura:
 
@@ -275,7 +303,10 @@ just build-app
 ```
 
 O fluxo de release do GitHub funciona em um fork: defina `VITE_SERVER_ORIGIN` e
-`LIVEKIT_PUBLIC_URL` nas variáveis do repositório e publique uma tag `vX.Y.Z`.
+`LIVEKIT_PUBLIC_URL` nas variáveis do repositório e publique uma tag `vX.Y.Z`. A release nasce
+como rascunho; o texto escrito nela aparece dentro do aplicativo, uma vez, para quem acabou de
+atualizar ([ADR-0040](docs/adr/0040-novidades-vem-do-release-e-aparecem-uma-vez.md)) — escreva-o
+para quem usa, e só publique quando ele estiver pronto.
 
 O guia completo de implantação, com verificação porta a porta, está em
 [docs/deploy-oracle.md](docs/deploy-oracle.md).
