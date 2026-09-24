@@ -74,7 +74,20 @@ export function shouldChime(options: {
   selfId: string | undefined;
   now: number;
   lastAt: number | null;
+  /**
+   * A nossa captura de áudio está gravando o que este aplicativo toca
+   * (ADR-0028): tela inteira com áudio, excluindo o Discord ou não.
+   */
+  transmittingOwnPlayback: boolean;
 }): boolean {
+  // O sino sai do mesmo WebView2 que toca as telas dos outros, e a captura da
+  // tela inteira grava esse processo. Tocado agora, ele entra na transmissão:
+  // quem assiste recebe o sino de volta, e ele realimenta o laço até alguém
+  // silenciar o aplicativo. É a razão exata do ADR-0028, e o sino tinha ficado
+  // de fora dela.
+  if (options.transmittingOwnPlayback) {
+    return false;
+  }
   // Avisar alguém da própria transmissão é a definição de ruído.
   if (options.selfId !== undefined && options.publisherId === options.selfId) {
     return false;
@@ -92,9 +105,10 @@ export function chimeForShare(
   kind: ChimeKind,
   publisherId: string,
   selfId: string | undefined,
+  transmittingOwnPlayback: boolean,
 ): void {
   const now = Date.now();
-  if (!shouldChime({ publisherId, selfId, now, lastAt: lastAt[kind] })) {
+  if (!shouldChime({ publisherId, selfId, now, lastAt: lastAt[kind], transmittingOwnPlayback })) {
     return;
   }
   lastAt[kind] = now;

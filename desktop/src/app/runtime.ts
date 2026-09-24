@@ -18,7 +18,7 @@ import { startPreviewBridge } from '../media/preview';
 import { onStopRequested } from '../media/native';
 import { checkForUpdate } from '../platform/updater';
 import { clearRefreshToken, readRefreshToken, writeRefreshToken } from '../platform/vault';
-import { useMediaStore } from '../store/media';
+import { shouldSilenceOtherScreens, useMediaStore } from '../store/media';
 import { useRoomStore } from '../store/room';
 import { useSessionStore } from '../store/session';
 import { useUpdaterStore } from '../store/updater';
@@ -49,7 +49,12 @@ export const gateway = new GatewayClient({
       announceShare(event.d.user_id, event.d.source);
     }
     if (event.t === 'SHARE_STOP') {
-      chimeForShare('stop', event.d.user_id, useSessionStore.getState().user?.id);
+      chimeForShare(
+        'stop',
+        event.d.user_id,
+        useSessionStore.getState().user?.id,
+        shouldSilenceOtherScreens(useMediaStore.getState()),
+      );
     }
     useRoomStore.getState().apply(event);
   },
@@ -240,7 +245,7 @@ function announceShare(publisherId: string, source: PublicationSource): void {
   // aplicativo aberto costuma estar olhando para o jogo, não para a lista de
   // ladrilhos. O aviso de sistema aí seria intrusão; o sino é a única forma de
   // saber sem desviar o olhar.
-  chimeForShare('start', publisherId, selfId);
+  chimeForShare('start', publisherId, selfId, shouldSilenceOtherScreens(useMediaStore.getState()));
 
   if (!shouldNotify({ publisherId, selfId, windowFocused: document.hasFocus() })) {
     return;

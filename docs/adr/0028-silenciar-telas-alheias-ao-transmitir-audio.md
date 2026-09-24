@@ -1,6 +1,6 @@
 # ADR-0028 — Quem transmite áudio não ouve o áudio das outras telas
 
-- **Status:** Aceito, restringido em 2026-09-20 (ver emenda ao fim)
+- **Status:** Aceito, restringido em 2026-09-20 e ampliado em 2026-09-23 (ver emendas ao fim)
 - **Data:** 2026-09-14
 - **Decorre de:** [ADR-0025](0025-audio-exclui-o-discord.md)
 
@@ -71,3 +71,26 @@ exatamente o eco que este ADR existe para impedir.
 Uma consequência fica de pé: a janela compartilhada continua sendo a única fonte de som. Quem
 espera mandar o jogo numa janela e a música de outro programa junto não consegue — é o preço de
 mandar só o que foi escolhido, e o seletor diz isso antes de começar.
+
+## Emenda de 2026-09-23 — o nosso aviso sonoro também se cala
+
+O contexto acima já dizia a frase inteira: *o nosso próprio aplicativo também toca som*. A decisão
+silenciou a parte desse som que vinha dos outros — as telas alheias — e deixou de fora a parte que
+é nossa: o sino de uma tela que entra ou sai. Ele é sintetizado no mesmo WebView2, sai pelo mesmo
+alto-falante, e a captura da tela inteira o grava do mesmo jeito.
+
+O defeito relatado foi exatamente esse: alguém começa a transmitir a tela com áudio enquanto ouve
+outra tela com áudio, e o sino de "tela começou" entra num laço cada vez mais alto e distorcido,
+que só termina quando alguém silencia o aplicativo por um instante. O sino entrava na transmissão,
+voltava pelo áudio de quem assiste e realimentava o laço.
+
+Então: **enquanto o silenciamento desta decisão estiver valendo, o sino também não toca.** A
+condição é a mesma, avaliada no mesmo lugar (`shouldSilenceOtherScreens`), porque a razão é a mesma:
+nada que este processo toque pode sair pelo alto-falante enquanto a nossa captura grava este
+processo. Compartilhar uma janela continua não silenciando nada, e continua com o sino.
+
+**Em troca, quem transmite a tela inteira com áudio não ouve o sino.** A notificação do sistema
+continua valendo quando a janela não está em foco, e o ladrilho novo aparece na grade — o sino era
+a forma de saber sem olhar, e é ela que se perde durante a transmissão.
+
+Qualquer som novo que o aplicativo venha a tocar entra na mesma regra.
