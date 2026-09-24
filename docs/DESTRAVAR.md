@@ -72,7 +72,7 @@ No `.env` da raiz (não versionado):
 DISCORD_BOT_TOKEN=<o token que você copiou>
 ```
 
-Confira que estas cinco linhas também existem — foram adicionadas no pivô:
+Confira que estas seis linhas também existem — foram adicionadas no pivô e na câmera:
 
 ```
 DISCORD_REPLICA_GRACE_SECONDS=60
