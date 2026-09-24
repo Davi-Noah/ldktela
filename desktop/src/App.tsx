@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { start } from './app/runtime';
 import { PairingScreen } from './features/pairing/PairingScreen';
 import { RoomScreen } from './features/room/RoomScreen';
+import { ReleaseNotesDialog } from './features/update/ReleaseNotesDialog';
 import { UpdateBanner } from './features/update/UpdateBanner';
 import { useSessionStore } from './store/session';
 import { Toasts } from './ui/Toasts';
@@ -18,6 +19,7 @@ export function App() {
       {renderPhase(phase)}
       <Toasts />
       <UpdateBanner />
+      <ReleaseNotesDialog />
     </>
   );
 }

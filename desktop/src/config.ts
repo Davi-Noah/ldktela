@@ -46,3 +46,15 @@ export const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
  */
 export const PREVIEW_GRID_FPS = 6;
 export const PREVIEW_FOCUS_FPS = 12;
+
+/**
+ * ADR-0040. Onde ficam os releases cujo texto vira o modal de novidades.
+ *
+ * O mesmo repositório do endpoint do atualizador em `tauri.conf.json` — um
+ * teste garante que os dois não se separem, porque buscar as notas num
+ * repositório e as atualizações em outro mostraria a novidade errada.
+ */
+export const RELEASES_API = 'https://api.github.com/repos/gbrlevi/ldktela/releases';
+
+/** Quanto esperar pelo GitHub antes de desistir até a próxima abertura. */
+export const RELEASE_NOTES_TIMEOUT_MS = 10_000;

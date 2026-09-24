@@ -12,11 +12,19 @@ import { chimeForShare, primeChime } from '../platform/chime';
 import type { PublicationSource } from '../media/publication';
 import { notifyShareStarted, shouldNotify } from '../platform/notify';
 import { GatewayClient } from '../gateway/client';
-import { log } from '../log';
+import { describeError, log } from '../log';
 import { MediaSession } from '../media/session';
 import { startPreviewBridge } from '../media/preview';
 import { onStopRequested } from '../media/native';
 import { checkForUpdate } from '../platform/updater';
+import {
+  fetchReleaseText,
+  markVersionSeen,
+  readSeenVersion,
+  type ReleaseText,
+} from '../platform/releaseNotes';
+import { notesVerdict, readNotes } from '../features/update/notes';
+import { useReleaseNotesStore } from '../store/releaseNotes';
 import { clearRefreshToken, readRefreshToken, writeRefreshToken } from '../platform/vault';
 import { shouldSilenceOtherScreens, useMediaStore } from '../store/media';
 import { useRoomStore } from '../store/room';
@@ -139,6 +147,10 @@ export async function start(): Promise<void> {
   } catch {
     stored = null;
   }
+  // Antes do pareamento, e sem esperar: é o cofre ao abrir que diz se isto
+  // foi uma atualização ou uma instalação nova (ADR-0040).
+  void offerReleaseNotes(stored !== null);
+
   if (stored === null) {
     log.info('app: sem token no cofre, pedindo pareamento');
     useSessionStore.getState().setPhase('pairing');
@@ -253,4 +265,53 @@ function announceShare(publisherId: string, source: PublicationSource): void {
   const participant = room.participants[publisherId];
   const name = participant?.user.display_name ?? participant?.user.username ?? 'Alguém';
   void notifyShareStarted(name, room.channelName, source);
+}
+
+/**
+ * ADR-0040. Mostra as novidades uma vez, na primeira abertura depois de uma
+ * atualização.
+ *
+ * Nada aqui pode atrapalhar o resto da abertura, então toda falha termina em
+ * silêncio. A diferença entre as falhas é o que acontece com o registro: não
+ * saber (sem rede, GitHub fora do ar) deixa a versão sem marcar, para tentar de
+ * novo; não haver o que mostrar marca, para não perguntar de novo.
+ */
+async function offerReleaseNotes(hadSession: boolean): Promise<void> {
+  const current = CLIENT_INFO.version;
+  let seen: string | null;
+  try {
+    seen = await readSeenVersion();
+  } catch (error) {
+    log.warn('novidades: não consegui ler o registro', { erro: describeError(error) });
+    return;
+  }
+
+  const verdict = notesVerdict({ seen, current, hadSession });
+  if (verdict === 'nothing') {
+    return;
+  }
+  if (verdict === 'record') {
+    await markVersionSeen(current).catch((error: unknown) => {
+      log.warn('novidades: não consegui registrar a versão', { erro: describeError(error) });
+    });
+    return;
+  }
+
+  let text: ReleaseText | null;
+  try {
+    text = await fetchReleaseText(current);
+  } catch (error) {
+    log.warn('novidades: GitHub indisponível, tento na próxima abertura', {
+      erro: describeError(error),
+    });
+    return;
+  }
+  const notes = text === null ? null : readNotes(text.markdown);
+  if (notes === null || notes.blocks.length === 0) {
+    log.info('novidades: esta versão não tem texto publicado', { versão: current });
+    await markVersionSeen(current).catch(() => undefined);
+    return;
+  }
+  log.info('novidades: mostrando', { de: seen, para: current });
+  useReleaseNotesStore.getState().show(current, notes);
 }

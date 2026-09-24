@@ -3,6 +3,7 @@
 mod capture;
 mod preview;
 mod publisher;
+mod seen;
 mod share;
 mod vault;
 
@@ -134,6 +135,8 @@ pub fn run() -> tauri::Result<()> {
             vault::vault_get_refresh_token,
             vault::vault_set_refresh_token,
             vault::vault_clear_refresh_token,
+            seen::release_notes_seen,
+            seen::release_notes_mark_seen,
             share::share_sources,
             share::share_thumbnail,
             share::share_start,
