@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod health;
+pub mod private_calls;
 pub mod rooms;
 pub mod users;
 
@@ -14,5 +15,6 @@ pub fn router() -> Router<AppState> {
         .merge(health::router())
         .merge(auth::router())
         .merge(users::router())
+        .merge(private_calls::router())
         .merge(rooms::router())
 }

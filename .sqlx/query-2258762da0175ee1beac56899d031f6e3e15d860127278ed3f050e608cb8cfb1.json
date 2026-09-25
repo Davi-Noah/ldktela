@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE oauth_login_attempts\n              SET user_id = $2\n            WHERE state_hash = $1\n              AND user_id IS NULL\n              AND consumed_at IS NULL\n              AND expires_at > $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2258762da0175ee1beac56899d031f6e3e15d860127278ed3f050e608cb8cfb1"
+}

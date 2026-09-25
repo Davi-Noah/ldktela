@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE oauth_login_attempts\n              SET consumed_at = $3\n            WHERE id = $1\n              AND poll_hash = $2\n              AND user_id IS NOT NULL\n              AND consumed_at IS NULL\n              AND expires_at > $3\n        RETURNING user_id AS \"user_id!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bpchar",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "7d8f22d75abbd11bf5e6f34c9c4d5c114eab9e32d806066ea3eebb2ca5c385e3"
+}

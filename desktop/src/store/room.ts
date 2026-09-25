@@ -82,6 +82,8 @@ export function applyRoomEvent(room: RoomSnapshot, event: DispatchEvent): RoomSn
     case 'SHARE_STOP':
       return setPublishing(room, event.d.discord_channel_id, event.d.user_id, null);
     case 'RESUMED':
+    case 'PRIVATE_CALL_JOIN':
+    case 'PRIVATE_CALL_END':
       return room;
   }
 }

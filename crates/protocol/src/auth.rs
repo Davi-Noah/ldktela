@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+use uuid::Uuid;
 
 use crate::user::CurrentUser;
 
@@ -15,6 +16,23 @@ use crate::user::CurrentUser;
 #[ts(export)]
 pub struct PairRequest {
     pub code: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct OAuthStartResponse {
+    pub authorize_url: String,
+    pub attempt_id: Uuid,
+    pub poll_secret: String,
+    #[ts(type = "number")]
+    pub expires_in: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(export)]
+pub struct OAuthCompleteRequest {
+    pub attempt_id: Uuid,
+    pub poll_secret: String,
 }
 
 /// `POST /auth/refresh` and `POST /auth/logout`.

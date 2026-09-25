@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from 'react';
-import { pair } from '../../app/runtime';
+import { pair, signInWithDiscord } from '../../app/runtime';
 import { useSessionStore } from '../../store/session';
 import { Button } from '../../ui/Button';
 import { PAIRING_CODE_LENGTH, isCompletePairingCode, normalizePairingCode } from './code';
@@ -55,6 +55,15 @@ export function PairingScreen() {
 
         <Button type="submit" variant="primary" disabled={!ready} className="mt-group w-full py-2">
           {busy ? 'Pareando…' : 'Parear'}
+        </Button>
+
+        <Button
+          type="button"
+          disabled={busy}
+          onClick={() => void signInWithDiscord()}
+          className="mt-row w-full py-2"
+        >
+          Entrar com Discord para chamada privada
         </Button>
 
         {error !== null && (

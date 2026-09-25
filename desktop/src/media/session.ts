@@ -49,6 +49,10 @@ function emptyScreen(): RemoteScreen {
   };
 }
 
+function sameTarget(left: MediaTarget | null, right: MediaTarget | null): boolean {
+  return left?.kind === right?.kind && left?.id === right?.id;
+}
+
 /** What the core needs to start a share; remembered so a preset change can redo it. */
 export interface ShareChoice {
   sourceId: string;
@@ -61,6 +65,8 @@ export interface ShareChoice {
    */
   title: string;
 }
+
+type MediaTarget = { kind: 'discord_voice'; id: Snowflake } | { kind: 'private_call'; id: string };
 
 /**
  * Owns the LiveKit room the app **watches** with. Joining is never a user
@@ -82,7 +88,7 @@ export interface ShareChoice {
 export class MediaSession {
   private readonly api: ApiClient;
   private room: Room | null = null;
-  private channelId: Snowflake | null = null;
+  private target: MediaTarget | null = null;
   private sharing: ShareChoice | null = null;
   private readonly remotes = new Map<string, RemoteScreen>();
   private statsTimer: ReturnType<typeof setInterval> | null = null;
@@ -133,6 +139,12 @@ export class MediaSession {
     }
   }
 
+  private tokenFor(target: MediaTarget, publish: boolean) {
+    return target.kind === 'discord_voice'
+      ? this.api.roomToken(target.id, publish)
+      : this.api.privateCallToken(target.id, publish);
+  }
+
   private screen(owner: string): RemoteScreen {
     const existing = this.remotes.get(owner);
     if (existing !== undefined) {
@@ -174,12 +186,20 @@ export class MediaSession {
   }
 
   async follow(channelId: Snowflake | null): Promise<void> {
-    if (channelId === this.channelId) {
+    await this.followTarget(channelId === null ? null : { kind: 'discord_voice', id: channelId });
+  }
+
+  async followPrivate(callId: string): Promise<void> {
+    await this.followTarget({ kind: 'private_call', id: callId });
+  }
+
+  private async followTarget(target: MediaTarget | null): Promise<void> {
+    if (sameTarget(target, this.target)) {
       return;
     }
     await this.leave();
-    this.channelId = channelId;
-    if (channelId !== null) {
+    this.target = target;
+    if (target !== null) {
       await this.connect();
     }
   }
@@ -187,7 +207,7 @@ export class MediaSession {
   async leave(): Promise<void> {
     this.clearRejoin();
     this.stopStatsSampling();
-    this.channelId = null;
+    this.target = null;
     const room = this.room;
     this.room = null;
     this.detachAll();
@@ -217,8 +237,8 @@ export class MediaSession {
    */
   async startShare(choice: ShareChoice, preset: PublishPreset): Promise<void> {
     const store = useMediaStore.getState();
-    const channelId = this.channelId;
-    if (channelId === null || this.sharing !== null) {
+    const target = this.target;
+    if (target === null || this.sharing !== null) {
       return;
     }
     store.setStarting(true);
@@ -226,7 +246,7 @@ export class MediaSession {
 
     let credentials;
     try {
-      credentials = await this.api.roomToken(channelId, true);
+      credentials = await this.tokenFor(target, true);
     } catch (error) {
       log.error('compartilhamento: o servidor recusou o token', error);
       store.setStarting(false);
@@ -324,8 +344,8 @@ export class MediaSession {
   }
 
   private async connect(): Promise<void> {
-    const channelId = this.channelId;
-    if (channelId === null) {
+    const target = this.target;
+    if (target === null) {
       return;
     }
     const store = useMediaStore.getState();
@@ -339,12 +359,12 @@ export class MediaSession {
       await previous.disconnect(false);
     }
 
-    log.debug('sala: pedindo token de espectador', { canal: channelId });
+    log.debug('sala: pedindo token de espectador', { alvo: target });
     let credentials;
     try {
-      credentials = await this.api.roomToken(channelId, false);
+      credentials = await this.tokenFor(target, false);
     } catch (error) {
-      log.error('sala: o servidor recusou o token', error, { canal: channelId });
+      log.error('sala: o servidor recusou o token', error, { alvo: target });
       store.setConnection('failed', 'unreachable');
       throw error;
     }
@@ -583,7 +603,7 @@ export class MediaSession {
   }
 
   private scheduleRejoin(): void {
-    if (this.channelId === null || this.rejoinTimer !== null) {
+    if (this.target === null || this.rejoinTimer !== null) {
       return;
     }
     useMediaStore.getState().setConnection('reconnecting');

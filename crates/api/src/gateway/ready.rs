@@ -21,6 +21,7 @@ pub async fn build(state: &AppState, user_id: Uuid, session_id: Uuid) -> Ready {
                 session_id,
                 user: placeholder_user(user_id),
                 room: None,
+                private_call: None,
                 heartbeat_interval_ms: state.hub.config().heartbeat_interval_ms,
             };
         }
@@ -31,8 +32,21 @@ pub async fn build(state: &AppState, user_id: Uuid, session_id: Uuid) -> Ready {
         session_id,
         user,
         room: current_room(state, user_id, discord_user_id).await,
+        private_call: current_private_call(state, user_id).await,
         heartbeat_interval_ms: state.hub.config().heartbeat_interval_ms,
     }
+}
+
+async fn current_private_call(
+    state: &AppState,
+    user_id: Uuid,
+) -> Option<protocol::private_call::PrivateCallState> {
+    let row = db::repo::private_calls::find_active_for_user(&state.pool, user_id)
+        .await
+        .ok()??;
+    crate::routes::private_calls::state_of(state, row)
+        .await
+        .ok()
 }
 
 /// The room the client should be in the moment it connects.

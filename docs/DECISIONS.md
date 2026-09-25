@@ -619,3 +619,8 @@ autoridade (`docs/adr/` > `docs/SRS-v2.0-*.md` > `docs/websocket.md` >
   `DESTRAVAR.md` foram ajustados. As decisões, os números e o raciocínio técnico não mudaram — só
   o que descrevia *onde* o produto é usado, que não é decisão de arquitetura. Os textos anteriores
   estão no histórico do git; 0013 e 0020 carregam uma nota de revisão.
+
+- **[S10] O mesmo cliente HTTP do workspace faz a troca OAuth (2026-09-24).** O `reqwest`
+  0.13 já estava fixado no workspace e passa a ser usado por `crates/api` com suporte a
+  formulário e TLS Rustls. O segredo do cliente e a troca do código permanecem no backend;
+  o desktop recebe somente os tokens internos já existentes.

@@ -61,7 +61,7 @@ subtle = "2"
 # --- integracoes externas ---
 livekit-api = { version = "0.6", default-features = false, features = ["access-token", "webhooks", "services-tokio", "rustls-tls-native-roots"] }
 serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "cache", "rustls_backend"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-tls", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream", "form"] }
 
 # --- dev ---
 testcontainers = "0.27"

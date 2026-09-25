@@ -2,6 +2,11 @@ import type { AuthResponse } from './types/AuthResponse';
 import type { CurrentUser } from './types/CurrentUser';
 import type { FieldError } from './types/FieldError';
 import type { PairRequest } from './types/PairRequest';
+import type { OAuthCompleteRequest } from './types/OAuthCompleteRequest';
+import type { OAuthStartResponse } from './types/OAuthStartResponse';
+import type { PrivateCallCreateResponse } from './types/PrivateCallCreateResponse';
+import type { PrivateCallJoinRequest } from './types/PrivateCallJoinRequest';
+import type { PrivateCallState } from './types/PrivateCallState';
 import type { RefreshRequest } from './types/RefreshRequest';
 import type { RoomState } from './types/RoomState';
 import type { RoomTokenRequest } from './types/RoomTokenRequest';
@@ -51,7 +56,7 @@ export interface ApiClientOptions {
 }
 
 interface RequestSpec {
-  method: 'GET' | 'POST';
+  method: 'GET' | 'POST' | 'DELETE';
   path: string;
   body?: unknown;
   auth: boolean;
@@ -107,6 +112,72 @@ export class ApiClient {
     });
     await this.adopt(auth);
     return auth;
+  }
+
+  oauthStart(): Promise<OAuthStartResponse> {
+    return this.request<OAuthStartResponse>({
+      method: 'POST',
+      path: '/auth/discord/start',
+      auth: false,
+    });
+  }
+
+  async oauthComplete(attemptId: string, pollSecret: string): Promise<AuthResponse | null> {
+    const body: OAuthCompleteRequest = { attempt_id: attemptId, poll_secret: pollSecret };
+    const auth = await this.request<AuthResponse | null>({
+      method: 'POST',
+      path: '/auth/discord/complete',
+      body,
+      auth: false,
+    });
+    if (auth !== null) {
+      await this.adopt(auth);
+    }
+    return auth;
+  }
+
+  createPrivateCall(): Promise<PrivateCallCreateResponse> {
+    return this.request<PrivateCallCreateResponse>({
+      method: 'POST',
+      path: '/private-calls',
+      auth: true,
+    });
+  }
+
+  joinPrivateCall(code: string): Promise<PrivateCallState> {
+    const body: PrivateCallJoinRequest = { code };
+    return this.request<PrivateCallState>({
+      method: 'POST',
+      path: '/private-calls/join',
+      body,
+      auth: true,
+    });
+  }
+
+  privateCall(id: string): Promise<PrivateCallState> {
+    return this.request<PrivateCallState>({
+      method: 'GET',
+      path: `/private-calls/${encodeURIComponent(id)}`,
+      auth: true,
+    });
+  }
+
+  privateCallToken(id: string, publish: boolean): Promise<RoomTokenResponse> {
+    const body: RoomTokenRequest = { publish };
+    return this.request<RoomTokenResponse>({
+      method: 'POST',
+      path: `/private-calls/${encodeURIComponent(id)}/token`,
+      body,
+      auth: true,
+    });
+  }
+
+  endPrivateCall(id: string): Promise<null> {
+    return this.request<null>({
+      method: 'DELETE',
+      path: `/private-calls/${encodeURIComponent(id)}`,
+      auth: true,
+    });
   }
 
   async refreshSession(): Promise<AuthResponse> {

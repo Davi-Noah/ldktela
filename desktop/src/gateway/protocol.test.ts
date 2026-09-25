@@ -42,6 +42,31 @@ describe('parseServerFrame', () => {
     });
   });
 
+  it('reads the private call end dispatch', () => {
+    const parsed = parseServerFrame(
+      frame({ op: 0, s: 8, t: 'PRIVATE_CALL_END', d: { call_id: 'call-1' } }),
+    );
+    expect(parsed).toEqual({
+      kind: 'dispatch',
+      seq: 8,
+      event: { t: 'PRIVATE_CALL_END', d: { call_id: 'call-1' } },
+    });
+  });
+
+  it('reads the private call join dispatch', () => {
+    const call = {
+      id: 'call-1',
+      owner: { id: 'owner-1', username: 'owner', display_name: 'Owner' },
+      guest: { id: 'guest-1', username: 'guest', display_name: 'Guest' },
+    };
+    const parsed = parseServerFrame(frame({ op: 0, s: 9, t: 'PRIVATE_CALL_JOIN', d: { call } }));
+    expect(parsed).toEqual({
+      kind: 'dispatch',
+      seq: 9,
+      event: { t: 'PRIVATE_CALL_JOIN', d: { call } },
+    });
+  });
+
   it('drops a dispatch whose event name it does not know', () => {
     expect(parseServerFrame(frame({ op: 0, s: 1, t: 'MESSAGE_CREATE', d: {} }))).toBeNull();
   });

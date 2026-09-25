@@ -64,6 +64,10 @@ pub fn room_name(discord_channel_id: i64) -> String {
     format!("dvc-{discord_channel_id}")
 }
 
+pub fn private_room_name(call_id: Uuid) -> String {
+    format!("private-{call_id}")
+}
+
 /// The Discord voice channel a room name refers to, or `None` if it is not ours.
 pub fn channel_of_room(room: &str) -> Option<i64> {
     room.strip_prefix("dvc-")?.parse().ok()
@@ -94,6 +98,7 @@ pub struct Rooms {
     /// egress is already spent. The process is a single instance (RNF-14), so
     /// the ledger lives in memory.
     publisher_grants: RwLock<HashMap<i64, HashSet<Uuid>>>,
+    private_publisher_grants: RwLock<HashMap<Uuid, HashSet<Uuid>>>,
 }
 
 impl Rooms {
@@ -112,6 +117,7 @@ impl Rooms {
             receiver,
             client,
             publisher_grants: RwLock::new(HashMap::new()),
+            private_publisher_grants: RwLock::new(HashMap::new()),
         }
     }
 
@@ -148,6 +154,34 @@ impl Rooms {
             .map(|_| ())
             .map_err(|e| {
                 AppError::Upstream(UpstreamError::LiveKit(format!("removing participant: {e}")))
+            })
+    }
+
+    pub async fn remove_private_participant(
+        &self,
+        call_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<(), AppError> {
+        self.remove_from_room(&private_room_name(call_id), user_id)
+            .await
+    }
+
+    async fn remove_from_room(&self, room: &str, user_id: Uuid) -> Result<(), AppError> {
+        if let Err(error) = self
+            .client
+            .remove_participant(room, &publisher_identity(user_id))
+            .await
+        {
+            tracing::debug!(%error, %user_id, "no publishing connection to remove");
+        }
+        self.client
+            .remove_participant(room, &user_id.to_string())
+            .await
+            .map(|_| ())
+            .map_err(|error| {
+                AppError::Upstream(UpstreamError::LiveKit(format!(
+                    "removing participant: {error}"
+                )))
             })
     }
 
@@ -205,6 +239,33 @@ impl Rooms {
             .map_or(0, HashSet::len)
     }
 
+    pub async fn claim_private_publisher(
+        &self,
+        call_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<(), AppError> {
+        let mut grants = self.private_publisher_grants.write().await;
+        let room = grants.entry(call_id).or_default();
+        if room.contains(&user_id) {
+            return Ok(());
+        }
+        if room.len() >= 2 {
+            return Err(AppError::RoomCapacity);
+        }
+        room.insert(user_id);
+        Ok(())
+    }
+
+    pub async fn release_private_publisher(&self, call_id: Uuid, user_id: Uuid) {
+        let mut grants = self.private_publisher_grants.write().await;
+        if let Some(room) = grants.get_mut(&call_id) {
+            room.remove(&user_id);
+            if room.is_empty() {
+                grants.remove(&call_id);
+            }
+        }
+    }
+
     /// A room-scoped token.
     ///
     /// The grant names exactly one room and nothing else (RNF-06): the token
@@ -218,9 +279,34 @@ impl Rooms {
         display_name: &str,
         publish: bool,
     ) -> Result<String, AppError> {
+        self.issue_token_for_room(
+            room_name(discord_channel_id),
+            user_id,
+            display_name,
+            publish,
+        )
+    }
+
+    pub fn issue_private_token(
+        &self,
+        call_id: Uuid,
+        user_id: Uuid,
+        display_name: &str,
+        publish: bool,
+    ) -> Result<String, AppError> {
+        self.issue_token_for_room(private_room_name(call_id), user_id, display_name, publish)
+    }
+
+    fn issue_token_for_room(
+        &self,
+        room: String,
+        user_id: Uuid,
+        display_name: &str,
+        publish: bool,
+    ) -> Result<String, AppError> {
         let grants = VideoGrants {
             room_join: true,
-            room: room_name(discord_channel_id),
+            room,
             can_subscribe: true,
             can_publish: publish,
             can_publish_data: false,
@@ -277,6 +363,10 @@ impl Rooms {
             .write()
             .await
             .remove(&discord_channel_id);
+    }
+
+    pub async fn forget_private_room(&self, call_id: Uuid) {
+        self.private_publisher_grants.write().await.remove(&call_id);
     }
 }
 
