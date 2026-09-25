@@ -6,6 +6,8 @@ import { Avatar } from '../../ui/Avatar';
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
 import { PublisherPanel } from './PublisherPanel';
+import { usePrivateCallStore } from '../../store/privateCall';
+import { PrivateCallPanel } from '../private/PrivateCallPanel';
 
 interface RoomBodyProps {
   onShare: () => void;
@@ -18,10 +20,18 @@ interface RoomBodyProps {
  */
 export function RoomBody({ onShare, onStop }: RoomBodyProps) {
   const channelId = useRoomStore((state) => state.channelId);
-  return channelId === null ? <Idle /> : <InRoom onShare={onShare} onStop={onStop} />;
+  const privateCall = usePrivateCallStore((state) => state.call);
+  if (privateCall !== null) {
+    return <PrivateCallPanel onShare={onShare} onStop={onStop} />;
+  }
+  return channelId === null ? (
+    <Idle onShare={onShare} onStop={onStop} />
+  ) : (
+    <InRoom onShare={onShare} onStop={onStop} />
+  );
 }
 
-function Idle() {
+function Idle({ onShare, onStop }: RoomBodyProps) {
   const reason = useRoomStore((state) => state.lastLeaveReason);
   const gateway = useSessionStore((state) => state.gateway);
 
@@ -41,6 +51,7 @@ function Idle() {
         </p>
       )}
       {gateway !== 'ready' && <p className="mt-group text-text-faint">Conectando ao servidor…</p>}
+      <PrivateCallPanel onShare={onShare} onStop={onStop} />
     </div>
   );
 }

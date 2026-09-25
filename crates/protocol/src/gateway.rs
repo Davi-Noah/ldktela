@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
+use crate::private_call::{PrivateCallEnded, PrivateCallJoined};
 use crate::room::{
     RoomLeave, RoomParticipantAdd, RoomParticipantRemove, RoomState, ShareStart, ShareStop,
 };
@@ -231,6 +232,10 @@ pub enum DispatchEvent {
     ShareStart(ShareStart),
     #[serde(rename = "SHARE_STOP")]
     ShareStop(ShareStop),
+    #[serde(rename = "PRIVATE_CALL_JOIN")]
+    PrivateCallJoin(Box<PrivateCallJoined>),
+    #[serde(rename = "PRIVATE_CALL_END")]
+    PrivateCallEnd(PrivateCallEnded),
 }
 
 impl DispatchEvent {
@@ -245,6 +250,8 @@ impl DispatchEvent {
             Self::RoomParticipantRemove(_) => "ROOM_PARTICIPANT_REMOVE",
             Self::ShareStart(_) => "SHARE_START",
             Self::ShareStop(_) => "SHARE_STOP",
+            Self::PrivateCallJoin(_) => "PRIVATE_CALL_JOIN",
+            Self::PrivateCallEnd(_) => "PRIVATE_CALL_END",
         }
     }
 }
@@ -259,15 +266,17 @@ impl DispatchEvent {
 pub struct Ready {
     pub session_id: Uuid,
     pub user: CurrentUser,
+    #[ts(type = "number")]
+    pub heartbeat_interval_ms: u64,
     // `skip_serializing_if` e obrigatorio junto de `ts(optional)`: sem ele o
     // serde emite `"room": null`, o tipo gerado promete um campo ausente, e o
     // cliente que testa `=== undefined` recebe `null` e quebra.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub room: Option<RoomState>,
-    /// Heartbeat interval echoed for clients that reconnect without a new HELLO.
-    #[ts(type = "number")]
-    pub heartbeat_interval_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub private_call: Option<crate::private_call::PrivateCallState>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS)]

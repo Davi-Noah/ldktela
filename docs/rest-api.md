@@ -17,6 +17,19 @@
 >
 > Norma de escopo: [`SRS-v2.0-complemento-screen-share.md`](SRS-v2.0-complemento-screen-share.md).
 
+> **Adendo S10 (normativo):** além do pareamento `/auth/pair`, o modo privado usa
+> `POST /auth/discord/start`, `GET /auth/discord/callback` e
+> `POST /auth/discord/complete`. O OAuth pede somente `identify`; o token do Discord é
+> descartado após `/users/@me`. Chamadas privadas autenticadas usam:
+>
+> | Método | Rota | Função |
+> |---|---|---|
+> | `POST` | `/private-calls` | cria a chamada e revela uma vez o código de convite |
+> | `POST` | `/private-calls/join` | consome o código de uso único |
+> | `GET` | `/private-calls/{id}` | recupera o estado para dono ou convidado |
+> | `POST` | `/private-calls/{id}/token` | emite token LiveKit para um membro da chamada ativa |
+> | `DELETE` | `/private-calls/{id}` | permite ao dono encerrar a chamada |
+
 ---
 
 # Contrato da API REST

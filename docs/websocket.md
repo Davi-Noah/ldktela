@@ -13,8 +13,11 @@
 > **Sobrevive:** `READY`, `RESUMED`, `PRESENCE_UPDATE` e `VOICE_STATE_UPDATE` — este
 > último já carrega `streaming`, que é exatamente o sinal de "alguém está compartilhando".
 >
-> **Ainda não escrito:** os eventos de sala e de revogação ao vivo
-> ([ADR-0010](adr/0010-autorizacao-derivada-do-discord.md)).
+> **Adendos atuais:** os eventos de sala e revogação ao vivo seguem o
+> [ADR-0010](adr/0010-autorizacao-derivada-do-discord.md). O modo privado do
+> [ADR-0036](adr/0036-chamadas-privadas-coexistem-com-canais-discord.md) adiciona
+> `PRIVATE_CALL_JOIN` (`{ call }`) e `PRIVATE_CALL_END` (`{ call_id }`). `READY` pode
+> carregar `private_call` para recuperar uma chamada ativa depois de uma nova identificação.
 >
 > Campos aditivos não incrementam a versão do protocolo; a poda de eventos, sim.
 

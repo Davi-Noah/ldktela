@@ -165,11 +165,13 @@ impl TestDb {
 /// Names of every application table. Kept in sync with SRS v2.0 §5 by hand:
 /// drift here is exactly what the migration test looks for.
 ///
-/// Five tables. If this list starts growing, the question to ask is whether the
-/// thing being persisted is really ours or Discord's (ADR-0010).
+/// If this list starts growing, the question to ask is whether the thing being
+/// persisted is really ours or Discord's (ADR-0010 and ADR-0036).
 pub const EXPECTED_TABLES: &[&str] = &[
     "live_tags",
+    "oauth_login_attempts",
     "pairing_codes",
+    "private_calls",
     "refresh_tokens",
     "room_presence",
     "share_sessions",

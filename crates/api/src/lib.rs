@@ -50,7 +50,7 @@ fn cors() -> CorsLayer {
                 .filter_map(|o| HeaderValue::from_str(o).ok())
                 .collect::<Vec<_>>(),
         )
-        .allow_methods([Method::GET, Method::POST])
+        .allow_methods([Method::GET, Method::POST, Method::DELETE])
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
 }
 

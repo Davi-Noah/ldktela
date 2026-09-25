@@ -33,6 +33,8 @@ const DISPATCH_NAMES: ReadonlySet<string> = new Set<DispatchEvent['t']>([
   'ROOM_PARTICIPANT_REMOVE',
   'SHARE_START',
   'SHARE_STOP',
+  'PRIVATE_CALL_JOIN',
+  'PRIVATE_CALL_END',
 ]);
 
 export type ServerFrame =

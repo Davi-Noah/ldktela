@@ -56,6 +56,105 @@ async fn concurrent_consumers_of_one_code_produce_exactly_one_winner() {
 }
 
 #[tokio::test]
+async fn a_private_invite_admits_exactly_one_guest() {
+    let db = TestDb::migrated().await;
+    let owner = seed_user(&db.pool, 70, "owner").await;
+    let guest_a = seed_user(&db.pool, 71, "guest-a").await;
+    let guest_b = seed_user(&db.pool, 72, "guest-b").await;
+    let now = OffsetDateTime::now_utc();
+    db::repo::private_calls::insert(
+        &db.pool,
+        Uuid::now_v7(),
+        owner,
+        HASH_A,
+        now + Duration::minutes(10),
+    )
+    .await
+    .expect("criando chamada");
+
+    let (a, b) = tokio::join!(
+        db::repo::private_calls::join(&db.pool, HASH_A, guest_a, now),
+        db::repo::private_calls::join(&db.pool, HASH_A, guest_b, now),
+    );
+    let winners = [a.expect("guest a"), b.expect("guest b")]
+        .into_iter()
+        .flatten()
+        .count();
+    assert_eq!(winners, 1, "o convite deve formar uma chamada 1:1");
+}
+
+#[tokio::test]
+async fn only_the_private_call_owner_can_end_it() {
+    let db = TestDb::migrated().await;
+    let owner = seed_user(&db.pool, 73, "owner").await;
+    let guest = seed_user(&db.pool, 74, "guest").await;
+    let now = OffsetDateTime::now_utc();
+    let call = db::repo::private_calls::insert(
+        &db.pool,
+        Uuid::now_v7(),
+        owner,
+        HASH_A,
+        now + Duration::minutes(10),
+    )
+    .await
+    .expect("criando chamada");
+
+    assert!(db::repo::private_calls::end(&db.pool, call.id, guest, now)
+        .await
+        .expect("tentativa do convidado")
+        .is_none());
+    assert!(db::repo::private_calls::end(&db.pool, call.id, owner, now)
+        .await
+        .expect("encerrando como dono")
+        .is_some());
+}
+
+#[tokio::test]
+async fn an_oauth_poll_secret_can_only_be_consumed_once() {
+    let db = TestDb::migrated().await;
+    let user = seed_user(&db.pool, 75, "oauth-user").await;
+    let attempt = Uuid::now_v7();
+    let now = OffsetDateTime::now_utc();
+    db::repo::oauth_login::insert(
+        &db.pool,
+        attempt,
+        HASH_A,
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        now + Duration::minutes(5),
+    )
+    .await
+    .expect("criando tentativa");
+    assert!(db::repo::oauth_login::is_pending(&db.pool, HASH_A, now)
+        .await
+        .expect("validando state"));
+    assert!(db::repo::oauth_login::complete(&db.pool, HASH_A, user, now)
+        .await
+        .expect("completando callback"));
+    assert!(!db::repo::oauth_login::is_pending(&db.pool, HASH_A, now)
+        .await
+        .expect("state consumido"));
+
+    let first = db::repo::oauth_login::consume(
+        &db.pool,
+        attempt,
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        now,
+    )
+    .await
+    .expect("primeiro poll");
+    let second = db::repo::oauth_login::consume(
+        &db.pool,
+        attempt,
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        now,
+    )
+    .await
+    .expect("segundo poll");
+    assert_eq!(first, Some(user));
+    assert_eq!(second, None);
+}
+
+#[tokio::test]
 async fn an_expired_code_is_indistinguishable_from_a_missing_one() {
     let db = TestDb::migrated().await;
     insert_code(&db.pool, HASH_A, 42, Duration::minutes(-1)).await;

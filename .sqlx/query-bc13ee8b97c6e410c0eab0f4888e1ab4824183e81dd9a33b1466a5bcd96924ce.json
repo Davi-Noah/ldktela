@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(\n               SELECT 1 FROM oauth_login_attempts\n                WHERE state_hash = $1\n                  AND user_id IS NULL\n                  AND consumed_at IS NULL\n                  AND expires_at > $2\n           ) AS \"pending!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pending!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "bc13ee8b97c6e410c0eab0f4888e1ab4824183e81dd9a33b1466a5bcd96924ce"
+}

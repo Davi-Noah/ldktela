@@ -21,6 +21,7 @@ documentos antigos.
 | S7 — Cliente completo | **Feita.** Várias telas, grade e foco, destacar, volume e tempo no ar; seletor próprio e publicação nativa ([ADR-0026](adr/0026-publicacao-no-rust-nativo.md)); notificação nativa; atualização automática assinada por `.msi` via GitHub Releases |
 | S8 — Presença no Discord | Anúncio (uma mensagem por sessão, editada) e tag `[LIVE]` com as quatro guardas, feitos. Link profundo adiado: o Discord não torna esquema próprio clicável ([ADR-0029](adr/0029-link-profundo-espera-uma-pagina-https.md)) |
 | S9 — Áudio por aplicativo | Feita e medida: modo `ExcludingDiscord`, 143.520 amostras/canal em 3 s. Falta ouvir numa sessão real entre duas máquinas |
+| S10 — Chamada privada 1:1 | Planejada no [ADR-0036](adr/0036-chamadas-privadas-coexistem-com-canais-discord.md); implementação ainda não iniciada |
 | Revisão de interface | Feita em 2026-09-16, sobre o S7. Seletor com miniaturas, preview da própria tela ([ADR-0030](adr/0030-preview-da-propria-tela-e-local.md)), cromo flutuante, teclado, bandeja e atalho de parada |
 
 ### O que mudou em 2026-09-14
@@ -228,11 +229,26 @@ voz dos outros participantes; o áudio não dessincroniza do vídeo em 30 min; s
 Discord rodando, a captura é do sistema inteiro e nada quebra; onde o process
 loopback não existir, cai para o sistema inteiro com aviso (RF-30).
 
+## S10 — Chamada privada 1:1
+
+Segundo modo de admissão que preserva as salas dirigidas pelo Discord: autenticação OAuth
+com escopo `identify`, criação de chamada, entrada de um convidado por código de uso único e
+encerramento pelo dono. Não inclui link, expulsão individual, mais participantes, voz, texto
+ou câmera. Plano detalhado em [`PRIVATE_SCREEN_MODE_PLAN.md`](PRIVATE_SCREEN_MODE_PLAN.md) e
+decisão aceita no
+[ADR-0036](adr/0036-chamadas-privadas-coexistem-com-canais-discord.md).
+
+**Aceite:** duas pessoas fora de um canal de voz de guild autenticam, entram na mesma sala
+por um código, publicam e assistem tela; uma terceira entrada e o reúso do código são
+recusados; encerrar remove as duas pontas do LiveKit em menos de 5 s; o fluxo `/tela`
+continua passando sem regressão.
+
 ---
 
 ## O que deliberadamente não está aqui
 
 Chat, anexos, busca, DMs, microfone, câmera, gravação de sessão, controle remoto,
-anotação sobre a tela, clientes móveis ou web, e link de compartilhamento avulso sem
-Discord. Cada um desses tem uma rejeição registrada em `docs/adr/`; se algum voltar à
-mesa, o caminho é um ADR novo que substitua o anterior, não uma issue.
+anotação sobre a tela, clientes móveis ou web, e link público de compartilhamento. A
+exceção estreita é a chamada privada 1:1 por código do S10. Cada ampliação tem uma rejeição
+registrada em `docs/adr/`; se alguma voltar à mesa, o caminho é um ADR novo que substitua o
+anterior, não uma issue.

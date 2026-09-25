@@ -17,6 +17,7 @@ import { onStopRequested } from '../media/native';
 import { checkForUpdate } from '../platform/updater';
 import { clearRefreshToken, readRefreshToken, writeRefreshToken } from '../platform/vault';
 import { useMediaStore } from '../store/media';
+import { usePrivateCallStore } from '../store/privateCall';
 import { useRoomStore } from '../store/room';
 import { useSessionStore } from '../store/session';
 import { useUpdaterStore } from '../store/updater';
@@ -42,9 +43,26 @@ export const gateway = new GatewayClient({
     if (event.t === 'READY') {
       authRetryUsed = false;
       useSessionStore.getState().signedIn(event.d.user);
+      if (event.d.private_call === undefined) {
+        usePrivateCallStore.getState().closed();
+      } else {
+        usePrivateCallStore.getState().opened(event.d.private_call);
+      }
     }
     if (event.t === 'SHARE_START') {
       announceShare(event.d.user_id);
+    }
+    if (event.t === 'PRIVATE_CALL_JOIN') {
+      usePrivateCallStore.getState().opened(event.d.call);
+      void syncMediaTarget();
+      return;
+    }
+    if (event.t === 'PRIVATE_CALL_END') {
+      const active = usePrivateCallStore.getState().call;
+      if (active?.id === event.d.call_id) {
+        usePrivateCallStore.getState().closed();
+        void syncMediaTarget();
+      }
     }
     useRoomStore.getState().apply(event);
   },
@@ -109,7 +127,12 @@ export async function start(): Promise<void> {
         de: previous.channelId,
         para: state.channelId,
       });
-      void media.follow(state.channelId);
+      void syncMediaTarget();
+    }
+  });
+  usePrivateCallStore.subscribe((state, previous) => {
+    if (state.call?.id !== previous.call?.id) {
+      void syncMediaTarget();
     }
   });
 
@@ -164,17 +187,115 @@ export async function pair(code: string): Promise<void> {
   }
 }
 
+export async function signInWithDiscord(): Promise<void> {
+  const session = useSessionStore.getState();
+  session.setPairingError(null);
+  session.setPairing(true);
+  try {
+    const attempt = await api.oauthStart();
+    const popup = window.open(attempt.authorize_url, '_blank');
+    if (popup === null) {
+      throw new Error('O navegador bloqueou a janela de autenticação.');
+    }
+    const deadline = Date.now() + attempt.expires_in * 1000;
+    while (Date.now() < deadline) {
+      await delay(1000);
+      const auth = await api.oauthComplete(attempt.attempt_id, attempt.poll_secret);
+      if (auth === null) {
+        continue;
+      }
+      popup.close();
+      authRetryUsed = false;
+      session.signedIn(auth.user);
+      gateway.start();
+      return;
+    }
+    throw new Error('A autorização expirou. Tente novamente.');
+  } catch (error) {
+    log.error('oauth: entrada falhou', error);
+    session.setPairingError(
+      error instanceof NetworkError
+        ? 'Servidor indisponível. Tente de novo.'
+        : describeLoginError(error),
+    );
+  } finally {
+    session.setPairing(false);
+  }
+}
+
+export async function createPrivateCall(): Promise<void> {
+  const store = usePrivateCallStore.getState();
+  store.setBusy(true);
+  store.setError(null);
+  try {
+    const created = await api.createPrivateCall();
+    store.opened(created.call, created.code);
+  } catch (error) {
+    store.setError(error instanceof ApiError ? error.message : 'Não foi possível criar a chamada.');
+  } finally {
+    usePrivateCallStore.getState().setBusy(false);
+  }
+}
+
+export async function joinPrivateCall(code: string): Promise<void> {
+  const store = usePrivateCallStore.getState();
+  store.setBusy(true);
+  store.setError(null);
+  try {
+    store.opened(await api.joinPrivateCall(code.trim()));
+  } catch {
+    store.setError('Código inválido, expirado ou já utilizado.');
+  } finally {
+    usePrivateCallStore.getState().setBusy(false);
+  }
+}
+
+export async function endPrivateCall(): Promise<void> {
+  const call = usePrivateCallStore.getState().call;
+  if (call === null) {
+    return;
+  }
+  try {
+    await api.endPrivateCall(call.id);
+  } catch (error) {
+    usePrivateCallStore
+      .getState()
+      .setError(error instanceof ApiError ? error.message : 'Não foi possível encerrar a chamada.');
+    return;
+  }
+  usePrivateCallStore.getState().closed();
+  await syncMediaTarget();
+}
+
 export async function signOut(): Promise<void> {
   gateway.stop();
   await media.leave();
   await api.logout();
   useRoomStore.getState().reset();
+  usePrivateCallStore.getState().closed();
   try {
     await clearRefreshToken();
   } catch {
     // Nothing to do: the token is already unusable on the server.
   }
   useSessionStore.getState().signedOut();
+}
+
+async function syncMediaTarget(): Promise<void> {
+  const privateCall = usePrivateCallStore.getState().call;
+  if (privateCall !== null) {
+    await media.followPrivate(privateCall.id);
+    return;
+  }
+  await media.follow(useRoomStore.getState().channelId);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function describeLoginError(error: unknown): string {
+  return error instanceof Error ? error.message : 'Não foi possível entrar com o Discord.';
 }
 
 async function recoverFromAuthFailure(): Promise<void> {

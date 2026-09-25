@@ -51,6 +51,14 @@ pub struct DiscordConfig {
     /// names who it serves (ADR-0035). Self-hosting leaves this empty, which is
     /// why absent means "all" and not "none".
     pub allowed_guilds: Option<HashSet<u64>>,
+    pub oauth: Option<DiscordOAuthConfig>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DiscordOAuthConfig {
+    pub client_id: String,
+    pub client_secret: String,
+    pub redirect_url: String,
 }
 
 impl DiscordConfig {
@@ -151,6 +159,7 @@ impl Config {
                 pairing_code_ttl: Duration::from_secs(parse(source, "PAIRING_CODE_TTL_SECONDS")?),
                 pairing_max_per_hour: parse(source, "PAIRING_MAX_CODES_PER_HOUR")?,
                 allowed_guilds: allowed_guilds(source)?,
+                oauth: discord_oauth(source)?,
             },
             rooms: crate::livekit::RoomConfig {
                 url: required(source, "LIVEKIT_URL")?,
@@ -193,6 +202,27 @@ fn allowed_guilds(source: &dyn Source) -> Result<Option<HashSet<u64>>, ConfigErr
         });
     }
     Ok(Some(allowed))
+}
+
+fn discord_oauth(source: &dyn Source) -> Result<Option<DiscordOAuthConfig>, ConfigError> {
+    let non_empty = |name| source.get(name).filter(|value| !value.trim().is_empty());
+    let client_id = non_empty("DISCORD_OAUTH_CLIENT_ID");
+    let client_secret = non_empty("DISCORD_OAUTH_CLIENT_SECRET");
+    let redirect_url = non_empty("DISCORD_OAUTH_REDIRECT_URL");
+    match (client_id, client_secret, redirect_url) {
+        (None, None, None) => Ok(None),
+        (Some(client_id), Some(client_secret), Some(redirect_url)) => {
+            Ok(Some(DiscordOAuthConfig {
+                client_id,
+                client_secret,
+                redirect_url,
+            }))
+        }
+        _ => Err(ConfigError::Invalid {
+            name: "DISCORD_OAUTH_CLIENT_ID",
+            reason: "configure as três variáveis DISCORD_OAUTH_* ou nenhuma".into(),
+        }),
+    }
 }
 
 fn required(source: &dyn Source, name: &'static str) -> Result<String, ConfigError> {
@@ -241,6 +271,12 @@ mod tests {
             ("WS_RESUME_BUFFER_SIZE", "500"),
             ("WS_MAX_CONNECTIONS_PER_USER", "4"),
             ("DISCORD_BOT_TOKEN", "dev-only-not-a-real-token"),
+            ("DISCORD_OAUTH_CLIENT_ID", "123456789012345678"),
+            ("DISCORD_OAUTH_CLIENT_SECRET", "dev-only-oauth-secret"),
+            (
+                "DISCORD_OAUTH_REDIRECT_URL",
+                "http://localhost:8080/api/v1/auth/discord/callback",
+            ),
             ("DISCORD_REPLICA_GRACE_SECONDS", "60"),
             ("PAIRING_CODE_TTL_SECONDS", "300"),
             ("PAIRING_MAX_CODES_PER_HOUR", "10"),
@@ -290,6 +326,30 @@ mod tests {
             Config::from_source(&source).unwrap_err(),
             ConfigError::Missing("DISCORD_BOT_TOKEN")
         );
+    }
+
+    #[test]
+    fn oauth_can_be_disabled_without_disabling_server_mode() {
+        let mut source = valid();
+        source.0.remove("DISCORD_OAUTH_CLIENT_ID");
+        source.0.remove("DISCORD_OAUTH_CLIENT_SECRET");
+        source.0.remove("DISCORD_OAUTH_REDIRECT_URL");
+        let config = Config::from_source(&source).expect("modo servidor continua disponível");
+        assert!(config.discord.oauth.is_none());
+    }
+
+    #[test]
+    fn a_partial_oauth_configuration_is_refused() {
+        let mut source = valid();
+        source.0.remove("DISCORD_OAUTH_CLIENT_SECRET");
+        let error = Config::from_source(&source).unwrap_err();
+        assert!(matches!(
+            error,
+            ConfigError::Invalid {
+                name: "DISCORD_OAUTH_CLIENT_ID",
+                ..
+            }
+        ));
     }
 
     #[test]

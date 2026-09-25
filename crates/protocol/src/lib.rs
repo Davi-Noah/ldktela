@@ -17,6 +17,7 @@
 pub mod auth;
 pub mod error;
 pub mod gateway;
+pub mod private_call;
 pub mod room;
 pub mod scalars;
 pub mod user;

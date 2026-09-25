@@ -4,15 +4,22 @@
 //! bot handed out inside Discord (ADR-0009); from the token pair onwards
 //! everything is the v1 machinery, unchanged.
 
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::routing::post;
+use axum::response::{Html, IntoResponse, Response};
+use axum::routing::{get, post};
 use axum::Router;
-use db::repo::{pairing, users};
+use base64::Engine as _;
+use db::repo::{oauth_login, pairing, users};
 use domain::pairing::hash_code;
 use domain::validation::{self, Validation};
-use protocol::auth::{AuthResponse, PairRequest, RefreshRequest};
+use protocol::auth::{
+    AuthResponse, OAuthCompleteRequest, OAuthStartResponse, PairRequest, RefreshRequest,
+};
+use rand::RngCore as _;
+use serde::Deserialize;
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 use crate::auth::session;
 use crate::error::AppError;
@@ -22,8 +29,193 @@ use crate::state::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/auth/pair", post(pair))
+        .route("/auth/discord/start", post(oauth_start))
+        .route("/auth/discord/callback", get(oauth_callback))
+        .route("/auth/discord/complete", post(oauth_complete))
         .route("/auth/refresh", post(refresh))
         .route("/auth/logout", post(logout))
+}
+
+const OAUTH_ATTEMPT_TTL_SECONDS: i64 = 300;
+
+fn random_secret() -> String {
+    let mut bytes = [0_u8; 32];
+    rand::rng().fill_bytes(&mut bytes);
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+#[tracing::instrument(skip(state))]
+async fn oauth_start(State(state): State<AppState>) -> Result<Json<OAuthStartResponse>, AppError> {
+    let oauth = state
+        .config
+        .discord
+        .oauth
+        .as_ref()
+        .ok_or(AppError::NotFound {
+            resource: "discord_oauth",
+        })?;
+    let attempt_id = Uuid::now_v7();
+    let oauth_state = random_secret();
+    let poll_secret = random_secret();
+    let now = OffsetDateTime::now_utc();
+    oauth_login::insert(
+        &state.pool,
+        attempt_id,
+        &hash_code(&oauth_state),
+        &hash_code(&poll_secret),
+        now + time::Duration::seconds(OAUTH_ATTEMPT_TTL_SECONDS),
+    )
+    .await?;
+
+    let mut url = reqwest::Url::parse("https://discord.com/oauth2/authorize")
+        .map_err(|error| AppError::Internal(anyhow::Error::new(error)))?;
+    url.query_pairs_mut()
+        .append_pair("response_type", "code")
+        .append_pair("client_id", &oauth.client_id)
+        .append_pair("scope", "identify")
+        .append_pair("state", &oauth_state)
+        .append_pair("redirect_uri", &oauth.redirect_url)
+        .append_pair("prompt", "consent");
+
+    Ok(Json(OAuthStartResponse {
+        authorize_url: url.into(),
+        attempt_id,
+        poll_secret,
+        expires_in: OAUTH_ATTEMPT_TTL_SECONDS,
+    }))
+}
+
+#[derive(Deserialize)]
+struct OAuthCallbackQuery {
+    code: String,
+    state: String,
+}
+
+#[derive(Deserialize)]
+struct OAuthTokenResponse {
+    access_token: String,
+}
+
+#[derive(Deserialize)]
+struct DiscordOAuthUser {
+    id: String,
+    username: String,
+    global_name: Option<String>,
+    avatar: Option<String>,
+}
+
+#[tracing::instrument(skip(state, query))]
+async fn oauth_callback(
+    State(state): State<AppState>,
+    Query(query): Query<OAuthCallbackQuery>,
+) -> Result<Html<&'static str>, AppError> {
+    let oauth = state
+        .config
+        .discord
+        .oauth
+        .as_ref()
+        .ok_or(AppError::NotFound {
+            resource: "discord_oauth",
+        })?;
+    if !oauth_login::is_pending(
+        &state.pool,
+        &hash_code(&query.state),
+        OffsetDateTime::now_utc(),
+    )
+    .await?
+    {
+        return Err(AppError::Unauthorized);
+    }
+    let client = reqwest::Client::new();
+    let token = client
+        .post("https://discord.com/api/oauth2/token")
+        .basic_auth(&oauth.client_id, Some(&oauth.client_secret))
+        .form(&[
+            ("grant_type", "authorization_code"),
+            ("code", query.code.as_str()),
+            ("redirect_uri", oauth.redirect_url.as_str()),
+        ])
+        .send()
+        .await
+        .map_err(|error| AppError::Upstream(crate::UpstreamError::Discord(error.to_string())))?
+        .error_for_status()
+        .map_err(|error| AppError::Upstream(crate::UpstreamError::Discord(error.to_string())))?
+        .json::<OAuthTokenResponse>()
+        .await
+        .map_err(|error| AppError::Upstream(crate::UpstreamError::Discord(error.to_string())))?;
+
+    let profile = client
+        .get("https://discord.com/api/v10/users/@me")
+        .bearer_auth(&token.access_token)
+        .send()
+        .await
+        .map_err(|error| AppError::Upstream(crate::UpstreamError::Discord(error.to_string())))?
+        .error_for_status()
+        .map_err(|error| AppError::Upstream(crate::UpstreamError::Discord(error.to_string())))?
+        .json::<DiscordOAuthUser>()
+        .await
+        .map_err(|error| AppError::Upstream(crate::UpstreamError::Discord(error.to_string())))?;
+
+    let discord_user_id = profile.id.parse::<i64>().map_err(|error| {
+        AppError::Upstream(crate::UpstreamError::Discord(format!(
+            "invalid user id: {error}"
+        )))
+    })?;
+    let avatar_url = profile.avatar.as_ref().map(|hash| {
+        format!(
+            "https://cdn.discordapp.com/avatars/{}/{hash}.png",
+            profile.id
+        )
+    });
+    let user = users::upsert_from_discord(
+        &state.pool,
+        Uuid::now_v7(),
+        discord_user_id,
+        &profile.username,
+        profile.global_name.as_deref(),
+        avatar_url.as_deref(),
+    )
+    .await?;
+    let completed = oauth_login::complete(
+        &state.pool,
+        &hash_code(&query.state),
+        user.id,
+        OffsetDateTime::now_utc(),
+    )
+    .await?;
+    if !completed {
+        return Err(AppError::Unauthorized);
+    }
+    Ok(Html(
+        "<!doctype html><meta charset=utf-8><title>ldktela</title><p>Conta conectada. Você já pode fechar esta janela e voltar ao ldktela.</p>",
+    ))
+}
+
+#[tracing::instrument(skip(state, body, headers))]
+async fn oauth_complete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<OAuthCompleteRequest>,
+) -> Result<Response, AppError> {
+    let Some(user_id) = oauth_login::consume(
+        &state.pool,
+        body.attempt_id,
+        &hash_code(&body.poll_secret),
+        OffsetDateTime::now_utc(),
+    )
+    .await?
+    else {
+        return Ok(StatusCode::ACCEPTED.into_response());
+    };
+    let user = users::find_by_id(&state.pool, user_id).await?;
+    let response = session::issue_session(
+        &state.pool,
+        &state.config,
+        &user,
+        user_agent(&headers).as_deref(),
+    )
+    .await?;
+    Ok(Json(response).into_response())
 }
 
 fn user_agent(headers: &HeaderMap) -> Option<String> {
